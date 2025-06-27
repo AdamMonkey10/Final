@@ -4,13 +4,13 @@ import { getAnalytics } from 'firebase/analytics';
 import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB5VLN7KUd3CpJsc2ubKikvRJkd_hat4u8",
-  authDomain: "warehouseapp-b85de.firebaseapp.com",
-  projectId: "warehouseapp-b85de",
-  storageBucket: "warehouseapp-b85de.appspot.com",
-  messagingSenderId: "535089462672",
-  appId: "1:535089462672:web:edb68bd9ee8609a51dc715",
-  measurementId: "G-315TGMCNN3"
+  apiKey: "AIzaSyCp-1-XTYp0DIOhpmuFp7H7T_rAWOn1Fso",
+  authDomain: "warehouse-fe109.firebaseapp.com",
+  projectId: "warehouse-fe109",
+  storageBucket: "warehouse-fe109.firebasestorage.app",
+  messagingSenderId: "697627361154",
+  appId: "1:697627361154:web:8662b7502569865539599b",
+  measurementId: "G-8DV56PNG14"
 };
 
 // Initialize Firebase app
