@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { startOfHour, startOfDay, startOfWeek, isWithinInterval, subHours, subDays, subWeeks } from 'date-fns';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item, Location, Movement } from '@/types/warehouse';
 import type { WarehouseAction } from '@/lib/firebase/actions';
 
@@ -41,6 +42,7 @@ interface MovementMetrics {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useFirebase();
   const [items, setItems] = useState<Item[]>([]);
   const [locationStats, setLocationStats] = useState<LocationStats>({
     total: 0,
@@ -60,6 +62,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!user) return; // Only fetch data when user is authenticated
+      
       try {
         const [fetchedItems, fetchedLocations, fetchedActions, fetchedMovements] = await Promise.all([
           getItems(),
@@ -129,7 +133,7 @@ export default function Dashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [user]); // Add user to dependency array
 
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
