@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { initializeFirestore, CACHE_SIZE_UNLIMITED, enableIndexedDbPersistence, PersistenceSettings } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
 import { getFunctions } from 'firebase/functions';
+import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCp-1-XTYp0DIOhpmuFp7H7T_rAWOn1Fso",
@@ -25,6 +26,9 @@ const db = initializeFirestore(app, {
 // Initialize Functions
 const functions = getFunctions(app);
 
+// Initialize Auth
+const auth = getAuth(app);
+
 // Enable offline persistence with enhanced error handling
 if (typeof window !== 'undefined') {
   const persistenceSettings: PersistenceSettings = {
@@ -46,5 +50,5 @@ if (typeof window !== 'undefined') {
   analytics = getAnalytics(app);
 }
 
-export { db, analytics, functions };
+export { db, analytics, functions, auth };
 export default app;

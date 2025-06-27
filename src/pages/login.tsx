@@ -10,7 +10,7 @@ import { verifyUser, getCurrentUser } from '@/lib/firebase/users';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -26,23 +26,22 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const user = await verifyUser(username, password);
+      const user = await verifyUser(email, password);
       if (user) {
-        toast.success(`Welcome back, ${user.username.split('@')[0]}!`);
+        const displayName = user.displayName || user.email.split('@')[0];
+        toast.success(`Welcome back, ${displayName}!`);
         navigate('/');
-      } else {
-        toast.error('Invalid username or password');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      toast.error('Login failed. Please try again.');
+      toast.error(error.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleQuickLogin = () => {
-    setUsername('Carl.Jukes@dakin-flathers.com');
+    setEmail('Carl.Jukes@dakin-flathers.com');
     setPassword('29@qDy2A9s#');
   };
 
@@ -66,15 +65,15 @@ export default function Login() {
           <CardContent className="space-y-6">
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username" className="flex items-center gap-2">
+                <Label htmlFor="email" className="flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Email Address
                 </Label>
                 <Input
-                  id="username"
+                  id="email"
                   type="email"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email address"
                   required
                   autoComplete="username"
@@ -147,7 +146,7 @@ export default function Login() {
                 System Access
               </h3>
               <p className="text-sm text-blue-700 dark:text-blue-300">
-                Use the "Default Credentials" button for quick access to the warehouse management system.
+                Use your Firebase Authentication credentials or click "Default Credentials" for quick access.
               </p>
             </div>
           </CardContent>
