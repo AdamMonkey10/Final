@@ -23,8 +23,14 @@ export async function addMovement(movement: Omit<Movement, 'id' | 'timestamp'>) 
     });
     invalidateCache(CACHE_KEY);
     return docRef.id;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error adding movement:', error);
+    
+    // Handle specific Firebase permission errors
+    if (error?.code === 'permission-denied') {
+      throw new Error('You do not have permission to add movements. Please check your Firebase security rules or contact an administrator.');
+    }
+    
     throw error;
   }
 }
@@ -47,8 +53,14 @@ export async function getMovements() {
 
     setCache(CACHE_KEY, movements);
     return movements;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting movements:', error);
+    
+    // Handle specific Firebase permission errors
+    if (error?.code === 'permission-denied') {
+      throw new Error('You do not have permission to view movements. Please check your Firebase security rules or contact an administrator.');
+    }
+    
     throw error;
   }
 }
