@@ -1,14 +1,24 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { collection, getDocs, onSnapshot } from 'firebase/firestore';
-import { enableNetwork, disableNetwork } from 'firebase/firestore';
+import { enableNetwork } from 'firebase/firestore';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { toast } from 'sonner';
+
+interface User {
+  uid: string;
+  email: string;
+  displayName?: string;
+  lastLogin?: Date;
+}
 
 interface FirebaseContextType {
   loading: boolean;
   isInitialized: boolean;
   isOnline: boolean;
   error: Error | null;
+  user: User | null;
+  authLoading: boolean;
   reconnect: () => Promise<void>;
 }
 
@@ -17,6 +27,8 @@ const FirebaseContext = createContext<FirebaseContextType>({
   isInitialized: false,
   isOnline: true,
   error: null,
+  user: null,
+  authLoading: true,
   reconnect: async () => {},
 });
 
@@ -25,6 +37,28 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Monitor authentication state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        const userData: User = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || undefined,
+          lastLogin: new Date()
+        };
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Monitor online/offline status
   useEffect(() => {
@@ -123,7 +157,8 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  if (loading) {
+  // Show loading screen while both Firebase and auth are initializing
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -162,6 +197,8 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
         isInitialized, 
         isOnline, 
         error, 
+        user,
+        authLoading,
         reconnect 
       }}
     >

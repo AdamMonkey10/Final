@@ -6,29 +6,30 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Package2, User, Lock, LogIn } from 'lucide-react';
-import { verifyUser, getCurrentUser } from '@/lib/firebase/users';
+import { verifyUser } from '@/lib/firebase/users';
+import { useFirebase } from '@/contexts/FirebaseContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { user, authLoading } = useFirebase();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (user) {
+    if (!authLoading && user) {
       navigate('/');
     }
-  }, [navigate]);
+  }, [user, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const user = await verifyUser(email, password);
-      if (user) {
-        const displayName = user.displayName || user.email.split('@')[0];
+      const loggedInUser = await verifyUser(email, password);
+      if (loggedInUser) {
+        const displayName = loggedInUser.displayName || loggedInUser.email.split('@')[0];
         toast.success(`Welcome back, ${displayName}!`);
         navigate('/');
       }
@@ -44,6 +45,18 @@ export default function Login() {
     setEmail('Carl.Jukes@dakin-flathers.com');
     setPassword('29@qDy2A9s#');
   };
+
+  // Show loading while auth state is being determined
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">

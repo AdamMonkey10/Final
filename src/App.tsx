@@ -10,24 +10,39 @@ import Locations from '@/pages/locations';
 import Movements from '@/pages/movements';
 import Login from '@/pages/login';
 import { Package2 } from 'lucide-react';
-import { getCurrentUser, verifySetupUser } from '@/lib/firebase/users';
+import { verifySetupUser } from '@/lib/firebase/users';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useFirebase } from '@/contexts/FirebaseContext';
+import { FirebaseProvider } from '@/contexts/FirebaseContext';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const user = getCurrentUser();
-  return user ? children : <Navigate to="/login" />;
+  const { user, authLoading } = useFirebase();
+  
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  return user ? <>{children}</> : <Navigate to="/login" />;
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useFirebase();
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [verified, setVerified] = useState(false);
 
   const handleVerify = async () => {
-    const isValid = await verifySetupUser(username, password);
+    const isValid = await verifySetupUser(username, password, user);
     if (isValid) {
       setVerified(true);
     } else {
@@ -65,10 +80,10 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return children;
+  return <>{children}</>;
 }
 
-export default function App() {
+function AppContent() {
   return (
     <Router>
       <Routes>
@@ -112,5 +127,13 @@ export default function App() {
         />
       </Routes>
     </Router>
+  );
+}
+
+export default function App() {
+  return (
+    <FirebaseProvider>
+      <AppContent />
+    </FirebaseProvider>
   );
 }

@@ -1,8 +1,6 @@
 import { 
   signInWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged,
-  User as FirebaseUser 
+  signOut
 } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -16,31 +14,6 @@ export interface User {
   displayName?: string;
   lastLogin?: Date;
 }
-
-let currentUser: User | null = null;
-
-export function getCurrentUser(): User | null {
-  return currentUser;
-}
-
-export function setCurrentUser(user: User | null): void {
-  currentUser = user;
-}
-
-// Listen for auth state changes
-onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
-  if (firebaseUser) {
-    const user: User = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email || '',
-      displayName: firebaseUser.displayName || undefined,
-      lastLogin: new Date()
-    };
-    setCurrentUser(user);
-  } else {
-    setCurrentUser(null);
-  }
-});
 
 export async function verifyUser(email: string, password: string): Promise<User | null> {
   try {
@@ -68,7 +41,6 @@ export async function verifyUser(email: string, password: string): Promise<User 
       lastLogin: new Date()
     };
 
-    setCurrentUser(user);
     return user;
   } catch (error: any) {
     console.error('Error verifying user:', error);
@@ -91,7 +63,7 @@ export async function verifyUser(email: string, password: string): Promise<User 
   }
 }
 
-export async function verifySetupUser(username: string, password: string): Promise<boolean> {
+export async function verifySetupUser(username: string, password: string, currentUser: User | null): Promise<boolean> {
   try {
     // Check if it's the Team2 setup user
     if (username === 'Team2' && password === 'Team2') {
@@ -188,7 +160,6 @@ export async function getUsers(): Promise<User[]> {
 export async function logout(): Promise<void> {
   try {
     await signOut(auth);
-    setCurrentUser(null);
   } catch (error) {
     console.error('Error signing out:', error);
     throw error;
