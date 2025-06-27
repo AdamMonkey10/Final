@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Package2 } from 'lucide-react';
+import { Package2, User, Lock } from 'lucide-react';
 import { verifyUser, getCurrentUser } from '@/lib/firebase/users';
 
 export default function Login() {
@@ -19,7 +20,7 @@ export default function Login() {
     if (user) {
       navigate('/');
     }
-  }, []); // Only run on mount
+  }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,58 +29,149 @@ export default function Login() {
     try {
       const user = await verifyUser(username, password);
       if (user) {
-        toast.success('Login successful');
+        toast.success(`Welcome back, ${user.username}!`);
         navigate('/');
       } else {
         toast.error('Invalid username or password');
       }
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Failed to login');
+      toast.error('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleDemoLogin = (demoUsername: string, demoPassword: string) => {
+    setUsername(demoUsername);
+    setPassword(demoPassword);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <Package2 className="h-12 w-12 text-primary" />
-          </div>
-          <CardTitle className="text-2xl">Welcome to WareFlow</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoComplete="username"
-              />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
+      <div className="w-full max-w-md space-y-6">
+        <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm dark:bg-gray-900/80">
+          <CardHeader className="text-center space-y-4">
+            <div className="flex justify-center">
+              <div className="p-3 bg-primary/10 rounded-full">
+                <Package2 className="h-8 w-8 text-primary" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
+            <div>
+              <CardTitle className="text-2xl font-bold">Welcome to WareFlow</CardTitle>
+              <p className="text-sm text-muted-foreground mt-2">
+                Warehouse Management System
+              </p>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Logging in...' : 'Login'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username" className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Username
+                </Label>
+                <Input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter your username"
+                  required
+                  autoComplete="username"
+                  className="h-11"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password" className="flex items-center gap-2">
+                  <Lock className="h-4 w-4" />
+                  Password
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  required
+                  autoComplete="current-password"
+                  className="h-11"
+                />
+              </div>
+              <Button 
+                type="submit" 
+                className="w-full h-11 text-base font-medium" 
+                disabled={loading}
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Signing in...
+                  </div>
+                ) : (
+                  'Sign In'
+                )}
+              </Button>
+            </form>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-background px-2 text-muted-foreground">
+                    Demo Accounts
+                  </span>
+                </div>
+              </div>
+              
+              <div className="grid gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDemoLogin('admin', 'admin123')}
+                  className="justify-start h-9"
+                >
+                  <Badge variant="secondary" className="mr-2">Admin</Badge>
+                  Full system access
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDemoLogin('warehouse', 'warehouse123')}
+                  className="justify-start h-9"
+                >
+                  <Badge variant="secondary" className="mr-2">Warehouse</Badge>
+                  Warehouse operations
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDemoLogin('operator', 'operator123')}
+                  className="justify-start h-9"
+                >
+                  <Badge variant="secondary" className="mr-2">Operator</Badge>
+                  Basic operations
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-blue-50/50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800">
+          <CardContent className="pt-6">
+            <div className="text-center space-y-2">
+              <h3 className="font-medium text-blue-900 dark:text-blue-100">
+                Quick Start Guide
+              </h3>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Use any demo account above to explore the system. Admin account provides access to setup and configuration.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
