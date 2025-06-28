@@ -44,7 +44,7 @@ import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -55,13 +55,14 @@ import type { Operator } from '@/lib/firebase/operators';
 // Extended warehouse structure constants
 const ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
 const LOCATIONS_PER_BAY = 3;
-const LEVELS = [0, 1, 2, 3, 4]; // Ground level (0) and 4 levels above
+const MAX_LEVELS = 10; // Maximum possible levels
 
 export default function Setup() {
   const { user, authLoading } = useFirebase();
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
+  const [maxLevel, setMaxLevel] = useState(4); // How many levels high to go (0-4 = 5 levels total)
   const [selectedRackType, setSelectedRackType] = useState('standard');
   const [customHeights, setCustomHeights] = useState<Record<string, number>>({
     '0': 0,
@@ -98,6 +99,15 @@ export default function Setup() {
     '4': LEVEL_MAX_WEIGHTS['4'],
   });
 
+  // Generate levels array based on maxLevel
+  const getLevelsArray = () => {
+    const levels = [];
+    for (let i = 0; i <= maxLevel; i++) {
+      levels.push(i);
+    }
+    return levels;
+  };
+
   useEffect(() => {
     if (user && !authLoading) {
       loadCategories();
@@ -115,6 +125,21 @@ export default function Setup() {
       }
     }
   }, [selectedRackType]);
+
+  // Update heights when max level changes
+  useEffect(() => {
+    if (selectedRackType !== 'custom') {
+      const rackConfig = RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES];
+      if (rackConfig) {
+        const newHeights: Record<string, number> = {};
+        for (let i = 0; i <= maxLevel; i++) {
+          const levelKey = i.toString();
+          newHeights[levelKey] = rackConfig.levelHeights[levelKey] || (i * 2.5);
+        }
+        setCustomHeights(newHeights);
+      }
+    }
+  }, [maxLevel, selectedRackType]);
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -186,10 +211,12 @@ export default function Setup() {
       return;
     }
 
+    const levels = getLevelsArray();
     const locations = [];
+    
     for (let bay = startBay; bay <= endBay; bay++) {
       for (let position = 1; position <= LOCATIONS_PER_BAY; position++) {
-        for (const level of LEVELS) {
+        for (const level of levels) {
           const bayFormatted = bay.toString().padStart(2, '0');
           const code = `${selectedRow}${bayFormatted}-${level}-${position}`;
           const height = customHeights[level.toString()] || 0;
@@ -200,7 +227,7 @@ export default function Setup() {
             bay: bayFormatted,
             level: level.toString(),
             location: position.toString(),
-            maxWeight: weightLimits[level.toString()],
+            maxWeight: weightLimits[level.toString()] || (level === 0 ? Infinity : 1000),
             currentWeight: 0,
             available: true,
             verified: true,
@@ -380,7 +407,7 @@ export default function Setup() {
             <CardHeader>
               <CardTitle>Generate Locations</CardTitle>
               <CardDescription>
-                Generate warehouse locations with custom heights for different rack types. Each bay has {LOCATIONS_PER_BAY} locations and {LEVELS.length} levels (0-4).
+                Generate warehouse locations with configurable rack heights and levels. Each bay has {LOCATIONS_PER_BAY} locations.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -440,14 +467,49 @@ export default function Setup() {
                 </div>
               </div>
 
+              {/* Rack Levels Configuration */}
+              <div className="mb-4 p-4 border rounded-lg">
+                <h3 className="font-medium mb-3 flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  Rack Levels Configuration
+                </h3>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="space-y-2">
+                    <Label>Maximum Level (How many levels high?)</Label>
+                    <Select value={maxLevel.toString()} onValueChange={(value) => setMaxLevel(parseInt(value))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select max level" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: MAX_LEVELS }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>
+                            Level {i} (Ground only)
+                            {i > 0 && ` - ${i + 1} levels total (0-${i})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end">
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <Layers className="h-3 w-3" />
+                      {maxLevel + 1} levels total (0-{maxLevel})
+                    </Badge>
+                  </div>
+                </div>
+                <div className="text-sm text-muted-foreground mb-3">
+                  This will create locations from ground level (0) up to level {maxLevel}
+                </div>
+              </div>
+
               {/* Height Configuration */}
               <div className="mb-4 p-4 border rounded-lg">
                 <h3 className="font-medium mb-3 flex items-center gap-2">
                   <Ruler className="h-4 w-4" />
                   Height Configuration ({RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name})
                 </h3>
-                <div className="grid grid-cols-5 gap-4">
-                  {LEVELS.map((level) => (
+                <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(maxLevel + 1, 6)}, 1fr)` }}>
+                  {getLevelsArray().map((level) => (
                     <div key={level} className="space-y-2">
                       <Label className="text-sm">
                         Level {level}
@@ -458,7 +520,7 @@ export default function Setup() {
                           type="number"
                           step="0.1"
                           min="0"
-                          value={customHeights[level.toString()]}
+                          value={customHeights[level.toString()] || 0}
                           onChange={(e) => handleHeightChange(level.toString(), e.target.value)}
                           disabled={selectedRackType !== 'custom'}
                           className="text-sm"
@@ -525,7 +587,7 @@ export default function Setup() {
                   </div>
                   <div className="mt-4 p-3 bg-muted rounded-lg">
                     <p className="text-sm text-muted-foreground">
-                      <strong>Summary:</strong> {generatedLocations.length} locations will be created with {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name} configuration.
+                      <strong>Summary:</strong> {generatedLocations.length} locations will be created across {maxLevel + 1} levels (0-{maxLevel}) with {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name} configuration.
                     </p>
                   </div>
                   <Button
@@ -729,12 +791,12 @@ export default function Setup() {
             <CardHeader>
               <CardTitle>Level Weight Settings</CardTitle>
               <CardDescription>
-                Configure maximum weight limits for each level
+                Configure maximum weight limits for each level (applies to levels 0-{maxLevel})
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4">
-                {LEVELS.map((level) => (
+                {getLevelsArray().map((level) => (
                   <div key={level} className="flex items-center gap-4">
                     <Label className="w-32">
                       Level {level}
@@ -743,7 +805,7 @@ export default function Setup() {
                     <div className="flex-1">
                       <Input
                         type="number"
-                        value={weightLimits[level.toString()]}
+                        value={weightLimits[level.toString()] || (level === 0 ? 'Infinity' : 1000)}
                         onChange={(e) => handleWeightChange(level.toString(), e.target.value)}
                         min="0"
                         step="100"
@@ -808,6 +870,7 @@ export default function Setup() {
                   <li>• Ground level (Level 0) always has 0m height</li>
                   <li>• Custom rack type allows manual height configuration</li>
                   <li>• Heights are stored with each location for future reference</li>
+                  <li>• Configure max levels in the Locations tab to control rack height</li>
                 </ul>
               </div>
             </CardContent>
