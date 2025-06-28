@@ -88,7 +88,8 @@ export async function verifySetupUser(username: string, password: string, curren
   console.log('🔧 Verifying setup user:', { 
     username, 
     hasPassword: !!password,
-    currentUser: currentUser?.email 
+    currentUser: currentUser?.email,
+    currentUserUid: currentUser?.uid
   });
   
   try {
@@ -100,19 +101,23 @@ export async function verifySetupUser(username: string, password: string, curren
 
     // Check if current user has setup access
     if (currentUser) {
-      console.log('👤 Checking admin access for user:', currentUser.email);
+      console.log('👤 Checking admin access for user:', currentUser.email, 'UID:', currentUser.uid);
       
-      // Admin users (you can customize this logic)
+      // Admin users - check by UID and email
+      const adminUIDs = [
+        '875w92gbBvhlejILrlo5eBEHmg82' // Your specific UID
+      ];
+      
       const adminEmails = [
         'Carl.Jukes@dakin-flathers.com',
         'carl.jukes@dakin-flathers.com' // Add lowercase version just in case
       ];
       
-      if (adminEmails.includes(currentUser.email.toLowerCase())) {
-        console.log('✅ Admin email verified:', currentUser.email);
+      if (adminUIDs.includes(currentUser.uid) || adminEmails.includes(currentUser.email.toLowerCase())) {
+        console.log('✅ Admin access verified for:', currentUser.email, 'UID:', currentUser.uid);
         return true;
       } else {
-        console.log('❌ Email not in admin list:', currentUser.email);
+        console.log('❌ User not in admin list:', { email: currentUser.email, uid: currentUser.uid });
       }
     }
 

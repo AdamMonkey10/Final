@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Package2, User, Lock, LogIn } from 'lucide-react';
+import { Package2, User, Lock, LogIn, AlertCircle } from 'lucide-react';
 import { verifyUser } from '@/lib/firebase/users';
 import { useFirebase } from '@/contexts/FirebaseContext';
 
@@ -105,7 +105,10 @@ export default function Login() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-red-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-red-600">Connection Error</CardTitle>
+            <CardTitle className="text-red-600 flex items-center justify-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              Connection Error
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -218,10 +221,25 @@ export default function Login() {
             </div>
 
             {/* Debug Information */}
-            <div className="text-xs text-muted-foreground space-y-1 p-2 bg-muted/50 rounded">
-              <div>Status: {authLoading ? 'Loading' : user ? 'Authenticated' : 'Not authenticated'}</div>
-              <div>Online: {isOnline ? 'Yes' : 'No'}</div>
-              {error && <div className="text-red-600">Error: {error.message}</div>}
+            <div className="text-xs text-muted-foreground space-y-1 p-3 bg-muted/50 rounded border">
+              <div className="font-medium text-center mb-2">System Status</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>Auth: {authLoading ? 'Loading' : user ? 'Authenticated' : 'Not authenticated'}</div>
+                <div>Online: {isOnline ? 'Yes' : 'No'}</div>
+                {user && (
+                  <>
+                    <div className="col-span-2 pt-1 border-t">
+                      <div>UID: {user.uid}</div>
+                      <div>Email: {user.email}</div>
+                    </div>
+                  </>
+                )}
+                {error && (
+                  <div className="col-span-2 text-red-600 pt-1 border-t">
+                    Error: {error.message}
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -235,6 +253,9 @@ export default function Login() {
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 Use your Firebase Authentication credentials or click "Default Credentials" for quick access.
               </p>
+              <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                Expected UID: 875w92gbBvhlejILrlo5eBEHmg82
+              </div>
             </div>
           </CardContent>
         </Card>
