@@ -18,7 +18,8 @@ export async function sendZPL(zpl: string, settings?: PrinterSettings): Promise<
   const printerSettings = settings || await getPrinterSettings();
   
   try {
-    const response = await fetch(`http://${printerSettings.ip}:${printerSettings.port}/print`, {
+    // Use the proxied endpoint to avoid CORS issues
+    const response = await fetch('/api/print', {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
