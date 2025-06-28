@@ -254,7 +254,7 @@ export default function Login() {
                 Use your Firebase Authentication credentials or click "Default Credentials" for quick access.
               </p>
               <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                Expected UID: 875w92gbBvhlejILrlo5eBEHmg82
+                Your UID: GRkjeVQpVvVgu9EwMAJIwPzZ03M2 ✅
               </div>
             </div>
           </CardContent>

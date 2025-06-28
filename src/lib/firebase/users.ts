@@ -30,7 +30,7 @@ export async function verifyUser(email: string, password: string): Promise<User 
       emailVerified: firebaseUser.emailVerified
     });
 
-    // Update last login in Firestore
+    // Update last login in Firestore (with better error handling)
     try {
       console.log('💾 Updating user data in Firestore');
       const userRef = doc(db, COLLECTION, firebaseUser.uid);
@@ -41,9 +41,12 @@ export async function verifyUser(email: string, password: string): Promise<User 
         updatedAt: serverTimestamp()
       }, { merge: true });
       console.log('✅ Firestore user data updated successfully');
-    } catch (firestoreError) {
-      console.warn('⚠️ Could not update user data in Firestore:', firestoreError);
-      // Continue with login even if Firestore update fails
+    } catch (firestoreError: any) {
+      console.warn('⚠️ Could not update user data in Firestore:', {
+        error: firestoreError.message,
+        code: firestoreError.code
+      });
+      // Don't throw here - continue with login even if Firestore update fails
     }
 
     const user: User = {
@@ -103,9 +106,10 @@ export async function verifySetupUser(username: string, password: string, curren
     if (currentUser) {
       console.log('👤 Checking admin access for user:', currentUser.email, 'UID:', currentUser.uid);
       
-      // Admin users - check by UID and email
+      // Admin users - check by UID and email (using your ACTUAL UID)
       const adminUIDs = [
-        '875w92gbBvhlejILrlo5eBEHmg82' // Your specific UID
+        'GRkjeVQpVvVgu9EwMAJIwPzZ03M2', // Your ACTUAL UID from the logs
+        '875w92gbBvhlejILrlo5eBEHmg82'  // Keep the old one just in case
       ];
       
       const adminEmails = [
@@ -121,7 +125,7 @@ export async function verifySetupUser(username: string, password: string, curren
       }
     }
 
-    // Check setup users collection
+    // Check setup users collection (with better error handling)
     try {
       console.log('📚 Checking setup_users collection for:', username);
       const userRef = doc(db, SETUP_COLLECTION, username);
@@ -141,16 +145,23 @@ export async function verifySetupUser(username: string, password: string, curren
       
       if (userData.password === password) {
         console.log('✅ Setup user password verified');
-        await updateDoc(userRef, {
-          lastLogin: serverTimestamp()
-        });
-        console.log('💾 Setup user last login updated');
+        try {
+          await updateDoc(userRef, {
+            lastLogin: serverTimestamp()
+          });
+          console.log('💾 Setup user last login updated');
+        } catch (updateError) {
+          console.warn('⚠️ Could not update setup user last login:', updateError);
+        }
         return true;
       } else {
         console.log('❌ Setup user password mismatch');
       }
-    } catch (firestoreError) {
-      console.warn('⚠️ Error checking setup_users collection:', firestoreError);
+    } catch (firestoreError: any) {
+      console.warn('⚠️ Error checking setup_users collection:', {
+        error: firestoreError.message,
+        code: firestoreError.code
+      });
     }
 
     console.log('❌ Setup verification failed, no valid credentials found');
