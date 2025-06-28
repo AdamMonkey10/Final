@@ -34,6 +34,7 @@ import { Barcode as BarcodeIcon, Printer, ArrowRight, ArrowDownToLine, ArrowUpFr
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { useFirebase } from '@/contexts/FirebaseContext';
+import { useOperator } from '@/contexts/OperatorContext';
 import type { Category } from '@/lib/firebase/categories';
 
 interface FormData {
@@ -49,6 +50,7 @@ interface FormData {
 export default function GoodsIn() {
   const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
+  const { selectedOperator } = useOperator();
   const [formData, setFormData] = useState<FormData>({
     itemCode: '',
     description: '',
@@ -99,8 +101,18 @@ export default function GoodsIn() {
     }
   };
 
+  const getOperatorName = () => {
+    return selectedOperator?.name || user?.email || 'System';
+  };
+
   const handleGoodsIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedOperator) {
+      toast.error('Please select an operator before proceeding');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -124,7 +136,7 @@ export default function GoodsIn() {
           itemId: systemCode,
           type: 'IN',
           weight: 0,
-          operator: user?.email || 'System',
+          operator: getOperatorName(),
           reference: formData.itemCode,
           notes: `Added ${quantity} units of ${selectedCategory.name}`,
           quantity
@@ -182,7 +194,7 @@ export default function GoodsIn() {
           itemId,
           type: 'IN',
           weight,
-          operator: user?.email || 'System',
+          operator: getOperatorName(),
           reference: formData.itemCode,
           notes: `Goods in: ${description}`
         });
@@ -200,6 +212,12 @@ export default function GoodsIn() {
 
   const handleGoodsOut = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedOperator) {
+      toast.error('Please select an operator before proceeding');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -226,7 +244,7 @@ export default function GoodsIn() {
         itemId: formData.itemCode,
         type: 'OUT',
         weight: 0,
-        operator: user?.email || 'System',
+        operator: getOperatorName(),
         reference: formData.itemCode,
         notes: `Removed ${quantity} units of ${selectedCategory.name}`,
         quantity
@@ -302,6 +320,13 @@ export default function GoodsIn() {
                 font-size: 16px;
                 line-height: 1.5;
               }
+              .operator {
+                margin-top: 15px;
+                padding: 10px;
+                background: #f3f4f6;
+                border-radius: 6px;
+                font-size: 14px;
+              }
             </style>
           </head>
           <body>
@@ -322,6 +347,9 @@ export default function GoodsIn() {
                   <p><strong>Description:</strong> ${formData.description}</p>
                   <p><strong>Weight:</strong> ${formData.weight}kg</p>
                 `}
+              </div>
+              <div class="operator">
+                <strong>Processed by:</strong> ${getOperatorName()}
               </div>
             </div>
             <script>
@@ -349,6 +377,19 @@ export default function GoodsIn() {
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </div>
+
+      {!selectedOperator && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-yellow-800">
+              <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+                Action Required
+              </Badge>
+              <span className="text-sm">Please select an operator from the top-right corner before processing transactions.</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -402,6 +443,9 @@ export default function GoodsIn() {
                         Weight: {formData.weight}kg
                       </div>
                     )}
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Processed by: {getOperatorName()}
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     {!selectedCategory?.kanbanRules?.goodsIn && (
@@ -559,7 +603,11 @@ export default function GoodsIn() {
                       </>
                     )}
                   </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    disabled={loading || !selectedOperator}
+                  >
                     {loading ? 'Processing...' : 'Process Goods In'}
                   </Button>
                 </form>
@@ -646,7 +694,7 @@ export default function GoodsIn() {
                 <Button 
                   type="submit" 
                   className="w-full" 
-                  disabled={loading || !selectedCategory?.kanbanRules?.goodsIn}
+                  disabled={loading || !selectedCategory?.kanbanRules?.goodsIn || !selectedOperator}
                 >
                   {loading ? 'Processing...' : 'Process Goods Out'}
                 </Button>

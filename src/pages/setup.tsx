@@ -41,14 +41,16 @@ import { toast } from 'sonner';
 import { addLocation, getLocations } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
+import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { LEVEL_MAX_WEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Category } from '@/lib/firebase/categories';
 import type { User } from '@/lib/firebase/users';
+import type { Operator } from '@/lib/firebase/operators';
 
 // Extended warehouse structure constants
 const ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
@@ -71,10 +73,13 @@ export default function Setup() {
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [operators, setOperators] = useState<Operator[]>([]);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
+  const [showOperatorDialog, setShowOperatorDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | undefined>();
   const [newUser, setNewUser] = useState({ username: '', password: '' });
+  const [newOperator, setNewOperator] = useState({ name: '', email: '' });
   const [weightLimits, setWeightLimits] = useState({
     '0': LEVEL_MAX_WEIGHTS['0'],
     '1': LEVEL_MAX_WEIGHTS['1'],
@@ -87,6 +92,7 @@ export default function Setup() {
     if (user && !authLoading) {
       loadCategories();
       loadUsers();
+      loadOperators();
     }
   }, [user, authLoading]);
 
@@ -111,6 +117,18 @@ export default function Setup() {
     } catch (error) {
       console.error('Error loading users:', error);
       toast.error('Failed to load users');
+    }
+  };
+
+  const loadOperators = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      const fetchedOperators = await getOperators();
+      setOperators(fetchedOperators);
+    } catch (error) {
+      console.error('Error loading operators:', error);
+      toast.error('Failed to load operators');
     }
   };
 
@@ -242,6 +260,34 @@ export default function Setup() {
     }
   };
 
+  const handleAddOperator = async () => {
+    try {
+      if (!newOperator.name) {
+        toast.error('Operator name is required');
+        return;
+      }
+      await addOperator(newOperator.name, newOperator.email);
+      toast.success('Operator added successfully');
+      setNewOperator({ name: '', email: '' });
+      setShowOperatorDialog(false);
+      loadOperators();
+    } catch (error) {
+      console.error('Error adding operator:', error);
+      toast.error('Failed to add operator');
+    }
+  };
+
+  const handleDeactivateOperator = async (operatorId: string) => {
+    try {
+      await deactivateOperator(operatorId);
+      toast.success('Operator deactivated');
+      loadOperators();
+    } catch (error) {
+      console.error('Error deactivating operator:', error);
+      toast.error('Failed to deactivate operator');
+    }
+  };
+
   const downloadInventoryData = () => {
     try {
       const items = categories.map(cat => ({
@@ -288,6 +334,7 @@ export default function Setup() {
         <TabsList>
           <TabsTrigger value="locations">Locations</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
+          <TabsTrigger value="operators">Operators</TabsTrigger>
           <TabsTrigger value="weights">Weight Settings</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="data">Data Management</TabsTrigger>
@@ -512,6 +559,64 @@ export default function Setup() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="operators">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Warehouse Operators</span>
+                <Button onClick={() => setShowOperatorDialog(true)}>
+                  <UserCheck className="h-4 w-4 mr-2" />
+                  Add Operator
+                </Button>
+              </CardTitle>
+              <CardDescription>
+                Manage warehouse operators who perform transactions
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {operators.map((operator) => (
+                      <TableRow key={operator.id}>
+                        <TableCell className="font-medium">
+                          {operator.name}
+                        </TableCell>
+                        <TableCell>{operator.email || '—'}</TableCell>
+                        <TableCell>
+                          <Badge variant={operator.active ? 'success' : 'secondary'}>
+                            {operator.active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {operator.active && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeactivateOperator(operator.id)}
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="weights">
           <Card>
             <CardHeader>
@@ -574,9 +679,9 @@ export default function Setup() {
                   </TableHeader>
                   <TableBody>
                     {users.map((user) => (
-                      <TableRow key={user.username}>
+                      <TableRow key={user.uid}>
                         <TableCell className="font-medium">
-                          {user.username}
+                          {user.email}
                         </TableCell>
                         <TableCell>
                           {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}
@@ -585,7 +690,7 @@ export default function Setup() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteUser(user.username)}
+                            onClick={() => handleDeleteUser(user.email)}
                             className="text-red-500 hover:text-red-600 hover:bg-red-50"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -642,12 +747,13 @@ export default function Setup() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">Email</Label>
               <Input
                 id="username"
+                type="email"
                 value={newUser.username}
                 onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                placeholder="Enter username"
+                placeholder="Enter email address"
               />
             </div>
             <div className="space-y-2">
@@ -662,6 +768,40 @@ export default function Setup() {
             </div>
             <Button onClick={handleAddUser} className="w-full">
               Add User
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Operator Dialog */}
+      <Dialog open={showOperatorDialog} onOpenChange={setShowOperatorDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Operator</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="operatorName">Name *</Label>
+              <Input
+                id="operatorName"
+                value={newOperator.name}
+                onChange={(e) => setNewOperator({ ...newOperator, name: e.target.value })}
+                placeholder="Enter operator name"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="operatorEmail">Email (optional)</Label>
+              <Input
+                id="operatorEmail"
+                type="email"
+                value={newOperator.email}
+                onChange={(e) => setNewOperator({ ...newOperator, email: e.target.value })}
+                placeholder="Enter email address"
+              />
+            </div>
+            <Button onClick={handleAddOperator} className="w-full">
+              Add Operator
             </Button>
           </div>
         </DialogContent>

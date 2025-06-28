@@ -23,11 +23,14 @@ import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
+import { useOperator } from '@/contexts/OperatorContext';
+import { Badge } from '@/components/ui/badge';
 import type { Item } from '@/types/warehouse';
 import type { Location } from '@/types/warehouse';
 
 export default function ScanPage() {
   const { user, authLoading } = useFirebase();
+  const { selectedOperator } = useOperator();
   const [loading, setLoading] = useState(false);
   const [scannedItem, setScannedItem] = useState<Item | null>(null);
   const [availableLocations, setAvailableLocations] = useState<Location[]>([]);
@@ -52,8 +55,18 @@ export default function ScanPage() {
     }
   };
 
+  const getOperatorName = () => {
+    return selectedOperator?.name || user?.email || 'System';
+  };
+
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!selectedOperator) {
+      toast.error('Please select an operator before scanning');
+      return;
+    }
+
     const form = e.target as HTMLFormElement;
     const input = form.elements.namedItem('scanInput') as HTMLInputElement;
     const scannedCode = input.value.trim();
@@ -142,7 +155,7 @@ export default function ScanPage() {
         itemId: scannedItem.id,
         type: 'IN',
         weight: scannedItem.weight,
-        operator: user?.email || 'System',
+        operator: getOperatorName(),
         reference: scannedItem.itemCode,
         notes: `Placed at ${selectedLocation.code}`
       });
@@ -179,7 +192,7 @@ export default function ScanPage() {
         itemId: scannedItem.id,
         type: 'OUT',
         weight: scannedItem.weight,
-        operator: user?.email || 'System',
+        operator: getOperatorName(),
         reference: scannedItem.itemCode,
         notes: `Picked from ${selectedLocation.code}`
       });
@@ -226,6 +239,19 @@ export default function ScanPage() {
         </Button>
       </div>
 
+      {!selectedOperator && (
+        <Card className="border-yellow-200 bg-yellow-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-yellow-800">
+              <Badge variant="outline" className="bg-yellow-100 text-yellow-800">
+                Action Required
+              </Badge>
+              <span className="text-sm">Please select an operator from the top-right corner before scanning items.</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -247,6 +273,7 @@ export default function ScanPage() {
               onClick={() => setShowScanDialog(true)}
               size="lg"
               className="w-full max-w-md"
+              disabled={!selectedOperator}
             >
               <QrCode className="h-5 w-5 mr-2" />
               Start Scanning
@@ -273,9 +300,14 @@ export default function ScanPage() {
                 disabled={loading}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !selectedOperator}>
               {loading ? 'Scanning...' : 'Scan Item'}
             </Button>
+            {selectedOperator && (
+              <div className="text-xs text-center text-muted-foreground">
+                Operator: {selectedOperator.name}
+              </div>
+            )}
           </form>
         </DialogContent>
       </Dialog>
@@ -296,6 +328,7 @@ export default function ScanPage() {
                   <h3 className="font-medium">{scannedItem.itemCode}</h3>
                   <p className="text-sm text-muted-foreground">{scannedItem.description}</p>
                   <p className="text-sm">Weight: {scannedItem.weight}kg</p>
+                  <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
                 </div>
                 {getItemStatusBadge(scannedItem.status)}
               </div>
@@ -322,6 +355,7 @@ export default function ScanPage() {
                 <h3 className="font-medium">{scannedItem.itemCode}</h3>
                 <p className="text-sm text-muted-foreground">{scannedItem.description}</p>
                 <p className="text-sm">Weight: {scannedItem.weight}kg</p>
+                <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
                 {getItemStatusBadge(scannedItem.status)}
               </div>
               

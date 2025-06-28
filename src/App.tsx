@@ -17,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { FirebaseProvider } from '@/contexts/FirebaseContext';
+import { OperatorProvider } from '@/contexts/OperatorContext';
+import { OperatorSelector } from '@/components/operator-selector';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, authLoading } = useFirebase();
@@ -154,36 +156,41 @@ function AppContent() {
           path="/*"
           element={
             <PrivateRoute>
-              <div className="min-h-screen bg-background">
-                <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                  <div className="container flex h-14 items-center">
-                    <div className="hidden lg:flex items-center space-x-2">
-                      <Package2 className="h-6 w-6" />
-                      <span className="font-bold">WareFlow</span>
+              <OperatorProvider>
+                <div className="min-h-screen bg-background">
+                  <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                    <div className="container flex h-14 items-center">
+                      <div className="hidden lg:flex items-center space-x-2">
+                        <Package2 className="h-6 w-6" />
+                        <span className="font-bold">WareFlow</span>
+                      </div>
+                      <MainNav />
+                      <div className="ml-auto">
+                        <OperatorSelector />
+                      </div>
                     </div>
-                    <MainNav />
-                  </div>
-                </header>
-                <main className="container py-6 px-4 lg:px-6">
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/goods-in" element={<GoodsIn />} />
-                    <Route path="/scan" element={<Scan />} />
-                    <Route
-                      path="/setup"
-                      element={
-                        <AdminRoute>
-                          <Setup />
-                        </AdminRoute>
-                      }
-                    />
-                    <Route path="/inventory" element={<Inventory />} />
-                    <Route path="/locations" element={<Locations />} />
-                    <Route path="/movements" element={<Movements />} />
-                  </Routes>
-                </main>
-                <Toaster />
-              </div>
+                  </header>
+                  <main className="container py-6 px-4 lg:px-6">
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/goods-in" element={<GoodsIn />} />
+                      <Route path="/scan" element={<Scan />} />
+                      <Route
+                        path="/setup"
+                        element={
+                          <AdminRoute>
+                            <Setup />
+                          </AdminRoute>
+                        }
+                      />
+                      <Route path="/inventory" element={<Inventory />} />
+                      <Route path="/locations" element={<Locations />} />
+                      <Route path="/movements" element={<Movements />} />
+                    </Routes>
+                  </main>
+                  <Toaster />
+                </div>
+              </OperatorProvider>
             </PrivateRoute>
           }
         />
