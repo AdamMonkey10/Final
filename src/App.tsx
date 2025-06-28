@@ -3,7 +3,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { MainNav } from '@/components/main-nav';
 import Dashboard from '@/pages/dashboard';
 import GoodsIn from '@/pages/goods-in';
-import Picking from '@/pages/picking';
+import Scan from '@/pages/scan';
 import Setup from '@/pages/setup';
 import Inventory from '@/pages/inventory';
 import Locations from '@/pages/locations';
@@ -168,7 +168,7 @@ function AppContent() {
                   <Routes>
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/goods-in" element={<GoodsIn />} />
-                    <Route path="/picking" element={<Picking />} />
+                    <Route path="/scan" element={<Scan />} />
                     <Route
                       path="/setup"
                       element={

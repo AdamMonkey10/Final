@@ -9,7 +9,6 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { 
-  PackageSearch, 
   PackagePlus, 
   Settings, 
   LayoutDashboard, 
@@ -17,9 +16,10 @@ import {
   ArrowDownUp,
   Menu,
   Package2,
-  LogOut
+  LogOut,
+  QrCode
 } from 'lucide-react';
-import { getCurrentUser, logout } from '@/lib/firebase/users';
+import { logout } from '@/lib/firebase/users';
 
 const routes = [
   {
@@ -33,9 +33,9 @@ const routes = [
     icon: PackagePlus,
   },
   {
-    title: 'Actions',
-    href: '/picking',
-    icon: PackageSearch,
+    title: 'Scan',
+    href: '/scan',
+    icon: QrCode,
   },
   {
     title: 'Locations',

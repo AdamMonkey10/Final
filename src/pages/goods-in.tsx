@@ -27,11 +27,10 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addItem } from '@/lib/firebase/items';
-import { addAction } from '@/lib/firebase/actions';
 import { addMovement } from '@/lib/firebase/movements';
 import { getCategories, updateCategoryQuantity, subscribeToCategory } from '@/lib/firebase/categories';
 import { generateItemCode } from '@/lib/utils';
-import { Barcode as BarcodeIcon, Printer, ArrowRight, MapPin, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { Barcode as BarcodeIcon, Printer, ArrowRight, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { useFirebase } from '@/contexts/FirebaseContext';
@@ -125,7 +124,7 @@ export default function GoodsIn() {
           itemId: systemCode,
           type: 'IN',
           weight: 0,
-          operator: 'System',
+          operator: user?.email || 'System',
           reference: formData.itemCode,
           notes: `Added ${quantity} units of ${selectedCategory.name}`,
           quantity
@@ -133,102 +132,62 @@ export default function GoodsIn() {
 
         toast.success(`Added ${quantity} units to inventory`);
       } 
-      // Handle Raw Materials
-      else if (selectedCategory.prefix === 'RAW') {
-        const weight = parseFloat(formData.weight);
-        const coilNumber = parseInt(formData.coilNumber);
-        const coilLength = parseFloat(formData.coilLength);
-
-        if (isNaN(weight) || weight <= 0) {
-          throw new Error('Please enter a valid weight');
-        }
-        if (isNaN(coilNumber) || coilNumber <= 0) {
-          throw new Error('Please enter a valid number of coils');
-        }
-        if (isNaN(coilLength) || coilLength <= 0) {
-          throw new Error('Please enter a valid coil length');
-        }
-
-        const itemData = {
-          itemCode: formData.itemCode,
-          systemCode,
-          description: `Coil: ${coilNumber}, Length: ${coilLength}ft`,
-          weight,
-          category: formData.category,
-          status: 'pending',
-          metadata: {
-            coilNumber: coilNumber.toString(),
-            coilLength: coilLength.toString(),
-          },
-        };
-
-        const itemId = await addItem(itemData);
-
-        await addAction({
-          itemId,
-          itemCode: formData.itemCode,
-          systemCode,
-          description: itemData.description,
-          category: formData.category,
-          weight,
-          actionType: 'in',
-          status: 'pending',
-        });
-
-        await addMovement({
-          itemId,
-          type: 'IN',
-          weight,
-          operator: 'System',
-          reference: formData.itemCode,
-          notes: `Raw Material: ${itemData.description}`
-        });
-
-        toast.success('Raw material added to warehouse actions');
-      }
-      // Handle Default Items
+      // Handle Raw Materials and other items
       else {
         const weight = parseFloat(formData.weight);
+        
         if (isNaN(weight) || weight <= 0) {
           throw new Error('Please enter a valid weight');
         }
 
-        if (!formData.description.trim()) {
-          throw new Error('Please enter a description');
+        let description = formData.description;
+        let metadata = {};
+
+        // Special handling for Raw Materials
+        if (selectedCategory.prefix === 'RAW') {
+          const coilNumber = parseInt(formData.coilNumber);
+          const coilLength = parseFloat(formData.coilLength);
+
+          if (isNaN(coilNumber) || coilNumber <= 0) {
+            throw new Error('Please enter a valid number of coils');
+          }
+          if (isNaN(coilLength) || coilLength <= 0) {
+            throw new Error('Please enter a valid coil length');
+          }
+
+          description = `Coil: ${coilNumber}, Length: ${coilLength}ft`;
+          metadata = {
+            coilNumber: coilNumber.toString(),
+            coilLength: coilLength.toString(),
+          };
+        } else {
+          if (!formData.description.trim()) {
+            throw new Error('Please enter a description');
+          }
         }
 
         const itemData = {
           itemCode: formData.itemCode,
           systemCode,
-          description: formData.description,
+          description,
           weight,
           category: formData.category,
-          status: 'pending',
+          status: 'pending' as const, // Item needs to be placed via scanning
+          metadata,
         };
 
         const itemId = await addItem(itemData);
-
-        await addAction({
-          itemId,
-          itemCode: formData.itemCode,
-          systemCode,
-          description: formData.description,
-          category: formData.category,
-          weight,
-          actionType: 'in',
-          status: 'pending',
-        });
 
         await addMovement({
           itemId,
           type: 'IN',
           weight,
-          operator: 'System',
+          operator: user?.email || 'System',
           reference: formData.itemCode,
-          notes: `Goods in: ${formData.description}`
+          notes: `Goods in: ${description}`
         });
 
-        toast.success('Item added to warehouse actions');
+        toast.success('Item added - scan barcode to place in location');
       }
     } catch (error) {
       console.error('Error processing goods in:', error);
@@ -267,7 +226,7 @@ export default function GoodsIn() {
         itemId: formData.itemCode,
         type: 'OUT',
         weight: 0,
-        operator: 'System',
+        operator: user?.email || 'System',
         reference: formData.itemCode,
         notes: `Removed ${quantity} units of ${selectedCategory.name}`,
         quantity
@@ -302,85 +261,91 @@ export default function GoodsIn() {
     if (!printWindow) return;
 
     const svg = document.createElement('svg');
-    JsBarcode(svg, generatedCode, {
-      format: 'CODE128',
-      width: 2,
-      height: 100,
-      displayValue: true,
-      fontSize: 16,
-      margin: 10,
-    });
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+    script.onload = () => {
+      // @ts-ignore
+      window.JsBarcode(svg, generatedCode, {
+        format: 'CODE128',
+        width: 2,
+        height: 100,
+        displayValue: true,
+        fontSize: 16,
+        margin: 10,
+      });
 
-    const content = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Print Barcode - ${generatedCode}</title>
-          <style>
-            body { 
-              margin: 20px;
-              font-family: Arial, sans-serif;
-            }
-            .container {
-              max-width: 400px;
-              margin: 0 auto;
-              text-align: center;
-            }
-            .barcode svg {
-              max-width: 100%;
-            }
-            .code {
-              font-size: 24px;
-              font-weight: bold;
-              margin: 20px 0;
-            }
-            .details {
-              margin: 20px 0;
-              font-size: 16px;
-              line-height: 1.5;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="barcode">
-              ${svg.outerHTML}
+      const content = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Print Barcode - ${generatedCode}</title>
+            <style>
+              body { 
+                margin: 20px;
+                font-family: Arial, sans-serif;
+              }
+              .container {
+                max-width: 400px;
+                margin: 0 auto;
+                text-align: center;
+              }
+              .barcode svg {
+                max-width: 100%;
+              }
+              .code {
+                font-size: 24px;
+                font-weight: bold;
+                margin: 20px 0;
+              }
+              .details {
+                margin: 20px 0;
+                font-size: 16px;
+                line-height: 1.5;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="barcode">
+                ${svg.outerHTML}
+              </div>
+              <div class="code">${generatedCode}</div>
+              <div class="details">
+                <p><strong>Reference:</strong> ${formData.itemCode}</p>
+                ${selectedCategory?.kanbanRules?.goodsIn ? `
+                  <p><strong>Quantity:</strong> ${formData.quantity}</p>
+                ` : selectedCategory?.prefix === 'RAW' ? `
+                  <p><strong>Coils:</strong> ${formData.coilNumber}</p>
+                  <p><strong>Length:</strong> ${formData.coilLength}ft</p>
+                  <p><strong>Weight:</strong> ${formData.weight}kg</p>
+                ` : `
+                  <p><strong>Description:</strong> ${formData.description}</p>
+                  <p><strong>Weight:</strong> ${formData.weight}kg</p>
+                `}
+              </div>
             </div>
-            <div class="code">${generatedCode}</div>
-            <div class="details">
-              <p><strong>Reference:</strong> ${formData.itemCode}</p>
-              ${selectedCategory?.kanbanRules?.goodsIn ? `
-                <p><strong>Quantity:</strong> ${formData.quantity}</p>
-              ` : selectedCategory?.prefix === 'RAW' ? `
-                <p><strong>Coils:</strong> ${formData.coilNumber}</p>
-                <p><strong>Length:</strong> ${formData.coilLength}ft</p>
-                <p><strong>Weight:</strong> ${formData.weight}kg</p>
-              ` : `
-                <p><strong>Description:</strong> ${formData.description}</p>
-                <p><strong>Weight:</strong> ${formData.weight}kg</p>
-              `}
-            </div>
-          </div>
-          <script>
-            window.onload = () => {
-              window.print();
-              setTimeout(() => window.close(), 500);
-            };
-          </script>
-        </body>
-      </html>
-    `;
+            <script>
+              window.onload = () => {
+                window.print();
+                setTimeout(() => window.close(), 500);
+              };
+            </script>
+          </body>
+        </html>
+      `;
 
-    printWindow.document.write(content);
-    printWindow.document.close();
+      printWindow.document.write(content);
+      printWindow.document.close();
+    };
+    printWindow.document.head.appendChild(script);
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Stock Management</h1>
-        <Button variant="outline" onClick={() => navigate('/picking')}>
-          View Warehouse Actions
+        <Button variant="outline" onClick={() => navigate('/scan')}>
+          Go to Scanner
           <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </div>
@@ -406,7 +371,10 @@ export default function GoodsIn() {
                   Generated Barcode
                 </CardTitle>
                 <CardDescription>
-                  Print this barcode and attach it to the item
+                  {selectedCategory?.kanbanRules?.goodsIn 
+                    ? 'Inventory updated successfully'
+                    : 'Print this barcode and scan it to place the item in a location'
+                  }
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -419,7 +387,7 @@ export default function GoodsIn() {
                     </div>
                     {selectedCategory?.kanbanRules?.goodsIn ? (
                       <div className="text-sm text-muted-foreground">
-                        Added {formData.quantity} units
+                        Added {formData.quantity} units to inventory
                       </div>
                     ) : selectedCategory?.prefix === 'RAW' ? (
                       <div className="text-sm text-muted-foreground">
@@ -436,10 +404,12 @@ export default function GoodsIn() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button onClick={handlePrint} variant="outline">
-                      <Printer className="h-4 w-4 mr-2" />
-                      Print Barcode
-                    </Button>
+                    {!selectedCategory?.kanbanRules?.goodsIn && (
+                      <Button onClick={handlePrint} variant="outline">
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Barcode
+                      </Button>
+                    )}
                     <Button onClick={resetForm} variant="default">
                       Process Next Item
                     </Button>

@@ -1,5 +1,4 @@
 import type { Item, Location, Movement } from '@/types/warehouse';
-import type { WarehouseAction } from './actions';
 
 interface CacheEntry<T> {
   data: T[];
@@ -11,7 +10,6 @@ interface Cache {
   items: CacheEntry<Item>;
   locations: CacheEntry<Location>;
   movements: CacheEntry<Movement>;
-  actions: CacheEntry<WarehouseAction>;
 }
 
 const DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
@@ -19,7 +17,6 @@ let cache: Cache = {
   items: { data: [], timestamp: 0, ttl: DEFAULT_TTL },
   locations: { data: [], timestamp: 0, ttl: DEFAULT_TTL },
   movements: { data: [], timestamp: 0, ttl: DEFAULT_TTL },
-  actions: { data: [], timestamp: 0, ttl: DEFAULT_TTL },
 };
 
 export function getCached<T>(key: keyof Cache): T[] | null {
@@ -34,7 +31,7 @@ export function getCached<T>(key: keyof Cache): T[] | null {
   return entry.data as T[];
 }
 
-export function setCache<T extends Item | Location | Movement | WarehouseAction>(
+export function setCache<T extends Item | Location | Movement>(
   key: keyof Cache,
   data: T[],
   ttl = DEFAULT_TTL

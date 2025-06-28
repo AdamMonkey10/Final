@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Package, Warehouse, Clock, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin } from 'lucide-react';
-import { getItems } from '@/lib/firebase/items';
+import { Package, Warehouse, QrCode, MapPin, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { getItems, getItemsByStatus } from '@/lib/firebase/items';
 import { getLocations, getLocationByCode } from '@/lib/firebase/locations';
-import { getPendingActions } from '@/lib/firebase/actions';
 import { getMovements } from '@/lib/firebase/movements';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { FullscreenToggle } from '@/components/fullscreen-toggle';
@@ -16,7 +15,6 @@ import { BayVisualizer } from '@/components/bay-visualizer';
 import { startOfHour, startOfDay, startOfWeek, isWithinInterval, subHours, subDays, subWeeks } from 'date-fns';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item, Location, Movement } from '@/types/warehouse';
-import type { WarehouseAction } from '@/lib/firebase/actions';
 
 interface LocationStats {
   total: number;
@@ -50,7 +48,6 @@ export default function Dashboard() {
     occupied: 0,
     occupancyRate: 0
   });
-  const [pendingActions, setPendingActions] = useState<WarehouseAction[]>([]);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -65,15 +62,13 @@ export default function Dashboard() {
       if (!user) return; // Only fetch data when user is authenticated
       
       try {
-        const [fetchedItems, fetchedLocations, fetchedActions, fetchedMovements] = await Promise.all([
-          getItems(),
+        const [fetchedItems, fetchedLocations, fetchedMovements] = await Promise.all([
+          getItemsByStatus('placed'), // Only get placed items for dashboard stats
           getLocations(),
-          getPendingActions(),
           getMovements()
         ]);
 
         setItems(fetchedItems);
-        setPendingActions(fetchedActions);
 
         // Calculate location statistics
         const stats = fetchedLocations.reduce((acc, location) => {
@@ -88,7 +83,7 @@ export default function Dashboard() {
 
         setLocationStats({
           ...stats,
-          occupancyRate: (stats.occupied / stats.total) * 100
+          occupancyRate: stats.total > 0 ? (stats.occupied / stats.total) * 100 : 0
         });
 
         // Calculate movement metrics
@@ -160,19 +155,7 @@ export default function Dashboard() {
   };
 
   // Get counts
-  const placedItems = items.filter(item => item.status === 'placed').length;
-  const pendingTasks = pendingActions.length;
-  const incomingItems = pendingActions.filter(a => a.actionType === 'in').length;
-  const pickingTasks = pendingActions.filter(a => a.actionType === 'out').length;
-
-  // Group picking tasks by department
-  const departmentTasks = pendingActions
-    .filter(a => a.actionType === 'out')
-    .reduce((acc, action) => {
-      const dept = action.department || 'Unassigned';
-      acc[dept] = (acc[dept] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+  const placedItems = items.length;
 
   return (
     <div className="relative space-y-6 min-h-[calc(100vh-4rem)]">
@@ -192,14 +175,26 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <Button 
-          size="lg" 
-          className="w-full h-16 text-lg flex items-center justify-center gap-2"
-          onClick={() => setShowScanDialog(true)}
-        >
-          <MapPin className="h-6 w-6" />
-          Find Item Location
-        </Button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Button 
+            size="lg" 
+            className="h-16 text-lg flex items-center justify-center gap-2"
+            onClick={() => setShowScanDialog(true)}
+          >
+            <MapPin className="h-6 w-6" />
+            Find Item Location
+          </Button>
+          
+          <Button 
+            size="lg" 
+            variant="outline"
+            className="h-16 text-lg flex items-center justify-center gap-2"
+            onClick={() => navigate('/scan')}
+          >
+            <QrCode className="h-6 w-6" />
+            Scan Items
+          </Button>
+        </div>
       </div>
       
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -247,96 +242,36 @@ export default function Dashboard() {
           </Card>
         </Link>
 
-        <Link to="/picking" className="transition-transform hover:scale-[1.02]">
-          <Card className="hover:bg-yellow-500/5 dark:hover:bg-yellow-500/10 transition-colors border-2 border-yellow-500/20">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-500">
-                {pendingTasks}
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm">
-                  <span className="font-medium">{pickingTasks}</span> picks
-                  {incomingItems > 0 && (
-                    <> / <span className="font-medium">{incomingItems}</span> placements</>
-                  )}
-                </div>
-                {Object.entries(departmentTasks).length > 0 && (
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    {Object.entries(departmentTasks).map(([dept, count]) => (
-                      <div key={dept} className="flex justify-between">
-                        <span>{dept}:</span>
-                        <span className="font-medium">{count} items</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="h-1 w-full bg-muted mt-4 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-yellow-500 transition-all" 
-                  style={{ 
-                    width: `${Math.min(100, (pendingTasks / 50) * 100)}%` 
-                  }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <div className="md:col-span-2 lg:col-span-3">
+        <div className="md:col-span-2 lg:col-span-1">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Movement Analysis</CardTitle>
+              <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
               <div className="flex gap-2">
                 <ArrowDownToLine className="h-4 w-4 text-blue-500" />
                 <ArrowUpFromLine className="h-4 w-4 text-orange-500" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Last Hour</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-blue-500">{movementMetrics.hourly.in}</div>
-                      <div className="text-xs text-muted-foreground">Placed</div>
-                    </div>
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-orange-500">{movementMetrics.hourly.out}</div>
-                      <div className="text-xs text-muted-foreground">Picked</div>
-                    </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Last Hour</span>
+                  <div className="flex gap-2">
+                    <span className="text-sm font-medium text-blue-500">{movementMetrics.hourly.in} in</span>
+                    <span className="text-sm font-medium text-orange-500">{movementMetrics.hourly.out} out</span>
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Last 24 Hours</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-blue-500">{movementMetrics.daily.in}</div>
-                      <div className="text-xs text-muted-foreground">Placed</div>
-                    </div>
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-orange-500">{movementMetrics.daily.out}</div>
-                      <div className="text-xs text-muted-foreground">Picked</div>
-                    </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Today</span>
+                  <div className="flex gap-2">
+                    <span className="text-sm font-medium text-blue-500">{movementMetrics.daily.in} in</span>
+                    <span className="text-sm font-medium text-orange-500">{movementMetrics.daily.out} out</span>
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">Last 7 Days</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-blue-500">{movementMetrics.weekly.in}</div>
-                      <div className="text-xs text-muted-foreground">Placed</div>
-                    </div>
-                    <div className="rounded-lg border p-2">
-                      <div className="text-2xl font-bold text-orange-500">{movementMetrics.weekly.out}</div>
-                      <div className="text-xs text-muted-foreground">Picked</div>
-                    </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">This Week</span>
+                  <div className="flex gap-2">
+                    <span className="text-sm font-medium text-blue-500">{movementMetrics.weekly.in} in</span>
+                    <span className="text-sm font-medium text-orange-500">{movementMetrics.weekly.out} out</span>
                   </div>
                 </div>
               </div>

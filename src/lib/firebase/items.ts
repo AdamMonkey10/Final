@@ -135,6 +135,33 @@ export async function getItems() {
   }
 }
 
+export async function getItemBySystemCode(systemCode: string): Promise<Item | null> {
+  try {
+    if (!systemCode?.trim()) {
+      throw new Error('System code is required');
+    }
+
+    const q = query(
+      collection(db, COLLECTION),
+      where('systemCode', '==', systemCode.trim())
+    );
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+      return null;
+    }
+
+    const doc = querySnapshot.docs[0];
+    return {
+      id: doc.id,
+      ...doc.data(),
+    } as Item;
+  } catch (error) {
+    console.error('Error getting item by system code:', error);
+    throw error;
+  }
+}
+
 export async function getItemsByLocation(location: string) {
   try {
     if (!location?.trim()) {
