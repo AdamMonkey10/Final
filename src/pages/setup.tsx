@@ -42,9 +42,11 @@ import { addLocation, getLocations } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
+import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
+import { generateBulkLocationZPL } from '@/lib/zpl-generator';
 import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers, Printer, TestTube } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -99,6 +101,14 @@ export default function Setup() {
     '4': LEVEL_MAX_WEIGHTS['4'],
   });
 
+  // Printer settings state
+  const [printerSettings, setPrinterSettings] = useState<PrinterSettings>({
+    ip: '10.0.1.90',
+    port: 9100
+  });
+  const [printerLoading, setPrinterLoading] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+
   // Generate levels array based on maxLevel
   const getLevelsArray = () => {
     const levels = [];
@@ -113,6 +123,7 @@ export default function Setup() {
       loadCategories();
       loadUsers();
       loadOperators();
+      loadPrinterSettings();
     }
   }, [user, authLoading]);
 
@@ -174,6 +185,16 @@ export default function Setup() {
     } catch (error) {
       console.error('Error loading operators:', error);
       toast.error('Failed to load operators');
+    }
+  };
+
+  const loadPrinterSettings = async () => {
+    try {
+      const settings = await getPrinterSettings();
+      setPrinterSettings(settings);
+    } catch (error) {
+      console.error('Error loading printer settings:', error);
+      toast.error('Failed to load printer settings');
     }
   };
 
@@ -349,6 +370,36 @@ export default function Setup() {
     }
   };
 
+  const handleSavePrinterSettings = async () => {
+    setPrinterLoading(true);
+    try {
+      await savePrinterSettings(printerSettings);
+      toast.success('Printer settings saved successfully');
+    } catch (error) {
+      console.error('Error saving printer settings:', error);
+      toast.error('Failed to save printer settings');
+    } finally {
+      setPrinterLoading(false);
+    }
+  };
+
+  const handleTestPrinter = async () => {
+    setTestingConnection(true);
+    try {
+      const success = await testPrinterConnection(printerSettings);
+      if (success) {
+        toast.success('Printer connection test successful! Check your printer for a test label.');
+      } else {
+        toast.error('Printer connection test failed. Please check your settings and network connection.');
+      }
+    } catch (error) {
+      console.error('Error testing printer:', error);
+      toast.error('Printer test failed. Please check your settings.');
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   const downloadInventoryData = () => {
     try {
       const items = categories.map(cat => ({
@@ -398,6 +449,7 @@ export default function Setup() {
           <TabsTrigger value="operators">Operators</TabsTrigger>
           <TabsTrigger value="weights">Weight Settings</TabsTrigger>
           <TabsTrigger value="heights">Height Settings</TabsTrigger>
+          <TabsTrigger value="printer">Printer Settings</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="data">Data Management</TabsTrigger>
         </TabsList>
@@ -872,6 +924,84 @@ export default function Setup() {
                   <li>• Heights are stored with each location for future reference</li>
                   <li>• Configure max levels in the Locations tab to control rack height</li>
                 </ul>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="printer">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Printer className="h-5 w-5" />
+                Zebra Printer Settings
+              </CardTitle>
+              <CardDescription>
+                Configure your Zebra printer for ZPL label printing (103x103mm labels)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="printerIp">Printer IP Address</Label>
+                    <Input
+                      id="printerIp"
+                      value={printerSettings.ip}
+                      onChange={(e) => setPrinterSettings(prev => ({ ...prev, ip: e.target.value }))}
+                      placeholder="10.0.1.90"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="printerPort">Port</Label>
+                    <Input
+                      id="printerPort"
+                      type="number"
+                      value={printerSettings.port}
+                      onChange={(e) => setPrinterSettings(prev => ({ ...prev, port: parseInt(e.target.value) || 9100 }))}
+                      placeholder="9100"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleSavePrinterSettings}
+                    disabled={printerLoading}
+                    className="flex-1"
+                  >
+                    {printerLoading ? 'Saving...' : 'Save Settings'}
+                  </Button>
+                  <Button 
+                    onClick={handleTestPrinter}
+                    disabled={testingConnection}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                  >
+                    <TestTube className="h-4 w-4" />
+                    {testingConnection ? 'Testing...' : 'Test Connection'}
+                  </Button>
+                </div>
+
+                <div className="p-4 bg-blue-50 rounded-lg">
+                  <h4 className="font-medium text-blue-900 mb-2">Printer Setup Instructions:</h4>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• Ensure your Zebra printer is connected to the network</li>
+                    <li>• Configure the printer for 103x103mm labels</li>
+                    <li>• Set the printer to accept HTTP POST requests on the specified port</li>
+                    <li>• Test the connection using the "Test Connection" button</li>
+                    <li>• Labels will be printed directly via ZPL commands</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 bg-yellow-50 rounded-lg">
+                  <h4 className="font-medium text-yellow-900 mb-2">Network Requirements:</h4>
+                  <ul className="text-sm text-yellow-800 space-y-1">
+                    <li>• Printer must be accessible from this device's network</li>
+                    <li>• Default port 9100 is standard for Zebra printers</li>
+                    <li>• Ensure firewall allows HTTP requests to the printer</li>
+                  </ul>
+                </div>
               </div>
             </CardContent>
           </Card>

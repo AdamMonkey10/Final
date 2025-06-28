@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
-import JsBarcode from 'jsbarcode';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer, Ruler } from 'lucide-react';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
+import { generateLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
+import { sendZPL } from '@/lib/printer-service';
+import { toast } from 'sonner';
 import type { Location } from '@/types/warehouse';
 
 interface LocationBarcodePrintProps {
@@ -10,146 +12,34 @@ interface LocationBarcodePrintProps {
 }
 
 export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
-  const barcodeRef = useRef<SVGSVGElement>(null);
+  const [printing, setPrinting] = useState(false);
 
-  useEffect(() => {
-    if (barcodeRef.current) {
-      JsBarcode(barcodeRef.current, location.code, {
-        format: 'CODE128',
-        width: 2,
-        height: 100,
-        displayValue: true,
-        fontSize: 16,
-        margin: 10,
-      });
-    }
-  }, [location.code]);
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const height = getLocationHeight(location);
+      const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
 
-  const handlePrint = () => {
-    // Create a temporary iframe for printing
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    
-    // Generate barcode SVG
-    const svg = document.createElement('svg');
-    JsBarcode(svg, location.code, {
-      format: 'CODE128',
-      width: 2,
-      height: 100,
-      displayValue: true,
-      fontSize: 16,
-      margin: 10,
-    });
-
-    const height = getLocationHeight(location);
-    const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
-
-    const content = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <style>
-            body { 
-              margin: 0; 
-              padding: 20px;
-              font-family: system-ui, -apple-system, sans-serif;
-            }
-            .container {
-              max-width: 400px;
-              margin: 0 auto;
-              text-align: center;
-            }
-            .barcode svg {
-              max-width: 100%;
-              height: auto;
-            }
-            .code {
-              font-size: 24px;
-              font-weight: bold;
-              margin: 20px 0;
-            }
-            .details {
-              margin: 20px 0;
-              font-size: 16px;
-              line-height: 1.5;
-            }
-            .location-info {
-              margin-top: 20px;
-              padding: 15px;
-              border: 2px solid #0369a1;
-              border-radius: 8px;
-              background: #f0f9ff;
-              color: #0369a1;
-              font-weight: bold;
-            }
-            .height-info {
-              margin-top: 10px;
-              padding: 10px;
-              background: #f3f4f6;
-              border-radius: 6px;
-              font-size: 14px;
-              color: #374151;
-            }
-            .rack-type {
-              margin-top: 10px;
-              padding: 8px;
-              background: #dbeafe;
-              color: #1e40af;
-              border-radius: 6px;
-              font-size: 12px;
-              font-weight: bold;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="barcode">
-              ${svg.outerHTML}
-            </div>
-            <div class="code">${location.code}</div>
-            <div class="details">
-              <p><strong>Row:</strong> ${location.row}</p>
-              <p><strong>Bay:</strong> ${location.bay}</p>
-              <p><strong>Level:</strong> ${location.level === '0' ? 'Ground' : location.level}</p>
-            </div>
-            <div class="location-info">
-              WAREHOUSE LOCATION
-            </div>
-            <div class="height-info">
-              <strong>Height:</strong> ${height}m
-              ${location.level === '0' 
-                ? '<br><strong>Ground Level</strong> - No Weight Limit' 
-                : `<br><strong>Max Weight:</strong> ${location.maxWeight}kg`
-              }
-              ${location.currentWeight > 0 
-                ? `<br><strong>Current Weight:</strong> ${location.currentWeight}kg` 
-                : ''
-              }
-            </div>
-            <div class="rack-type">
-              ${rackTypeName} Rack
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    // Write content to iframe and print
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(content);
-      doc.close();
-
-      // Wait for content to load then print
-      iframe.onload = () => {
-        iframe.contentWindow?.print();
-        // Remove iframe after printing
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 100);
+      const labelData: LocationLabelData = {
+        code: location.code,
+        row: location.row,
+        bay: location.bay,
+        level: location.level,
+        height,
+        maxWeight: location.maxWeight,
+        currentWeight: location.currentWeight,
+        rackType: rackTypeName,
       };
+
+      const zpl = generateLocationZPL(labelData);
+      await sendZPL(zpl);
+      
+      toast.success('Location label sent to printer successfully');
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -158,35 +48,46 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
 
   return (
     <div className="flex flex-col items-center space-y-4">
-      <svg ref={barcodeRef} className="w-full max-w-md" />
-      <div className="text-center">
-        <div className="text-lg font-bold">{location.code}</div>
-        <div className="text-sm text-muted-foreground">
-          Row {location.row} • Bay {location.bay} • Level {location.level === '0' ? 'Ground' : location.level}
-        </div>
-        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-2">
-          <Ruler className="h-3 w-3" />
-          Height: {height}m
-        </div>
-        <div className="text-sm text-muted-foreground">
-          {location.level === '0' 
-            ? 'Ground Level - No Weight Limit' 
-            : `Max Weight: ${location.maxWeight}kg`
-          }
-        </div>
-        {location.currentWeight > 0 && (
+      {/* Preview section */}
+      <div className="w-full max-w-md p-4 border rounded-lg bg-white">
+        <div className="text-center space-y-2">
+          <div className="text-lg font-bold">{location.code}</div>
           <div className="text-sm text-muted-foreground">
-            Current Weight: {location.currentWeight}kg
+            Row {location.row} • Bay {location.bay} • Level {location.level === '0' ? 'Ground' : location.level}
           </div>
-        )}
-        <div className="text-xs text-muted-foreground mt-2 px-2 py-1 bg-blue-50 rounded">
-          {rackTypeName} Rack
+          <div className="text-sm text-muted-foreground flex items-center justify-center gap-1">
+            <Ruler className="h-3 w-3" />
+            Height: {height}m
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {location.level === '0' 
+              ? 'Ground Level - No Weight Limit' 
+              : `Max Weight: ${location.maxWeight}kg`
+            }
+          </div>
+          {location.currentWeight > 0 && (
+            <div className="text-sm text-muted-foreground">
+              Current Weight: {location.currentWeight}kg
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground px-2 py-1 bg-blue-50 rounded">
+            {rackTypeName} Rack
+          </div>
         </div>
       </div>
-      <Button onClick={handlePrint} className="w-full">
+
+      <Button 
+        onClick={handlePrint} 
+        className="w-full"
+        disabled={printing}
+      >
         <Printer className="h-4 w-4 mr-2" />
-        Print Location Barcode
+        {printing ? 'Printing...' : 'Print Location Barcode'}
       </Button>
+      
+      <div className="text-xs text-center text-muted-foreground">
+        ZPL label will be sent directly to the configured Zebra printer
+      </div>
     </div>
   );
 }

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import JsBarcode from 'jsbarcode';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 import { getItemBySystemCode } from '@/lib/firebase/items';
+import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
+import { sendZPL } from '@/lib/printer-service';
+import { toast } from 'sonner';
 import type { Item } from '@/types/warehouse';
 
 interface BarcodePrintProps {
@@ -10,9 +12,9 @@ interface BarcodePrintProps {
 }
 
 export function BarcodePrint({ value }: BarcodePrintProps) {
-  const barcodeRef = useRef<SVGSVGElement>(null);
   const [item, setItem] = useState<Item | null>(null);
   const [loading, setLoading] = useState(true);
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     const loadItem = async () => {
@@ -21,6 +23,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         setItem(fetchedItem);
       } catch (error) {
         console.error('Error loading item:', error);
+        toast.error('Failed to load item details');
       } finally {
         setLoading(false);
       }
@@ -29,111 +32,33 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
     loadItem();
   }, [value]);
 
-  useEffect(() => {
-    if (barcodeRef.current) {
-      JsBarcode(barcodeRef.current, value, {
-        format: 'CODE128',
-        width: 2,
-        height: 100,
-        displayValue: true,
-        fontSize: 16,
-        margin: 10,
-      });
+  const handlePrint = async () => {
+    if (!item) {
+      toast.error('No item data available');
+      return;
     }
-  }, [value]);
 
-  const handlePrint = () => {
-    // Create a temporary iframe for printing
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    
-    // Generate barcode SVG
-    const svg = document.createElement('svg');
-    JsBarcode(svg, value, {
-      format: 'CODE128',
-      width: 2,
-      height: 100,
-      displayValue: true,
-      fontSize: 16,
-      margin: 10,
-    });
-
-    const content = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <style>
-            body { 
-              margin: 0; 
-              padding: 20px;
-              font-family: system-ui, -apple-system, sans-serif;
-            }
-            .container {
-              max-width: 400px;
-              margin: 0 auto;
-              text-align: center;
-            }
-            .barcode svg {
-              max-width: 100%;
-              height: auto;
-            }
-            .code {
-              font-size: 24px;
-              font-weight: bold;
-              margin: 20px 0;
-            }
-            .details {
-              margin: 20px 0;
-              font-size: 16px;
-              line-height: 1.5;
-            }
-            .location {
-              margin-top: 20px;
-              padding: 15px;
-              border: 2px solid #0369a1;
-              border-radius: 8px;
-              background: #f0f9ff;
-              color: #0369a1;
-              font-weight: bold;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="barcode">
-              ${svg.outerHTML}
-            </div>
-            <div class="code">${value}</div>
-            <div class="details">
-              <p><strong>Reference:</strong> ${item?.itemCode || 'N/A'}</p>
-              <p><strong>Weight:</strong> ${item?.weight || 0}kg</p>
-            </div>
-            ${item?.location ? `
-              <div class="location">
-                Location: ${item.location}
-              </div>
-            ` : ''}
-          </div>
-        </body>
-      </html>
-    `;
-
-    // Write content to iframe and print
-    const doc = iframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(content);
-      doc.close();
-
-      // Wait for content to load then print
-      iframe.onload = () => {
-        iframe.contentWindow?.print();
-        // Remove iframe after printing
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 100);
+    setPrinting(true);
+    try {
+      const labelData: ItemLabelData = {
+        systemCode: item.systemCode,
+        itemCode: item.itemCode,
+        description: item.description,
+        weight: item.weight,
+        location: item.location,
+        operator: 'System', // You might want to get this from context
+        date: new Date().toLocaleDateString(),
       };
+
+      const zpl = generateItemZPL(labelData);
+      await sendZPL(zpl);
+      
+      toast.success('Label sent to printer successfully');
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -141,27 +66,45 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
     return <div>Loading item details...</div>;
   }
 
+  if (!item) {
+    return <div>Item not found</div>;
+  }
+
   return (
     <div className="flex flex-col items-center space-y-4">
-      <svg ref={barcodeRef} className="w-full max-w-md" />
-      <div className="text-center">
-        <div className="text-lg font-bold">{value}</div>
-        <div className="text-sm text-muted-foreground">
-          Reference: {item?.itemCode || 'N/A'}
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Weight: {item?.weight || 0}kg
-        </div>
-        {item?.location && (
+      {/* Preview section */}
+      <div className="w-full max-w-md p-4 border rounded-lg bg-white">
+        <div className="text-center space-y-2">
+          <div className="text-lg font-bold">{item.systemCode}</div>
           <div className="text-sm text-muted-foreground">
-            Location: {item.location}
+            Reference: {item.itemCode}
           </div>
-        )}
+          <div className="text-sm text-muted-foreground">
+            {item.description}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Weight: {item.weight}kg
+          </div>
+          {item.location && (
+            <div className="text-sm text-muted-foreground">
+              Location: {item.location}
+            </div>
+          )}
+        </div>
       </div>
-      <Button onClick={handlePrint} className="w-full">
+
+      <Button 
+        onClick={handlePrint} 
+        className="w-full"
+        disabled={printing}
+      >
         <Printer className="h-4 w-4 mr-2" />
-        Print Barcode
+        {printing ? 'Printing...' : 'Print Barcode'}
       </Button>
+      
+      <div className="text-xs text-center text-muted-foreground">
+        ZPL label will be sent directly to the configured Zebra printer
+      </div>
     </div>
   );
 }

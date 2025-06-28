@@ -33,6 +33,8 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
+import { generateBulkLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
+import { sendZPL } from '@/lib/printer-service';
 import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
@@ -59,6 +61,7 @@ export default function LocationsPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
   const [selectedLocationsForPrint, setSelectedLocationsForPrint] = useState<Location[]>([]);
+  const [bulkPrinting, setBulkPrinting] = useState(false);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -166,148 +169,40 @@ export default function LocationsPage() {
     setShowBulkPrintDialog(true);
   };
 
-  const handleBulkPrint = () => {
+  const handleBulkPrint = async () => {
     if (selectedLocationsForPrint.length === 0) {
       toast.error('No locations selected for printing');
       return;
     }
 
-    // Create a new window for bulk printing
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      toast.error('Failed to open print window');
-      return;
+    setBulkPrinting(true);
+    try {
+      // Convert locations to label data
+      const labelData: LocationLabelData[] = selectedLocationsForPrint.map(location => ({
+        code: location.code,
+        row: location.row,
+        bay: location.bay,
+        level: location.level,
+        height: getLocationHeight(location),
+        maxWeight: location.maxWeight,
+        currentWeight: location.currentWeight,
+        rackType: RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard',
+      }));
+
+      // Generate bulk ZPL
+      const zpl = generateBulkLocationZPL(labelData);
+      
+      // Send to printer
+      await sendZPL(zpl);
+      
+      toast.success(`Successfully sent ${selectedLocationsForPrint.length} location labels to printer`);
+      setShowBulkPrintDialog(false);
+    } catch (error) {
+      console.error('Bulk print error:', error);
+      toast.error(`Bulk print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setBulkPrinting(false);
     }
-
-    // Generate content for all location barcodes
-    const barcodePromises = selectedLocationsForPrint.map(location => {
-      return new Promise<string>((resolve) => {
-        const svg = document.createElement('svg');
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
-        script.onload = () => {
-          // @ts-ignore
-          window.JsBarcode(svg, location.code, {
-            format: 'CODE128',
-            width: 2,
-            height: 80,
-            displayValue: true,
-            fontSize: 14,
-            margin: 8,
-          });
-          resolve(svg.outerHTML);
-        };
-        document.head.appendChild(script);
-      });
-    });
-
-    Promise.all(barcodePromises).then(barcodes => {
-      const content = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Location Barcodes - ${selectedLocationsForPrint.length} locations</title>
-            <style>
-              body { 
-                margin: 0; 
-                padding: 20px;
-                font-family: system-ui, -apple-system, sans-serif;
-              }
-              .grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 20px;
-                max-width: 1200px;
-                margin: 0 auto;
-              }
-              .location-card {
-                border: 2px solid #e5e7eb;
-                border-radius: 8px;
-                padding: 15px;
-                text-align: center;
-                background: white;
-                break-inside: avoid;
-              }
-              .barcode svg {
-                max-width: 100%;
-                height: auto;
-              }
-              .code {
-                font-size: 18px;
-                font-weight: bold;
-                margin: 10px 0;
-              }
-              .details {
-                font-size: 12px;
-                color: #6b7280;
-                line-height: 1.4;
-              }
-              .height-info {
-                margin-top: 8px;
-                padding: 6px;
-                background: #f3f4f6;
-                border-radius: 4px;
-                font-size: 11px;
-              }
-              .rack-type {
-                margin-top: 6px;
-                padding: 4px 8px;
-                background: #dbeafe;
-                color: #1e40af;
-                border-radius: 4px;
-                font-size: 10px;
-                font-weight: bold;
-              }
-              @media print {
-                body { margin: 0; padding: 10px; }
-                .grid { gap: 15px; }
-                .location-card { 
-                  border: 1px solid #000;
-                  margin-bottom: 15px;
-                }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="grid">
-              ${selectedLocationsForPrint.map((location, index) => `
-                <div class="location-card">
-                  <div class="barcode">
-                    ${barcodes[index]}
-                  </div>
-                  <div class="code">${location.code}</div>
-                  <div class="details">
-                    Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
-                  </div>
-                  <div class="height-info">
-                    Height: ${getLocationHeight(location)}m
-                    ${location.level === '0' ? '' : ` • Max: ${location.maxWeight}kg`}
-                    ${location.currentWeight > 0 ? ` • Current: ${location.currentWeight}kg` : ''}
-                  </div>
-                  <div class="rack-type">
-                    ${RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-            <script>
-              window.onload = () => {
-                setTimeout(() => {
-                  window.print();
-                  setTimeout(() => window.close(), 1000);
-                }, 500);
-              };
-            </script>
-          </body>
-        </html>
-      `;
-
-      printWindow.document.write(content);
-      printWindow.document.close();
-    });
-
-    setShowBulkPrintDialog(false);
-    toast.success(`Printing ${selectedLocationsForPrint.length} location barcodes`);
   };
 
   return (
@@ -332,7 +227,7 @@ export default function LocationsPage() {
             Location List
           </CardTitle>
           <CardDescription>
-            View and manage storage locations with height and rack type information. Print barcodes for scanning workflow.
+            View and manage storage locations with height and rack type information. Print ZPL barcodes directly to your Zebra printer.
             {loading && <span className="text-blue-600"> • Updating...</span>}
           </CardDescription>
         </CardHeader>
@@ -514,14 +409,31 @@ export default function LocationsPage() {
           <div className="space-y-4">
             <p>
               You are about to print <strong>{selectedLocationsForPrint.length}</strong> location barcodes.
-              This will open a new window with all barcodes formatted for printing.
+              This will send ZPL commands directly to your configured Zebra printer.
             </p>
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <h4 className="font-medium text-blue-900 mb-2">Print Details:</h4>
+              <ul className="text-sm text-blue-800 space-y-1">
+                <li>• Labels will be printed on 103x103mm labels</li>
+                <li>• Each label will be on a separate page</li>
+                <li>• ZPL commands will be sent directly to the printer</li>
+                <li>• Ensure your printer is ready and has sufficient labels</li>
+              </ul>
+            </div>
             <div className="flex gap-2">
-              <Button onClick={handleBulkPrint} className="flex-1">
+              <Button 
+                onClick={handleBulkPrint} 
+                className="flex-1"
+                disabled={bulkPrinting}
+              >
                 <Printer className="h-4 w-4 mr-2" />
-                Print All Barcodes
+                {bulkPrinting ? 'Printing...' : 'Print All Barcodes'}
               </Button>
-              <Button variant="outline" onClick={() => setShowBulkPrintDialog(false)}>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowBulkPrintDialog(false)}
+                disabled={bulkPrinting}
+              >
                 Cancel
               </Button>
             </div>
