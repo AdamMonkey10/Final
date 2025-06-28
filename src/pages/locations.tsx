@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { getLocations } from '@/lib/firebase/locations';
+import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
 import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
@@ -61,44 +61,44 @@ export default function LocationsPage() {
 
   useEffect(() => {
     if (user && !authLoading) {
-      loadLocations();
+      // Set up real-time subscription to locations
+      const unsubscribe = subscribeToLocations(async (fetchedLocations) => {
+        try {
+          // Fetch items for each location that has weight
+          const locationsWithItems = await Promise.all(
+            fetchedLocations.map(async (location) => {
+              if (location.currentWeight > 0) {
+                try {
+                  const items = await getItemsByLocation(location.code);
+                  return {
+                    ...location,
+                    storedItem: items[0] // Assume one item per location for now
+                  };
+                } catch (error) {
+                  console.error(`Error loading items for location ${location.code}:`, error);
+                  return location;
+                }
+              }
+              return location;
+            })
+          );
+
+          setLocations(locationsWithItems);
+          setLoading(false);
+        } catch (error) {
+          console.error('Error processing locations:', error);
+          setLocations(fetchedLocations);
+          setLoading(false);
+        }
+      });
+
+      return () => unsubscribe();
     }
   }, [user, authLoading]);
 
   useEffect(() => {
     filterLocations();
   }, [search, filterType, locations]);
-
-  const loadLocations = async () => {
-    if (!user || authLoading) return;
-    
-    try {
-      setLoading(true);
-      const fetchedLocations = await getLocations();
-      
-      // Fetch items for each location
-      const locationsWithItems = await Promise.all(
-        fetchedLocations.map(async (location) => {
-          if (location.currentWeight > 0) {
-            const items = await getItemsByLocation(location.code);
-            return {
-              ...location,
-              storedItem: items[0] // Assume one item per location for now
-            };
-          }
-          return location;
-        })
-      );
-
-      setLocations(locationsWithItems);
-      setFilteredLocations(locationsWithItems);
-    } catch (error) {
-      console.error('Error loading locations:', error);
-      toast.error('Failed to load locations');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const filterLocations = () => {
     if (!search.trim()) {
@@ -127,6 +127,7 @@ export default function LocationsPage() {
 
   const getWeightStatusColor = (currentWeight: number, maxWeight: number) => {
     if (currentWeight === 0) return 'bg-green-100 text-green-800';
+    if (maxWeight === Infinity) return 'bg-blue-100 text-blue-800'; // Ground level
     if (currentWeight >= maxWeight * 0.9) return 'bg-red-100 text-red-800';
     if (currentWeight >= maxWeight * 0.7) return 'bg-yellow-100 text-yellow-800';
     return 'bg-blue-100 text-blue-800';
@@ -134,6 +135,7 @@ export default function LocationsPage() {
 
   const getWeightStatusText = (currentWeight: number, maxWeight: number) => {
     if (currentWeight === 0) return 'Empty';
+    if (maxWeight === Infinity) return 'In Use'; // Ground level
     if (currentWeight >= maxWeight * 0.9) return 'Full';
     if (currentWeight >= maxWeight * 0.7) return 'Heavy';
     return 'In Use';
@@ -301,10 +303,9 @@ export default function LocationsPage() {
             <PrinterIcon className="h-4 w-4 mr-2" />
             Print All Barcodes
           </Button>
-          <Button onClick={loadLocations} variant="outline" disabled={loading}>
-            <RefreshCcw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
+          <Badge variant="outline" className="px-3 py-1">
+            {locations.length} locations
+          </Badge>
         </div>
       </div>
 
@@ -316,6 +317,7 @@ export default function LocationsPage() {
           </CardTitle>
           <CardDescription>
             View and manage storage locations. Print barcodes for scanning workflow.
+            {loading && <span className="text-blue-600"> • Updating...</span>}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -349,13 +351,26 @@ export default function LocationsPage() {
             )}
           </div>
 
-          {loading ? (
-            <div className="text-center py-4 text-muted-foreground">
+          {loading && locations.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
               Loading locations...
             </div>
           ) : filteredLocations.length === 0 ? (
-            <div className="text-center py-4 text-muted-foreground">
-              No locations found matching your search.
+            <div className="text-center py-8 text-muted-foreground">
+              {locations.length === 0 ? (
+                <div>
+                  <Grid2X2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No locations found</p>
+                  <p className="text-sm">Create locations in the Setup page to get started.</p>
+                </div>
+              ) : (
+                <div>
+                  <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No locations match your search</p>
+                  <p className="text-sm">Try adjusting your search terms or filter.</p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="border rounded-md">

@@ -2,10 +2,12 @@ import {
   collection,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   getDocs,
   query,
   where,
+  onSnapshot,
   arrayUnion as firestoreArrayUnion,
   arrayRemove as firestoreArrayRemove,
 } from 'firebase/firestore';
@@ -84,11 +86,19 @@ export async function updateLocation(id: string, data: Partial<Location>) {
   }
 }
 
+export async function deleteLocation(id: string) {
+  try {
+    const locationRef = doc(db, COLLECTION, id);
+    await deleteDoc(locationRef);
+    invalidateCache(CACHE_KEY);
+  } catch (error) {
+    console.error('Error deleting location:', error);
+    throw error;
+  }
+}
+
 export async function getLocations() {
   try {
-    const cached = getCached<Location>(CACHE_KEY);
-    if (cached) return cached;
-
     const querySnapshot = await getDocs(collection(db, COLLECTION));
     const locations = querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -101,11 +111,44 @@ export async function getLocations() {
       })
     })) as Location[];
 
+    // Always invalidate cache and set fresh data
+    invalidateCache(CACHE_KEY);
     setCache(CACHE_KEY, locations);
     return locations;
   } catch (error) {
     console.error('Error getting locations:', error);
     throw error;
+  }
+}
+
+export function subscribeToLocations(callback: (locations: Location[]) => void) {
+  try {
+    const q = collection(db, COLLECTION);
+
+    return onSnapshot(q, (snapshot) => {
+      const locations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Ensure ground level locations have proper defaults
+        ...(doc.data().level === '0' && {
+          maxWeight: Infinity,
+          stackedItems: doc.data().stackedItems || [],
+          isGroundFull: doc.data().isGroundFull || false
+        })
+      })) as Location[];
+      
+      // Update cache with fresh data
+      invalidateCache(CACHE_KEY);
+      setCache(CACHE_KEY, locations);
+      callback(locations);
+    }, (error) => {
+      console.error('Error in locations subscription:', error);
+      callback([]);
+    });
+  } catch (error) {
+    console.error('Error subscribing to locations:', error);
+    callback([]);
+    return () => {};
   }
 }
 
