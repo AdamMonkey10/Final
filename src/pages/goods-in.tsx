@@ -34,6 +34,7 @@ import { generateItemCode } from '@/lib/utils';
 import { Barcode as BarcodeIcon, Printer, ArrowRight, MapPin, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Category } from '@/lib/firebase/categories';
 
 interface FormData {
@@ -48,6 +49,7 @@ interface FormData {
 
 export default function GoodsIn() {
   const navigate = useNavigate();
+  const { user, authLoading } = useFirebase();
   const [formData, setFormData] = useState<FormData>({
     itemCode: '',
     description: '',
@@ -64,8 +66,10 @@ export default function GoodsIn() {
   const [activeTab, setActiveTab] = useState('in');
 
   useEffect(() => {
-    loadCategories();
-  }, []);
+    if (user && !authLoading) {
+      loadCategories();
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     if (formData.category) {
@@ -85,6 +89,8 @@ export default function GoodsIn() {
   }, [formData.category, categories]);
 
   const loadCategories = async () => {
+    if (!user || authLoading) return;
+    
     try {
       const fetchedCategories = await getCategories();
       setCategories(fetchedCategories);

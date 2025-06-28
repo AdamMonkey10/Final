@@ -45,6 +45,7 @@ import { LEVEL_MAX_WEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
 import { Settings, Trash2, Plus, Users, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Category } from '@/lib/firebase/categories';
 import type { User } from '@/lib/firebase/users';
@@ -55,6 +56,7 @@ const LOCATIONS_PER_BAY = 3;
 const LEVELS = [0, 1, 2, 3, 4]; // Ground level (0) and 4 levels above
 
 export default function Setup() {
+  const { user, authLoading } = useFirebase();
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
@@ -82,11 +84,15 @@ export default function Setup() {
   });
 
   useEffect(() => {
-    loadCategories();
-    loadUsers();
-  }, []);
+    if (user && !authLoading) {
+      loadCategories();
+      loadUsers();
+    }
+  }, [user, authLoading]);
 
   const loadCategories = async () => {
+    if (!user || authLoading) return;
+    
     try {
       const fetchedCategories = await getCategories();
       setCategories(fetchedCategories);
@@ -97,6 +103,8 @@ export default function Setup() {
   };
 
   const loadUsers = async () => {
+    if (!user || authLoading) return;
+    
     try {
       const fetchedUsers = await getUsers();
       setUsers(fetchedUsers);

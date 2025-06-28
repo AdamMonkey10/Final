@@ -27,9 +27,11 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { getItemsByStatus } from '@/lib/firebase/items';
 import { Search, Filter, Package, RefreshCcw } from 'lucide-react';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item } from '@/types/warehouse';
 
 export default function Inventory() {
+  const { user, authLoading } = useFirebase();
   const [items, setItems] = useState<Item[]>([]);
   const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,14 +39,18 @@ export default function Inventory() {
   const [filterType, setFilterType] = useState<'code' | 'description' | 'category' | 'location'>('code');
 
   useEffect(() => {
-    loadItems();
-  }, []);
+    if (user && !authLoading) {
+      loadItems();
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     filterItems();
   }, [search, filterType, items]);
 
   const loadItems = async () => {
+    if (!user || authLoading) return;
+    
     try {
       setLoading(true);
       // Only fetch items with status 'placed'

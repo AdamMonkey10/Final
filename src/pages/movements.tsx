@@ -20,17 +20,23 @@ import { getMovements } from '@/lib/firebase/movements';
 import { ArrowDownToLine, ArrowUpFromLine, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Movement } from '@/types/warehouse';
 
 export default function MovementsPage() {
+  const { user, authLoading } = useFirebase();
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadMovements();
-  }, []);
+    if (user && !authLoading) {
+      loadMovements();
+    }
+  }, [user, authLoading]);
 
   const loadMovements = async () => {
+    if (!user || authLoading) return;
+    
     try {
       setLoading(true);
       const fetchedMovements = await getMovements();

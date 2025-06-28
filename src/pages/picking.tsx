@@ -30,11 +30,13 @@ import { ActionCard } from '@/components/action-card';
 import { InventoryCard } from '@/components/inventory-card';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item } from '@/types/warehouse';
 import type { WarehouseAction } from '@/lib/firebase/actions';
 import type { Location } from '@/types/warehouse';
 
 export default function PickingPage() {
+  const { user, authLoading } = useFirebase();
   const [items, setItems] = useState<Item[]>([]);
   const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [actionList, setActionList] = useState<WarehouseAction[]>([]);
@@ -50,22 +52,24 @@ export default function PickingPage() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   useEffect(() => {
-    loadItems();
-    const unsubscribe = subscribeToActions(async (actions) => {
-      setActionList(actions);
-      for (const action of actions) {
-        if (action.actionType === 'in' && !suggestedLocations[action.id]) {
-          setSuggestedLocations(prev => ({
-            ...prev,
-            [action.id]: action.location || ''
-          }));
+    if (user && !authLoading) {
+      loadItems();
+      const unsubscribe = subscribeToActions(async (actions) => {
+        setActionList(actions);
+        for (const action of actions) {
+          if (action.actionType === 'in' && !suggestedLocations[action.id]) {
+            setSuggestedLocations(prev => ({
+              ...prev,
+              [action.id]: action.location || ''
+            }));
+          }
         }
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      });
 
-    return () => unsubscribe();
-  }, []);
+      return () => unsubscribe();
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     if (showLocationDialog) {
@@ -74,6 +78,8 @@ export default function PickingPage() {
   }, [showLocationDialog]);
 
   const loadItems = async () => {
+    if (!user || authLoading) return;
+    
     try {
       const fetchedItems = await getItems();
       const placedItems = fetchedItems.filter(item => item.status === 'placed');

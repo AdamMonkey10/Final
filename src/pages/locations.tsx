@@ -36,6 +36,7 @@ import { getItemsByLocation } from '@/lib/firebase/items';
 import { Grid2X2, Search, Filter, QrCode, RefreshCcw } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Item } from '@/types/warehouse';
 
@@ -44,6 +45,7 @@ interface LocationWithItem extends Location {
 }
 
 export default function LocationsPage() {
+  const { user, authLoading } = useFirebase();
   const [locations, setLocations] = useState<LocationWithItem[]>([]);
   const [filteredLocations, setFilteredLocations] = useState<LocationWithItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,14 +56,18 @@ export default function LocationsPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
 
   useEffect(() => {
-    loadLocations();
-  }, []);
+    if (user && !authLoading) {
+      loadLocations();
+    }
+  }, [user, authLoading]);
 
   useEffect(() => {
     filterLocations();
   }, [search, filterType, locations]);
 
   const loadLocations = async () => {
+    if (!user || authLoading) return;
+    
     try {
       setLoading(true);
       const fetchedLocations = await getLocations();
