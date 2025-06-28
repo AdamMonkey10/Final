@@ -35,9 +35,9 @@ import { toast } from 'sonner';
 import { addItem, updateItem, getItemBySystemCode } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
 import { getCategories, updateCategoryQuantity, subscribeToCategory } from '@/lib/firebase/categories';
-import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/locations';
+import { getLocations, updateLocation, getLocationByCode, getAvailableLocations } from '@/lib/firebase/locations';
 import { generateItemCode } from '@/lib/utils';
-import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package } from 'lucide-react';
+import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { LocationSelector } from '@/components/location-selector';
@@ -58,7 +58,7 @@ interface FormData {
   coilLength: string;
 }
 
-type ProcessStep = 'form' | 'barcode' | 'scan-location' | 'scan-item' | 'complete';
+type ProcessStep = 'form' | 'barcode' | 'suggested-location' | 'scan-location' | 'scan-item' | 'complete';
 
 export default function GoodsIn() {
   const navigate = useNavigate();
@@ -83,6 +83,7 @@ export default function GoodsIn() {
   // Location and scanning state
   const [availableLocations, setAvailableLocations] = useState<Location[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
@@ -138,6 +139,17 @@ export default function GoodsIn() {
 
   const getOperatorName = () => {
     return selectedOperator?.name || user?.email || 'System';
+  };
+
+  const findSuggestedLocation = async (weight: number, isGroundLevel: boolean = false) => {
+    try {
+      const availableLocations = await getAvailableLocations(weight);
+      const optimal = findOptimalLocation(availableLocations, weight, isGroundLevel);
+      return optimal;
+    } catch (error) {
+      console.error('Error finding suggested location:', error);
+      return null;
+    }
   };
 
   const handleGoodsIn = async (e: React.FormEvent) => {
@@ -243,8 +255,18 @@ export default function GoodsIn() {
           notes: `Goods in: ${description} - awaiting placement`
         });
 
-        toast.success('Item created - print barcode and scan to place');
-        setProcessStep('barcode');
+        // Find suggested location
+        const isGroundLevel = selectedCategory.prefix === 'RAW';
+        const suggested = await findSuggestedLocation(weight, isGroundLevel);
+        
+        if (suggested) {
+          setSuggestedLocation(suggested);
+          toast.success('Item created - suggested location found');
+          setProcessStep('suggested-location');
+        } else {
+          toast.warning('Item created - no optimal location found, manual selection required');
+          setProcessStep('barcode');
+        }
       }
     } catch (error) {
       console.error('Error processing goods in:', error);
@@ -397,6 +419,18 @@ export default function GoodsIn() {
     printWindow.document.head.appendChild(script);
   };
 
+  const handleAcceptSuggestedLocation = () => {
+    if (suggestedLocation) {
+      setSelectedLocation(suggestedLocation);
+      setShowVisualDialog(true);
+    }
+  };
+
+  const handleRejectSuggestedLocation = () => {
+    setSuggestedLocation(null);
+    setProcessStep('barcode');
+  };
+
   const handleStartPlacement = () => {
     setScanMode('location');
     setShowScanDialog(true);
@@ -530,6 +564,7 @@ export default function GoodsIn() {
     setProcessStep('form');
     setPendingItem(null);
     setSelectedLocation(null);
+    setSuggestedLocation(null);
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
@@ -720,6 +755,60 @@ export default function GoodsIn() {
                     {loading ? 'Processing...' : 'Process Goods In'}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+          )}
+
+          {processStep === 'suggested-location' && suggestedLocation && (
+            <Card className="bg-green-50 border-green-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-green-800">
+                  <CheckCircle className="h-5 w-5" />
+                  Suggested Location Found
+                </CardTitle>
+                <CardDescription>
+                  The system has found an optimal location for this item
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {pendingItem && (
+                    <div className="p-4 bg-white rounded-lg border">
+                      <h3 className="font-medium">{pendingItem.itemCode}</h3>
+                      <p className="text-sm text-muted-foreground">{pendingItem.description}</p>
+                      <p className="text-sm">Weight: {pendingItem.weight}kg</p>
+                      <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                    </div>
+                  )}
+                  
+                  <div className="p-4 bg-green-100 rounded-lg">
+                    <h4 className="font-medium text-green-800 mb-2">Suggested Location:</h4>
+                    <div className="text-2xl font-bold text-green-800">{suggestedLocation.code}</div>
+                    <div className="text-sm text-green-700">
+                      Row {suggestedLocation.row} • Bay {suggestedLocation.bay} • Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                    </div>
+                    <div className="text-sm text-green-700 mt-2">
+                      Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                    </div>
+                  </div>
+
+                  <BayVisualizer
+                    location={suggestedLocation}
+                    onConfirm={handleAcceptSuggestedLocation}
+                    mode="view"
+                  />
+
+                  <div className="flex gap-2">
+                    <Button onClick={handleAcceptSuggestedLocation} className="flex-1">
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Accept Suggested Location
+                    </Button>
+                    <Button onClick={handleRejectSuggestedLocation} variant="outline" className="flex-1">
+                      <AlertTriangle className="h-4 w-4 mr-2" />
+                      Choose Different Location
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}
