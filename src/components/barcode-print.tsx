@@ -1,17 +1,33 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
+import { getItemBySystemCode } from '@/lib/firebase/items';
+import type { Item } from '@/types/warehouse';
 
 interface BarcodePrintProps {
-  value: string;
-  itemCode: string;
-  weight: number;
-  location: string;
+  value: string; // systemCode
 }
 
-export function BarcodePrint({ value, itemCode, weight, location }: BarcodePrintProps) {
+export function BarcodePrint({ value }: BarcodePrintProps) {
   const barcodeRef = useRef<SVGSVGElement>(null);
+  const [item, setItem] = useState<Item | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadItem = async () => {
+      try {
+        const fetchedItem = await getItemBySystemCode(value);
+        setItem(fetchedItem);
+      } catch (error) {
+        console.error('Error loading item:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadItem();
+  }, [value]);
 
   useEffect(() => {
     if (barcodeRef.current) {
@@ -90,12 +106,14 @@ export function BarcodePrint({ value, itemCode, weight, location }: BarcodePrint
             </div>
             <div class="code">${value}</div>
             <div class="details">
-              <p><strong>Reference:</strong> ${itemCode}</p>
-              <p><strong>Weight:</strong> ${weight}kg</p>
+              <p><strong>Reference:</strong> ${item?.itemCode || 'N/A'}</p>
+              <p><strong>Weight:</strong> ${item?.weight || 0}kg</p>
             </div>
-            <div class="location">
-              Location: ${location}
-            </div>
+            ${item?.location ? `
+              <div class="location">
+                Location: ${item.location}
+              </div>
+            ` : ''}
           </div>
         </body>
       </html>
@@ -119,20 +137,26 @@ export function BarcodePrint({ value, itemCode, weight, location }: BarcodePrint
     }
   };
 
+  if (loading) {
+    return <div>Loading item details...</div>;
+  }
+
   return (
     <div className="flex flex-col items-center space-y-4">
       <svg ref={barcodeRef} className="w-full max-w-md" />
       <div className="text-center">
         <div className="text-lg font-bold">{value}</div>
         <div className="text-sm text-muted-foreground">
-          Reference: {itemCode}
+          Reference: {item?.itemCode || 'N/A'}
         </div>
         <div className="text-sm text-muted-foreground">
-          Weight: {weight}kg
+          Weight: {item?.weight || 0}kg
         </div>
-        <div className="text-sm text-muted-foreground">
-          Location: {location}
-        </div>
+        {item?.location && (
+          <div className="text-sm text-muted-foreground">
+            Location: {item.location}
+          </div>
+        )}
       </div>
       <Button onClick={handlePrint} className="w-full">
         <Printer className="h-4 w-4 mr-2" />

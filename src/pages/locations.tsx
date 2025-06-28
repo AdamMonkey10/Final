@@ -272,12 +272,7 @@ export default function LocationsPage() {
           </DialogHeader>
           <div className="space-y-4">
             {selectedLocation?.storedItem && (
-              <BarcodePrint
-                value={selectedLocation.storedItem.systemCode}
-                itemCode={selectedLocation.storedItem.itemCode}
-                weight={selectedLocation.storedItem.weight}
-                location={selectedLocation.code}
-              />
+              <BarcodePrint value={selectedLocation.storedItem.systemCode} />
             )}
           </div>
         </DialogContent>

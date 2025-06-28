@@ -253,7 +253,7 @@ export default function ScanPage() {
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Dialog>
 
       {/* Scan Input Dialog */}
       <Dialog open={showScanDialog} onOpenChange={setShowScanDialog}>
