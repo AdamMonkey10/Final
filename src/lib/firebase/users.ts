@@ -16,12 +16,23 @@ export interface User {
 }
 
 export async function verifyUser(email: string, password: string): Promise<User | null> {
+  console.log('🔐 Starting user verification:', { email, passwordLength: password.length });
+  
   try {
+    console.log('🚀 Attempting Firebase authentication');
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const firebaseUser = userCredential.user;
 
+    console.log('✅ Firebase authentication successful:', {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName,
+      emailVerified: firebaseUser.emailVerified
+    });
+
     // Update last login in Firestore
     try {
+      console.log('💾 Updating user data in Firestore');
       const userRef = doc(db, COLLECTION, firebaseUser.uid);
       await setDoc(userRef, {
         email: firebaseUser.email,
@@ -29,8 +40,9 @@ export async function verifyUser(email: string, password: string): Promise<User 
         lastLogin: serverTimestamp(),
         updatedAt: serverTimestamp()
       }, { merge: true });
+      console.log('✅ Firestore user data updated successfully');
     } catch (firestoreError) {
-      console.warn('Could not update user data in Firestore:', firestoreError);
+      console.warn('⚠️ Could not update user data in Firestore:', firestoreError);
       // Continue with login even if Firestore update fails
     }
 
@@ -41,9 +53,14 @@ export async function verifyUser(email: string, password: string): Promise<User 
       lastLogin: new Date()
     };
 
+    console.log('✅ User verification complete:', user);
     return user;
   } catch (error: any) {
-    console.error('Error verifying user:', error);
+    console.error('❌ User verification failed:', {
+      error: error.message,
+      code: error.code,
+      fullError: error
+    });
     
     // Provide user-friendly error messages
     switch (error.code) {
@@ -57,25 +74,33 @@ export async function verifyUser(email: string, password: string): Promise<User 
         throw new Error('This account has been disabled.');
       case 'auth/too-many-requests':
         throw new Error('Too many failed login attempts. Please try again later.');
+      case 'auth/network-request-failed':
+        throw new Error('Network error. Please check your internet connection.');
+      case 'auth/invalid-credential':
+        throw new Error('Invalid email or password.');
       default:
-        throw new Error('Login failed. Please check your credentials and try again.');
+        throw new Error(`Login failed: ${error.message}`);
     }
   }
 }
 
 export async function verifySetupUser(username: string, password: string, currentUser: User | null): Promise<boolean> {
+  console.log('🔧 Verifying setup user:', { 
+    username, 
+    hasPassword: !!password,
+    currentUser: currentUser?.email 
+  });
+  
   try {
-    console.log('Verifying setup user:', { username, currentUser: currentUser?.email });
-    
     // Check if it's the Team2 setup user
     if (username === 'Team2' && password === 'Team2') {
-      console.log('Team2 credentials verified');
+      console.log('✅ Team2 credentials verified');
       return true;
     }
 
     // Check if current user has setup access
     if (currentUser) {
-      console.log('Checking admin access for user:', currentUser.email);
+      console.log('👤 Checking admin access for user:', currentUser.email);
       
       // Admin users (you can customize this logic)
       const adminEmails = [
@@ -84,44 +109,53 @@ export async function verifySetupUser(username: string, password: string, curren
       ];
       
       if (adminEmails.includes(currentUser.email.toLowerCase())) {
-        console.log('Admin email verified:', currentUser.email);
+        console.log('✅ Admin email verified:', currentUser.email);
         return true;
+      } else {
+        console.log('❌ Email not in admin list:', currentUser.email);
       }
     }
 
     // Check setup users collection
     try {
-      console.log('Checking setup_users collection for:', username);
+      console.log('📚 Checking setup_users collection for:', username);
       const userRef = doc(db, SETUP_COLLECTION, username);
       const userDoc = await getDoc(userRef);
 
       if (!userDoc.exists()) {
-        console.log('Setup user not found in collection:', username);
+        console.log('❌ Setup user not found in collection:', username);
         return false;
       }
 
       const userData = userDoc.data();
-      console.log('Setup user data found:', { username, hasPassword: !!userData.password });
+      console.log('📄 Setup user data found:', { 
+        username, 
+        hasPassword: !!userData.password,
+        passwordMatch: userData.password === password
+      });
       
       if (userData.password === password) {
+        console.log('✅ Setup user password verified');
         await updateDoc(userRef, {
           lastLogin: serverTimestamp()
         });
-        console.log('Setup user verified successfully');
+        console.log('💾 Setup user last login updated');
         return true;
+      } else {
+        console.log('❌ Setup user password mismatch');
       }
     } catch (firestoreError) {
-      console.warn('Error checking setup_users collection:', firestoreError);
+      console.warn('⚠️ Error checking setup_users collection:', firestoreError);
     }
 
-    console.log('Setup verification failed, falling back to Team2 check');
+    console.log('❌ Setup verification failed, no valid credentials found');
     return false;
   } catch (error) {
-    console.error('Error verifying setup user:', error);
+    console.error('❌ Error verifying setup user:', error);
     
     // Fallback to Team2 credentials
     if (username === 'Team2' && password === 'Team2') {
-      console.log('Fallback to Team2 credentials successful');
+      console.log('✅ Fallback to Team2 credentials successful');
       return true;
     }
     
@@ -130,6 +164,8 @@ export async function verifySetupUser(username: string, password: string, curren
 }
 
 export async function addUser(email: string, password: string): Promise<void> {
+  console.log('👤 Adding user:', { email });
+  
   try {
     // Note: This would typically be done through Firebase Admin SDK on the server
     // For now, we'll just add to our users collection
@@ -145,23 +181,30 @@ export async function addUser(email: string, password: string): Promise<void> {
       createdAt: serverTimestamp(),
       lastLogin: null
     });
+    
+    console.log('✅ User added successfully:', email);
   } catch (error) {
-    console.error('Error adding user:', error);
+    console.error('❌ Error adding user:', error);
     throw error;
   }
 }
 
 export async function deleteUser(email: string): Promise<void> {
+  console.log('🗑️ Deleting user:', { email });
+  
   try {
     const userRef = doc(db, COLLECTION, email);
     await deleteDoc(userRef);
+    console.log('✅ User deleted successfully:', email);
   } catch (error) {
-    console.error('Error deleting user:', error);
+    console.error('❌ Error deleting user:', error);
     throw error;
   }
 }
 
 export async function getUsers(): Promise<User[]> {
+  console.log('📋 Fetching users list');
+  
   try {
     const querySnapshot = await getDocs(collection(db, COLLECTION));
     const users = querySnapshot.docs.map(doc => ({
@@ -171,30 +214,40 @@ export async function getUsers(): Promise<User[]> {
       lastLogin: doc.data().lastLogin?.toDate()
     })) as User[];
 
+    console.log('✅ Users fetched successfully:', { count: users.length });
     return users;
   } catch (error) {
-    console.error('Error getting users:', error);
+    console.error('❌ Error getting users:', error);
     return [];
   }
 }
 
 export async function logout(): Promise<void> {
+  console.log('🚪 Logging out user');
+  
   try {
     await signOut(auth);
+    console.log('✅ User logged out successfully');
   } catch (error) {
-    console.error('Error signing out:', error);
+    console.error('❌ Error signing out:', error);
     throw error;
   }
 }
 
 export function getCurrentUser(): User | null {
   const firebaseUser = auth.currentUser;
-  if (!firebaseUser) return null;
+  if (!firebaseUser) {
+    console.log('❌ No current user found');
+    return null;
+  }
   
-  return {
+  const user = {
     uid: firebaseUser.uid,
     email: firebaseUser.email || '',
     displayName: firebaseUser.displayName || undefined,
     lastLogin: new Date()
   };
+  
+  console.log('👤 Current user:', user);
+  return user;
 }

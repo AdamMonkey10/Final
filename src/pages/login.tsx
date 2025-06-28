@@ -11,30 +11,65 @@ import { useFirebase } from '@/contexts/FirebaseContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { user, authLoading } = useFirebase();
+  const { user, authLoading, isOnline, error } = useFirebase();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Enhanced logging for authentication state
   useEffect(() => {
+    console.log('🔐 Login Component - Auth State Changed:', {
+      user: user ? {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName
+      } : null,
+      authLoading,
+      isOnline,
+      error: error?.message
+    });
+
     if (!authLoading && user) {
+      console.log('✅ User authenticated, redirecting to dashboard');
       navigate('/');
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, isOnline, error]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
+    console.log('🚀 Starting login attempt:', {
+      email,
+      passwordLength: password.length,
+      isOnline,
+      timestamp: new Date().toISOString()
+    });
+
     try {
       const loggedInUser = await verifyUser(email, password);
+      console.log('✅ Login successful:', {
+        user: loggedInUser ? {
+          uid: loggedInUser.uid,
+          email: loggedInUser.email,
+          displayName: loggedInUser.displayName
+        } : null,
+        timestamp: new Date().toISOString()
+      });
+
       if (loggedInUser) {
         const displayName = loggedInUser.displayName || loggedInUser.email.split('@')[0];
         toast.success(`Welcome back, ${displayName}!`);
-        navigate('/');
+        console.log('🎉 Login toast shown, navigation should happen automatically');
       }
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('❌ Login failed:', {
+        error: error.message,
+        code: error.code,
+        fullError: error,
+        email,
+        timestamp: new Date().toISOString()
+      });
       toast.error(error.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
@@ -42,21 +77,53 @@ export default function Login() {
   };
 
   const handleQuickLogin = () => {
+    console.log('🔧 Quick login button clicked');
     setEmail('Carl.Jukes@dakin-flathers.com');
     setPassword('29@qDy2A9s#');
   };
 
   // Show loading while auth state is being determined
   if (authLoading) {
+    console.log('⏳ Showing auth loading screen');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
           <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Online: {isOnline ? 'Yes' : 'No'}
+          </p>
         </div>
       </div>
     );
   }
+
+  // Show connection error if offline
+  if (!isOnline && error) {
+    console.log('🔌 Showing offline error screen');
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-red-100 dark:from-gray-900 dark:to-gray-800 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle className="text-red-600">Connection Error</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Unable to connect to Firebase. Please check your internet connection.
+            </p>
+            <p className="text-xs text-red-600">
+              Error: {error.message}
+            </p>
+            <Button onClick={() => window.location.reload()} variant="outline">
+              Retry Connection
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  console.log('🖥️ Rendering login form');
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -148,6 +215,13 @@ export default function Login() {
                 <User className="h-4 w-4 mr-2" />
                 Use Default Credentials
               </Button>
+            </div>
+
+            {/* Debug Information */}
+            <div className="text-xs text-muted-foreground space-y-1 p-2 bg-muted/50 rounded">
+              <div>Status: {authLoading ? 'Loading' : user ? 'Authenticated' : 'Not authenticated'}</div>
+              <div>Online: {isOnline ? 'Yes' : 'No'}</div>
+              {error && <div className="text-red-600">Error: {error.message}</div>}
             </div>
           </CardContent>
         </Card>
