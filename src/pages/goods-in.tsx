@@ -760,32 +760,39 @@ export default function GoodsIn() {
           )}
 
           {processStep === 'suggested-location' && suggestedLocation && (
-            <Card className="bg-green-50 border-green-200">
+            <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-green-800">
+                <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-100">
                   <CheckCircle className="h-5 w-5" />
-                  Suggested Location Found
+                  Optimal Location Found
                 </CardTitle>
-                <CardDescription>
-                  The system has found an optimal location for this item
+                <CardDescription className="text-blue-700 dark:text-blue-300">
+                  The system has identified the best location for this item based on weight and accessibility
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
                   {pendingItem && (
-                    <div className="p-4 bg-white rounded-lg border">
-                      <h3 className="font-medium">{pendingItem.itemCode}</h3>
-                      <p className="text-sm text-muted-foreground">{pendingItem.description}</p>
-                      <p className="text-sm">Weight: {pendingItem.weight}kg</p>
-                      <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                    <div className="p-4 bg-white dark:bg-gray-900 rounded-lg border border-blue-200 dark:border-blue-800">
+                      <h3 className="font-medium text-gray-900 dark:text-gray-100">{pendingItem.itemCode}</h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{pendingItem.description}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300">Weight: {pendingItem.weight}kg</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">Operator: {getOperatorName()}</p>
                     </div>
                   )}
                   
-                  <div className="text-center">
-                    <Badge variant="outline" className="flex items-center gap-2 px-4 py-2 text-lg mb-4">
-                      <MapPin className="h-5 w-5" />
-                      Suggested Location
-                    </Badge>
+                  <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-lg border border-blue-300 dark:border-blue-700">
+                    <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
+                      <MapPin className="h-4 w-4" />
+                      Recommended Location
+                    </h4>
+                    <div className="text-3xl font-bold text-blue-900 dark:text-blue-100 mb-2">{suggestedLocation.code}</div>
+                    <div className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+                      Row {suggestedLocation.row} • Bay {suggestedLocation.bay} • Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                    </div>
+                    <div className="text-sm text-blue-700 dark:text-blue-300">
+                      Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                    </div>
                   </div>
 
                   <BayVisualizer
@@ -794,14 +801,14 @@ export default function GoodsIn() {
                     mode="view"
                   />
 
-                  <div className="flex gap-2">
-                    <Button onClick={handleAcceptSuggestedLocation} className="flex-1">
+                  <div className="flex gap-3">
+                    <Button onClick={handleAcceptSuggestedLocation} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
                       <CheckCircle className="h-4 w-4 mr-2" />
-                      Accept Suggested Location
+                      Use This Location
                     </Button>
-                    <Button onClick={handleRejectSuggestedLocation} variant="outline" className="flex-1">
+                    <Button onClick={handleRejectSuggestedLocation} variant="outline" className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/30">
                       <AlertTriangle className="h-4 w-4 mr-2" />
-                      Choose Different Location
+                      Choose Different
                     </Button>
                   </div>
                 </div>
