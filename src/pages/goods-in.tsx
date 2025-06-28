@@ -771,7 +771,7 @@ export default function GoodsIn() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {pendingItem && (
                     <div className="p-4 bg-white rounded-lg border">
                       <h3 className="font-medium">{pendingItem.itemCode}</h3>
@@ -781,15 +781,11 @@ export default function GoodsIn() {
                     </div>
                   )}
                   
-                  <div className="p-4 bg-green-100 rounded-lg">
-                    <h4 className="font-medium text-green-800 mb-2">Suggested Location:</h4>
-                    <div className="text-2xl font-bold text-green-800">{suggestedLocation.code}</div>
-                    <div className="text-sm text-green-700">
-                      Row {suggestedLocation.row} • Bay {suggestedLocation.bay} • Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
-                    </div>
-                    <div className="text-sm text-green-700 mt-2">
-                      Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
-                    </div>
+                  <div className="text-center">
+                    <Badge variant="outline" className="flex items-center gap-2 px-4 py-2 text-lg mb-4">
+                      <MapPin className="h-5 w-5" />
+                      Suggested Location
+                    </Badge>
                   </div>
 
                   <BayVisualizer
