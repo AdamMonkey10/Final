@@ -11,7 +11,7 @@ import Movements from '@/pages/movements';
 import Login from '@/pages/login';
 import { Package2 } from 'lucide-react';
 import { verifySetupUser } from '@/lib/firebase/users';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -36,11 +36,39 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useFirebase();
+  const { user, authLoading } = useFirebase();
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [verified, setVerified] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checkingAdminAccess, setCheckingAdminAccess] = useState(true);
+
+  // Automatically check if the current user has admin access
+  useEffect(() => {
+    const checkAdminAccess = async () => {
+      if (!user || authLoading) {
+        setCheckingAdminAccess(false);
+        return;
+      }
+
+      try {
+        console.log('Checking automatic admin access for:', user.email);
+        // Check if the current user is an admin (pass empty credentials since we're checking by email)
+        const isAdmin = await verifySetupUser('', '', user);
+        if (isAdmin) {
+          console.log('Automatic admin access granted for:', user.email);
+          setVerified(true);
+          toast.success('Admin access granted automatically');
+        }
+      } catch (error) {
+        console.error('Error checking admin access:', error);
+      } finally {
+        setCheckingAdminAccess(false);
+      }
+    };
+
+    checkAdminAccess();
+  }, [user, authLoading]);
 
   const handleVerify = async () => {
     setLoading(true);
@@ -60,6 +88,18 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
   };
+
+  // Show loading while checking admin access
+  if (checkingAdminAccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-sm text-muted-foreground">Checking admin access...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!verified) {
     return (
