@@ -33,9 +33,10 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { getLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
-import { Grid2X2, Search, Filter, QrCode, RefreshCcw } from 'lucide-react';
+import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { LocationBarcodePrint } from '@/components/location-barcode-print';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Item } from '@/types/warehouse';
@@ -53,7 +54,10 @@ export default function LocationsPage() {
   const [filterType, setFilterType] = useState<'code' | 'row' | 'bay' | 'level'>('code');
   const [selectedLocation, setSelectedLocation] = useState<LocationWithItem | null>(null);
   const [showBarcodeDialog, setShowBarcodeDialog] = useState(false);
+  const [showLocationBarcodeDialog, setShowLocationBarcodeDialog] = useState(false);
   const [showVisualDialog, setShowVisualDialog] = useState(false);
+  const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
+  const [selectedLocationsForPrint, setSelectedLocationsForPrint] = useState<Location[]>([]);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -147,14 +151,161 @@ export default function LocationsPage() {
     }
   };
 
+  const handlePrintAllLocations = () => {
+    setSelectedLocationsForPrint(locations);
+    setShowBulkPrintDialog(true);
+  };
+
+  const handlePrintFilteredLocations = () => {
+    setSelectedLocationsForPrint(filteredLocations);
+    setShowBulkPrintDialog(true);
+  };
+
+  const handleBulkPrint = () => {
+    if (selectedLocationsForPrint.length === 0) {
+      toast.error('No locations selected for printing');
+      return;
+    }
+
+    // Create a new window for bulk printing
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Failed to open print window');
+      return;
+    }
+
+    // Generate content for all location barcodes
+    const barcodePromises = selectedLocationsForPrint.map(location => {
+      return new Promise<string>((resolve) => {
+        const svg = document.createElement('svg');
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+        script.onload = () => {
+          // @ts-ignore
+          window.JsBarcode(svg, location.code, {
+            format: 'CODE128',
+            width: 2,
+            height: 80,
+            displayValue: true,
+            fontSize: 14,
+            margin: 8,
+          });
+          resolve(svg.outerHTML);
+        };
+        document.head.appendChild(script);
+      });
+    });
+
+    Promise.all(barcodePromises).then(barcodes => {
+      const content = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Location Barcodes - ${selectedLocationsForPrint.length} locations</title>
+            <style>
+              body { 
+                margin: 0; 
+                padding: 20px;
+                font-family: system-ui, -apple-system, sans-serif;
+              }
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+                max-width: 1200px;
+                margin: 0 auto;
+              }
+              .location-card {
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 15px;
+                text-align: center;
+                background: white;
+                break-inside: avoid;
+              }
+              .barcode svg {
+                max-width: 100%;
+                height: auto;
+              }
+              .code {
+                font-size: 18px;
+                font-weight: bold;
+                margin: 10px 0;
+              }
+              .details {
+                font-size: 12px;
+                color: #6b7280;
+                line-height: 1.4;
+              }
+              .weight-info {
+                margin-top: 8px;
+                padding: 6px;
+                background: #f3f4f6;
+                border-radius: 4px;
+                font-size: 11px;
+              }
+              @media print {
+                body { margin: 0; padding: 10px; }
+                .grid { gap: 15px; }
+                .location-card { 
+                  border: 1px solid #000;
+                  margin-bottom: 15px;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="grid">
+              ${selectedLocationsForPrint.map((location, index) => `
+                <div class="location-card">
+                  <div class="barcode">
+                    ${barcodes[index]}
+                  </div>
+                  <div class="code">${location.code}</div>
+                  <div class="details">
+                    Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
+                  </div>
+                  <div class="weight-info">
+                    ${location.level === '0' ? 'Ground Level' : `Max: ${location.maxWeight}kg`}
+                    ${location.currentWeight > 0 ? ` • Current: ${location.currentWeight}kg` : ''}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <script>
+              window.onload = () => {
+                setTimeout(() => {
+                  window.print();
+                  setTimeout(() => window.close(), 1000);
+                }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `;
+
+      printWindow.document.write(content);
+      printWindow.document.close();
+    });
+
+    setShowBulkPrintDialog(false);
+    toast.success(`Printing ${selectedLocationsForPrint.length} location barcodes`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Locations</h1>
-        <Button onClick={loadLocations} variant="outline" disabled={loading}>
-          <RefreshCcw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handlePrintAllLocations} variant="outline">
+            <PrinterIcon className="h-4 w-4 mr-2" />
+            Print All Barcodes
+          </Button>
+          <Button onClick={loadLocations} variant="outline" disabled={loading}>
+            <RefreshCcw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -164,7 +315,7 @@ export default function LocationsPage() {
             Location List
           </CardTitle>
           <CardDescription>
-            View and manage storage locations
+            View and manage storage locations. Print barcodes for scanning workflow.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -190,6 +341,12 @@ export default function LocationsPage() {
                 <SelectItem value="level">Level</SelectItem>
               </SelectContent>
             </Select>
+            {filteredLocations.length !== locations.length && (
+              <Button onClick={handlePrintFilteredLocations} variant="outline">
+                <PrinterIcon className="h-4 w-4 mr-2" />
+                Print Filtered ({filteredLocations.length})
+              </Button>
+            )}
           </div>
 
           {loading ? (
@@ -211,7 +368,7 @@ export default function LocationsPage() {
                     <TableHead>Level</TableHead>
                     <TableHead>Weight Status</TableHead>
                     <TableHead>Max Weight</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -241,6 +398,17 @@ export default function LocationsPage() {
                         >
                           View Location
                         </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedLocation(location);
+                            setShowLocationBarcodeDialog(true);
+                          }}
+                        >
+                          <QrCode className="h-4 w-4 mr-2" />
+                          Print Barcode
+                        </Button>
                         {location.storedItem && (
                           <Button
                             variant="outline"
@@ -264,7 +432,7 @@ export default function LocationsPage() {
         </CardContent>
       </Card>
 
-      {/* Barcode Dialog */}
+      {/* Item Barcode Dialog */}
       <Dialog open={showBarcodeDialog} onOpenChange={setShowBarcodeDialog}>
         <DialogContent>
           <DialogHeader>
@@ -274,6 +442,44 @@ export default function LocationsPage() {
             {selectedLocation?.storedItem && (
               <BarcodePrint value={selectedLocation.storedItem.systemCode} />
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Location Barcode Dialog */}
+      <Dialog open={showLocationBarcodeDialog} onOpenChange={setShowLocationBarcodeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Location Barcode</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {selectedLocation && (
+              <LocationBarcodePrint location={selectedLocation} />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Print Confirmation Dialog */}
+      <Dialog open={showBulkPrintDialog} onOpenChange={setShowBulkPrintDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Print Location Barcodes</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p>
+              You are about to print <strong>{selectedLocationsForPrint.length}</strong> location barcodes.
+              This will open a new window with all barcodes formatted for printing.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={handleBulkPrint} className="flex-1">
+                <Printer className="h-4 w-4 mr-2" />
+                Print All Barcodes
+              </Button>
+              <Button variant="outline" onClick={() => setShowBulkPrintDialog(false)}>
+                Cancel
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
