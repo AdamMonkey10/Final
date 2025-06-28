@@ -42,9 +42,9 @@ import { addLocation, getLocations } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
-import { LEVEL_MAX_WEIGHTS } from '@/lib/warehouse-logic';
+import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download, UserCheck } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -62,6 +62,14 @@ export default function Setup() {
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
+  const [selectedRackType, setSelectedRackType] = useState('standard');
+  const [customHeights, setCustomHeights] = useState<Record<string, number>>({
+    '0': 0,
+    '1': 2.5,
+    '2': 5.0,
+    '3': 7.5,
+    '4': 10.0,
+  });
   const [generatedLocations, setGeneratedLocations] = useState<Array<{
     code: string;
     row: string;
@@ -69,6 +77,8 @@ export default function Setup() {
     level: string;
     location: string;
     maxWeight: number;
+    height: number;
+    rackType: string;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -95,6 +105,16 @@ export default function Setup() {
       loadOperators();
     }
   }, [user, authLoading]);
+
+  useEffect(() => {
+    // Update custom heights when rack type changes
+    if (selectedRackType !== 'custom') {
+      const rackConfig = RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES];
+      if (rackConfig) {
+        setCustomHeights(rackConfig.levelHeights);
+      }
+    }
+  }, [selectedRackType]);
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -142,6 +162,16 @@ export default function Setup() {
     }
   };
 
+  const handleHeightChange = (level: string, value: string) => {
+    const height = parseFloat(value);
+    if (!isNaN(height) && height >= 0) {
+      setCustomHeights(prev => ({
+        ...prev,
+        [level]: height
+      }));
+    }
+  };
+
   const generateLocations = () => {
     if (!selectedRow || !bayStart || !bayEnd) {
       toast.error('Please fill in all fields');
@@ -162,6 +192,8 @@ export default function Setup() {
         for (const level of LEVELS) {
           const bayFormatted = bay.toString().padStart(2, '0');
           const code = `${selectedRow}${bayFormatted}-${level}-${position}`;
+          const height = customHeights[level.toString()] || 0;
+          
           locations.push({
             code,
             row: selectedRow,
@@ -171,7 +203,9 @@ export default function Setup() {
             maxWeight: weightLimits[level.toString()],
             currentWeight: 0,
             available: true,
-            verified: true
+            verified: true,
+            height,
+            rackType: selectedRackType
           });
         }
       }
@@ -249,9 +283,9 @@ export default function Setup() {
     }
   };
 
-  const handleDeleteUser = async (username: string) => {
+  const handleDeleteUser = async (email: string) => {
     try {
-      await deleteUser(username);
+      await deleteUser(email);
       toast.success('User deleted');
       loadUsers();
     } catch (error) {
@@ -336,6 +370,7 @@ export default function Setup() {
           <TabsTrigger value="categories">Categories</TabsTrigger>
           <TabsTrigger value="operators">Operators</TabsTrigger>
           <TabsTrigger value="weights">Weight Settings</TabsTrigger>
+          <TabsTrigger value="heights">Height Settings</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="data">Data Management</TabsTrigger>
         </TabsList>
@@ -345,11 +380,11 @@ export default function Setup() {
             <CardHeader>
               <CardTitle>Generate Locations</CardTitle>
               <CardDescription>
-                Generate warehouse locations based on row and bay range. Each bay has {LOCATIONS_PER_BAY} locations and {LEVELS.length} levels (0-4).
+                Generate warehouse locations with custom heights for different rack types. Each bay has {LOCATIONS_PER_BAY} locations and {LEVELS.length} levels (0-4).
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="space-y-2">
                   <Label>Row</Label>
                   <Select value={selectedRow} onValueChange={setSelectedRow}>
@@ -360,6 +395,24 @@ export default function Setup() {
                       {ROWS.map((row) => (
                         <SelectItem key={row} value={row}>
                           Row {row}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Rack Type</Label>
+                  <Select value={selectedRackType} onValueChange={setSelectedRackType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select rack type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(RACK_TYPES).map(([key, config]) => (
+                        <SelectItem key={key} value={key}>
+                          <div className="flex flex-col">
+                            <span>{config.name}</span>
+                            <span className="text-xs text-muted-foreground">{config.description}</span>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -386,6 +439,42 @@ export default function Setup() {
                   />
                 </div>
               </div>
+
+              {/* Height Configuration */}
+              <div className="mb-4 p-4 border rounded-lg">
+                <h3 className="font-medium mb-3 flex items-center gap-2">
+                  <Ruler className="h-4 w-4" />
+                  Height Configuration ({RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name})
+                </h3>
+                <div className="grid grid-cols-5 gap-4">
+                  {LEVELS.map((level) => (
+                    <div key={level} className="space-y-2">
+                      <Label className="text-sm">
+                        Level {level}
+                        {level === 0 && ' (Ground)'}
+                      </Label>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={customHeights[level.toString()]}
+                          onChange={(e) => handleHeightChange(level.toString(), e.target.value)}
+                          disabled={selectedRackType !== 'custom'}
+                          className="text-sm"
+                        />
+                        <span className="text-xs text-muted-foreground">m</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {selectedRackType !== 'custom' && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Heights are preset for {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name}. Select "Custom Rack" to modify.
+                  </p>
+                )}
+              </div>
+
               <Button onClick={generateLocations} className="w-full">
                 Generate Locations
               </Button>
@@ -393,7 +482,7 @@ export default function Setup() {
               {generatedLocations.length > 0 && (
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold mb-4">Generated Locations</h3>
-                  <div className="border rounded-md">
+                  <div className="border rounded-md max-h-96 overflow-y-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -401,12 +490,13 @@ export default function Setup() {
                           <TableHead>Row</TableHead>
                           <TableHead>Bay</TableHead>
                           <TableHead>Level</TableHead>
-                          <TableHead>Location</TableHead>
+                          <TableHead>Height</TableHead>
                           <TableHead>Max Weight</TableHead>
+                          <TableHead>Rack Type</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {generatedLocations.map((location) => (
+                        {generatedLocations.slice(0, 20).map((location) => (
                           <TableRow key={location.code}>
                             <TableCell className="font-medium">
                               {location.code}
@@ -414,12 +504,29 @@ export default function Setup() {
                             <TableCell>{location.row}</TableCell>
                             <TableCell>{location.bay}</TableCell>
                             <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
-                            <TableCell>{location.location}</TableCell>
-                            <TableCell>{location.maxWeight}kg</TableCell>
+                            <TableCell>{location.height}m</TableCell>
+                            <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">
+                                {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType}
+                              </Badge>
+                            </TableCell>
                           </TableRow>
                         ))}
+                        {generatedLocations.length > 20 && (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground">
+                              ... and {generatedLocations.length - 20} more locations
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
+                  </div>
+                  <div className="mt-4 p-3 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Summary:</strong> {generatedLocations.length} locations will be created with {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name} configuration.
+                    </p>
                   </div>
                   <Button
                     onClick={saveLocations}
@@ -640,14 +747,68 @@ export default function Setup() {
                         onChange={(e) => handleWeightChange(level.toString(), e.target.value)}
                         min="0"
                         step="100"
+                        disabled={level === 0}
                       />
                     </div>
-                    <span className="text-sm text-muted-foreground w-8">kg</span>
+                    <span className="text-sm text-muted-foreground w-8">
+                      {level === 0 ? '∞' : 'kg'}
+                    </span>
                   </div>
                 ))}
                 <p className="text-sm text-muted-foreground mt-4">
-                  Note: Changes will apply to newly generated locations only
+                  Note: Changes will apply to newly generated locations only. Ground level has unlimited weight capacity.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="heights">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Ruler className="h-5 w-5" />
+                Rack Height Configurations
+              </CardTitle>
+              <CardDescription>
+                Predefined height configurations for different rack types
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {Object.entries(RACK_TYPES).map(([key, config]) => (
+                  <div key={key} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h3 className="font-medium">{config.name}</h3>
+                        <p className="text-sm text-muted-foreground">{config.description}</p>
+                      </div>
+                      <Badge variant="outline">
+                        Max: {config.maxHeight}m
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-5 gap-4">
+                      {Object.entries(config.levelHeights).map(([level, height]) => (
+                        <div key={level} className="text-center">
+                          <div className="text-sm font-medium">Level {level}</div>
+                          <div className="text-lg">{height}m</div>
+                          {level === '0' && (
+                            <div className="text-xs text-muted-foreground">Ground</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">Usage Notes:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• Heights are used for location identification and safety calculations</li>
+                  <li>• Ground level (Level 0) always has 0m height</li>
+                  <li>• Custom rack type allows manual height configuration</li>
+                  <li>• Heights are stored with each location for future reference</li>
+                </ul>
               </div>
             </CardContent>
           </Card>
@@ -672,7 +833,7 @@ export default function Setup() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Username</TableHead>
+                      <TableHead>Email</TableHead>
                       <TableHead>Last Login</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>

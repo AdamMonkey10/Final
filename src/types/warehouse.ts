@@ -45,4 +45,6 @@ export interface Location {
   verified: boolean;
   isGroundFull?: boolean;
   stackedItems?: string[];
+  height?: number; // Height in meters for the rack/location
+  rackType?: string; // Type of rack (e.g., 'standard', 'heavy-duty', 'cantilever')
 }

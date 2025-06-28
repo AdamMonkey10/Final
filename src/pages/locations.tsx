@@ -33,10 +33,11 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
-import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon } from 'lucide-react';
+import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { LocationBarcodePrint } from '@/components/location-barcode-print';
+import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Item } from '@/types/warehouse';
@@ -51,7 +52,7 @@ export default function LocationsPage() {
   const [filteredLocations, setFilteredLocations] = useState<LocationWithItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<'code' | 'row' | 'bay' | 'level'>('code');
+  const [filterType, setFilterType] = useState<'code' | 'row' | 'bay' | 'level' | 'rackType'>('code');
   const [selectedLocation, setSelectedLocation] = useState<LocationWithItem | null>(null);
   const [showBarcodeDialog, setShowBarcodeDialog] = useState(false);
   const [showLocationBarcodeDialog, setShowLocationBarcodeDialog] = useState(false);
@@ -117,6 +118,8 @@ export default function LocationsPage() {
           return location.bay.toLowerCase().includes(searchLower);
         case 'level':
           return location.level.toLowerCase().includes(searchLower);
+        case 'rackType':
+          return (location.rackType || 'standard').toLowerCase().includes(searchLower);
         default:
           return false;
       }
@@ -239,12 +242,21 @@ export default function LocationsPage() {
                 color: #6b7280;
                 line-height: 1.4;
               }
-              .weight-info {
+              .height-info {
                 margin-top: 8px;
                 padding: 6px;
                 background: #f3f4f6;
                 border-radius: 4px;
                 font-size: 11px;
+              }
+              .rack-type {
+                margin-top: 6px;
+                padding: 4px 8px;
+                background: #dbeafe;
+                color: #1e40af;
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: bold;
               }
               @media print {
                 body { margin: 0; padding: 10px; }
@@ -267,9 +279,13 @@ export default function LocationsPage() {
                   <div class="details">
                     Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
                   </div>
-                  <div class="weight-info">
-                    ${location.level === '0' ? 'Ground Level' : `Max: ${location.maxWeight}kg`}
+                  <div class="height-info">
+                    Height: ${getLocationHeight(location)}m
+                    ${location.level === '0' ? '' : ` • Max: ${location.maxWeight}kg`}
                     ${location.currentWeight > 0 ? ` • Current: ${location.currentWeight}kg` : ''}
+                  </div>
+                  <div class="rack-type">
+                    ${RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
                   </div>
                 </div>
               `).join('')}
@@ -316,7 +332,7 @@ export default function LocationsPage() {
             Location List
           </CardTitle>
           <CardDescription>
-            View and manage storage locations. Print barcodes for scanning workflow.
+            View and manage storage locations with height and rack type information. Print barcodes for scanning workflow.
             {loading && <span className="text-blue-600"> • Updating...</span>}
           </CardDescription>
         </CardHeader>
@@ -341,6 +357,7 @@ export default function LocationsPage() {
                 <SelectItem value="row">Row</SelectItem>
                 <SelectItem value="bay">Bay</SelectItem>
                 <SelectItem value="level">Level</SelectItem>
+                <SelectItem value="rackType">Rack Type</SelectItem>
               </SelectContent>
             </Select>
             {filteredLocations.length !== locations.length && (
@@ -381,6 +398,8 @@ export default function LocationsPage() {
                     <TableHead>Row</TableHead>
                     <TableHead>Bay</TableHead>
                     <TableHead>Level</TableHead>
+                    <TableHead>Height</TableHead>
+                    <TableHead>Rack Type</TableHead>
                     <TableHead>Weight Status</TableHead>
                     <TableHead>Max Weight</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -393,6 +412,17 @@ export default function LocationsPage() {
                       <TableCell>{location.row}</TableCell>
                       <TableCell>{location.bay}</TableCell>
                       <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Ruler className="h-3 w-3 text-muted-foreground" />
+                          {getLocationHeight(location)}m
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge 
                           variant="outline" 
@@ -506,11 +536,25 @@ export default function LocationsPage() {
             <DialogTitle>Location Details</DialogTitle>
           </DialogHeader>
           {selectedLocation && (
-            <BayVisualizer
-              location={selectedLocation}
-              onConfirm={handleLocationConfirm}
-              mode="view"
-            />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
+                <div>
+                  <div className="text-sm text-muted-foreground">Height</div>
+                  <div className="font-medium">{getLocationHeight(selectedLocation)}m</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Rack Type</div>
+                  <div className="font-medium">
+                    {RACK_TYPES[selectedLocation.rackType as keyof typeof RACK_TYPES]?.name || selectedLocation.rackType || 'Standard'}
+                  </div>
+                </div>
+              </div>
+              <BayVisualizer
+                location={selectedLocation}
+                onConfirm={handleLocationConfirm}
+                mode="view"
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -9,6 +9,55 @@ export const LEVEL_MAX_WEIGHTS = {
   '4': 500,      // Fourth level
 };
 
+// Standard rack heights per level (in meters)
+export const STANDARD_RACK_HEIGHTS = {
+  '0': 0,        // Ground level
+  '1': 2.5,      // First level - 2.5m
+  '2': 5.0,      // Second level - 5.0m
+  '3': 7.5,      // Third level - 7.5m
+  '4': 10.0,     // Fourth level - 10.0m
+};
+
+// Rack type configurations
+export const RACK_TYPES = {
+  'standard': {
+    name: 'Standard Rack',
+    description: 'Standard warehouse racking system',
+    maxHeight: 12.0,
+    levelHeights: STANDARD_RACK_HEIGHTS
+  },
+  'heavy-duty': {
+    name: 'Heavy Duty Rack',
+    description: 'Heavy duty racking for large items',
+    maxHeight: 15.0,
+    levelHeights: {
+      '0': 0,
+      '1': 3.0,
+      '2': 6.0,
+      '3': 9.0,
+      '4': 12.0,
+    }
+  },
+  'cantilever': {
+    name: 'Cantilever Rack',
+    description: 'Cantilever racking for long items',
+    maxHeight: 8.0,
+    levelHeights: {
+      '0': 0,
+      '1': 2.0,
+      '2': 4.0,
+      '3': 6.0,
+      '4': 8.0,
+    }
+  },
+  'custom': {
+    name: 'Custom Rack',
+    description: 'Custom height configuration',
+    maxHeight: 20.0,
+    levelHeights: STANDARD_RACK_HEIGHTS
+  }
+};
+
 export function getLevelId(location: Location): string {
   return `${location.row}${location.bay}-${location.level}`;
 }
@@ -155,4 +204,28 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
   // Sort by score (lower is better) and return the best location
   scoredLocations.sort((a, b) => a.score - b.score);
   return scoredLocations[0].location;
+}
+
+export function getLocationHeight(location: Location): number {
+  if (location.height !== undefined) {
+    return location.height;
+  }
+
+  // Fallback to rack type heights
+  if (location.rackType && RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]) {
+    const rackConfig = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES];
+    return rackConfig.levelHeights[location.level as keyof typeof rackConfig.levelHeights] || 0;
+  }
+
+  // Default to standard heights
+  return STANDARD_RACK_HEIGHTS[location.level as keyof typeof STANDARD_RACK_HEIGHTS] || 0;
+}
+
+export function validateLocationHeight(height: number, level: string, rackType: string = 'standard'): boolean {
+  if (height < 0) return false;
+  
+  const rackConfig = RACK_TYPES[rackType as keyof typeof RACK_TYPES];
+  if (!rackConfig) return false;
+  
+  return height <= rackConfig.maxHeight;
 }

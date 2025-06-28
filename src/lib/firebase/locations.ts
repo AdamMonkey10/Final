@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCached, setCache, invalidateCache } from './cache';
-import { LEVEL_MAX_WEIGHTS } from '../warehouse-logic';
+import { LEVEL_MAX_WEIGHTS, STANDARD_RACK_HEIGHTS } from '../warehouse-logic';
 import type { Location } from '@/types/warehouse';
 
 const COLLECTION = 'locations';
@@ -56,6 +56,9 @@ export async function getAvailableLocations(requiredWeight: number) {
 export async function addLocation(location: Omit<Location, 'id'>) {
   const maxWeight = location.level === '0' ? Infinity : LEVEL_MAX_WEIGHTS[location.level as keyof typeof LEVEL_MAX_WEIGHTS];
   
+  // Set default height if not provided
+  const defaultHeight = location.height || STANDARD_RACK_HEIGHTS[location.level as keyof typeof STANDARD_RACK_HEIGHTS] || 0;
+  
   const locationWithDefaults = {
     ...location,
     maxWeight,
@@ -64,6 +67,8 @@ export async function addLocation(location: Omit<Location, 'id'>) {
     verified: true,
     isGroundFull: false,
     stackedItems: [],
+    height: defaultHeight,
+    rackType: location.rackType || 'standard',
   };
 
   const docRef = await addDoc(collection(db, COLLECTION), locationWithDefaults);
@@ -108,7 +113,10 @@ export async function getLocations() {
         maxWeight: Infinity,
         stackedItems: doc.data().stackedItems || [],
         isGroundFull: doc.data().isGroundFull || false
-      })
+      }),
+      // Set default height if missing
+      height: doc.data().height || STANDARD_RACK_HEIGHTS[doc.data().level as keyof typeof STANDARD_RACK_HEIGHTS] || 0,
+      rackType: doc.data().rackType || 'standard'
     })) as Location[];
 
     // Always invalidate cache and set fresh data
@@ -134,7 +142,10 @@ export function subscribeToLocations(callback: (locations: Location[]) => void) 
           maxWeight: Infinity,
           stackedItems: doc.data().stackedItems || [],
           isGroundFull: doc.data().isGroundFull || false
-        })
+        }),
+        // Set default height if missing
+        height: doc.data().height || STANDARD_RACK_HEIGHTS[doc.data().level as keyof typeof STANDARD_RACK_HEIGHTS] || 0,
+        rackType: doc.data().rackType || 'standard'
       })) as Location[];
       
       // Update cache with fresh data
@@ -188,7 +199,10 @@ export async function getLocationByCode(code: string) {
         maxWeight: Infinity,
         stackedItems: doc.data().stackedItems || [],
         isGroundFull: doc.data().isGroundFull || false
-      })
+      }),
+      // Set default height if missing
+      height: doc.data().height || STANDARD_RACK_HEIGHTS[doc.data().level as keyof typeof STANDARD_RACK_HEIGHTS] || 0,
+      rackType: doc.data().rackType || 'standard'
     } as Location;
 
     return location;

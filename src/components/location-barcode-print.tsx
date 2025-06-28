@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import { Button } from '@/components/ui/button';
-import { Printer } from 'lucide-react';
+import { Printer, Ruler } from 'lucide-react';
+import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import type { Location } from '@/types/warehouse';
 
 interface LocationBarcodePrintProps {
@@ -41,6 +42,9 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
       margin: 10,
     });
 
+    const height = getLocationHeight(location);
+    const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
+
     const content = `
       <!DOCTYPE html>
       <html>
@@ -79,13 +83,22 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
               color: #0369a1;
               font-weight: bold;
             }
-            .weight-info {
+            .height-info {
               margin-top: 10px;
               padding: 10px;
               background: #f3f4f6;
               border-radius: 6px;
               font-size: 14px;
               color: #374151;
+            }
+            .rack-type {
+              margin-top: 10px;
+              padding: 8px;
+              background: #dbeafe;
+              color: #1e40af;
+              border-radius: 6px;
+              font-size: 12px;
+              font-weight: bold;
             }
           </style>
         </head>
@@ -103,15 +116,19 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
             <div class="location-info">
               WAREHOUSE LOCATION
             </div>
-            <div class="weight-info">
+            <div class="height-info">
+              <strong>Height:</strong> ${height}m
               ${location.level === '0' 
-                ? 'Ground Level - No Weight Limit' 
-                : `Max Weight: ${location.maxWeight}kg`
+                ? '<br><strong>Ground Level</strong> - No Weight Limit' 
+                : `<br><strong>Max Weight:</strong> ${location.maxWeight}kg`
               }
               ${location.currentWeight > 0 
-                ? `<br>Current Weight: ${location.currentWeight}kg` 
+                ? `<br><strong>Current Weight:</strong> ${location.currentWeight}kg` 
                 : ''
               }
+            </div>
+            <div class="rack-type">
+              ${rackTypeName} Rack
             </div>
           </div>
         </body>
@@ -136,6 +153,9 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
     }
   };
 
+  const height = getLocationHeight(location);
+  const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
+
   return (
     <div className="flex flex-col items-center space-y-4">
       <svg ref={barcodeRef} className="w-full max-w-md" />
@@ -143,6 +163,10 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
         <div className="text-lg font-bold">{location.code}</div>
         <div className="text-sm text-muted-foreground">
           Row {location.row} • Bay {location.bay} • Level {location.level === '0' ? 'Ground' : location.level}
+        </div>
+        <div className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-2">
+          <Ruler className="h-3 w-3" />
+          Height: {height}m
         </div>
         <div className="text-sm text-muted-foreground">
           {location.level === '0' 
@@ -155,6 +179,9 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
             Current Weight: {location.currentWeight}kg
           </div>
         )}
+        <div className="text-xs text-muted-foreground mt-2 px-2 py-1 bg-blue-50 rounded">
+          {rackTypeName} Rack
+        </div>
       </div>
       <Button onClick={handlePrint} className="w-full">
         <Printer className="h-4 w-4 mr-2" />
