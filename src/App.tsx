@@ -53,7 +53,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
       try {
         console.log('Checking automatic admin access for:', user.email);
-        // Check if the current user is an admin (pass empty credentials since we're checking by email)
         const isAdmin = await verifySetupUser('', '', user);
         if (isAdmin) {
           console.log('Automatic admin access granted for:', user.email);
@@ -73,7 +72,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const handleVerify = async () => {
     setLoading(true);
     try {
-      console.log('Attempting setup verification with:', { username, user: user?.email });
       const isValid = await verifySetupUser(username, password, user);
       if (isValid) {
         setVerified(true);

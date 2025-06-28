@@ -1,12 +1,12 @@
 import { 
   signInWithEmailAndPassword, 
-  signOut
+  signOut,
+  createUserWithEmailAndPassword
 } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 const COLLECTION = 'users';
-const SETUP_COLLECTION = 'setup_users';
 
 export interface User {
   uid: string;
@@ -16,23 +16,19 @@ export interface User {
 }
 
 export async function verifyUser(email: string, password: string): Promise<User | null> {
-  console.log('🔐 Starting user verification:', { email, passwordLength: password.length });
+  console.log('🔐 Attempting login for:', email);
   
   try {
-    console.log('🚀 Attempting Firebase authentication');
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const firebaseUser = userCredential.user;
 
-    console.log('✅ Firebase authentication successful:', {
+    console.log('✅ Authentication successful:', {
       uid: firebaseUser.uid,
-      email: firebaseUser.email,
-      displayName: firebaseUser.displayName,
-      emailVerified: firebaseUser.emailVerified
+      email: firebaseUser.email
     });
 
-    // Update last login in Firestore (with better error handling)
+    // Try to update user data in Firestore (non-blocking)
     try {
-      console.log('💾 Updating user data in Firestore');
       const userRef = doc(db, COLLECTION, firebaseUser.uid);
       await setDoc(userRef, {
         email: firebaseUser.email,
@@ -40,13 +36,9 @@ export async function verifyUser(email: string, password: string): Promise<User 
         lastLogin: serverTimestamp(),
         updatedAt: serverTimestamp()
       }, { merge: true });
-      console.log('✅ Firestore user data updated successfully');
-    } catch (firestoreError: any) {
-      console.warn('⚠️ Could not update user data in Firestore:', {
-        error: firestoreError.message,
-        code: firestoreError.code
-      });
-      // Don't throw here - continue with login even if Firestore update fails
+    } catch (firestoreError) {
+      console.warn('Could not update Firestore user data:', firestoreError);
+      // Don't fail login for Firestore errors
     }
 
     const user: User = {
@@ -56,14 +48,9 @@ export async function verifyUser(email: string, password: string): Promise<User 
       lastLogin: new Date()
     };
 
-    console.log('✅ User verification complete:', user);
     return user;
   } catch (error: any) {
-    console.error('❌ User verification failed:', {
-      error: error.message,
-      code: error.code,
-      fullError: error
-    });
+    console.error('❌ Login failed:', error);
     
     // Provide user-friendly error messages
     switch (error.code) {
@@ -88,139 +75,85 @@ export async function verifyUser(email: string, password: string): Promise<User 
 }
 
 export async function verifySetupUser(username: string, password: string, currentUser: User | null): Promise<boolean> {
-  console.log('🔧 Verifying setup user:', { 
-    username, 
-    hasPassword: !!password,
-    currentUser: currentUser?.email,
-    currentUserUid: currentUser?.uid
-  });
+  console.log('🔧 Checking setup access for:', currentUser?.email);
   
+  // Team2 fallback credentials
+  if (username === 'Team2' && password === 'Team2') {
+    console.log('✅ Team2 credentials accepted');
+    return true;
+  }
+
+  // Check if current user is admin
+  if (currentUser) {
+    // Admin emails and UIDs
+    const adminEmails = [
+      'Carl.Jukes@dakin-flathers.com',
+      'carl.jukes@dakin-flathers.com'
+    ];
+    
+    const adminUIDs = [
+      'GRkjeVQpVvVgu9EwMAJIwPzZ03M2' // Your actual UID
+    ];
+    
+    if (adminEmails.includes(currentUser.email.toLowerCase()) || adminUIDs.includes(currentUser.uid)) {
+      console.log('✅ Admin access granted for:', currentUser.email);
+      return true;
+    }
+  }
+
+  console.log('❌ Setup access denied');
+  return false;
+}
+
+export async function createUser(email: string, password: string): Promise<User> {
   try {
-    // Check if it's the Team2 setup user
-    if (username === 'Team2' && password === 'Team2') {
-      console.log('✅ Team2 credentials verified');
-      return true;
-    }
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
 
-    // Check if current user has setup access
-    if (currentUser) {
-      console.log('👤 Checking admin access for user:', currentUser.email, 'UID:', currentUser.uid);
-      
-      // Admin users - check by UID and email (using your ACTUAL UID)
-      const adminUIDs = [
-        'GRkjeVQpVvVgu9EwMAJIwPzZ03M2', // Your ACTUAL UID from the logs
-        '875w92gbBvhlejILrlo5eBEHmg82'  // Keep the old one just in case
-      ];
-      
-      const adminEmails = [
-        'Carl.Jukes@dakin-flathers.com',
-        'carl.jukes@dakin-flathers.com' // Add lowercase version just in case
-      ];
-      
-      if (adminUIDs.includes(currentUser.uid) || adminEmails.includes(currentUser.email.toLowerCase())) {
-        console.log('✅ Admin access verified for:', currentUser.email, 'UID:', currentUser.uid);
-        return true;
-      } else {
-        console.log('❌ User not in admin list:', { email: currentUser.email, uid: currentUser.uid });
-      }
-    }
+    const user: User = {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || '',
+      displayName: firebaseUser.displayName || undefined,
+      lastLogin: new Date()
+    };
 
-    // Check setup users collection (with better error handling)
-    try {
-      console.log('📚 Checking setup_users collection for:', username);
-      const userRef = doc(db, SETUP_COLLECTION, username);
-      const userDoc = await getDoc(userRef);
+    // Save to Firestore
+    const userRef = doc(db, COLLECTION, firebaseUser.uid);
+    await setDoc(userRef, {
+      email: firebaseUser.email,
+      createdAt: serverTimestamp(),
+      lastLogin: serverTimestamp()
+    });
 
-      if (!userDoc.exists()) {
-        console.log('❌ Setup user not found in collection:', username);
-        return false;
-      }
-
-      const userData = userDoc.data();
-      console.log('📄 Setup user data found:', { 
-        username, 
-        hasPassword: !!userData.password,
-        passwordMatch: userData.password === password
-      });
-      
-      if (userData.password === password) {
-        console.log('✅ Setup user password verified');
-        try {
-          await updateDoc(userRef, {
-            lastLogin: serverTimestamp()
-          });
-          console.log('💾 Setup user last login updated');
-        } catch (updateError) {
-          console.warn('⚠️ Could not update setup user last login:', updateError);
-        }
-        return true;
-      } else {
-        console.log('❌ Setup user password mismatch');
-      }
-    } catch (firestoreError: any) {
-      console.warn('⚠️ Error checking setup_users collection:', {
-        error: firestoreError.message,
-        code: firestoreError.code
-      });
-    }
-
-    console.log('❌ Setup verification failed, no valid credentials found');
-    return false;
-  } catch (error) {
-    console.error('❌ Error verifying setup user:', error);
-    
-    // Fallback to Team2 credentials
-    if (username === 'Team2' && password === 'Team2') {
-      console.log('✅ Fallback to Team2 credentials successful');
-      return true;
-    }
-    
-    return false;
+    return user;
+  } catch (error: any) {
+    console.error('Error creating user:', error);
+    throw error;
   }
 }
 
 export async function addUser(email: string, password: string): Promise<void> {
-  console.log('👤 Adding user:', { email });
-  
   try {
-    // Note: This would typically be done through Firebase Admin SDK on the server
-    // For now, we'll just add to our users collection
-    const userRef = doc(db, COLLECTION, email);
-    const userDoc = await getDoc(userRef);
-
-    if (userDoc.exists()) {
-      throw new Error('User already exists');
-    }
-
-    await setDoc(userRef, {
-      email,
-      createdAt: serverTimestamp(),
-      lastLogin: null
-    });
-    
-    console.log('✅ User added successfully:', email);
+    await createUser(email, password);
   } catch (error) {
-    console.error('❌ Error adding user:', error);
+    console.error('Error adding user:', error);
     throw error;
   }
 }
 
 export async function deleteUser(email: string): Promise<void> {
-  console.log('🗑️ Deleting user:', { email });
-  
   try {
+    // Note: This only removes from Firestore, not Firebase Auth
+    // In production, you'd need Firebase Admin SDK to delete auth users
     const userRef = doc(db, COLLECTION, email);
     await deleteDoc(userRef);
-    console.log('✅ User deleted successfully:', email);
   } catch (error) {
-    console.error('❌ Error deleting user:', error);
+    console.error('Error deleting user:', error);
     throw error;
   }
 }
 
 export async function getUsers(): Promise<User[]> {
-  console.log('📋 Fetching users list');
-  
   try {
     const querySnapshot = await getDocs(collection(db, COLLECTION));
     const users = querySnapshot.docs.map(doc => ({
@@ -230,40 +163,30 @@ export async function getUsers(): Promise<User[]> {
       lastLogin: doc.data().lastLogin?.toDate()
     })) as User[];
 
-    console.log('✅ Users fetched successfully:', { count: users.length });
     return users;
   } catch (error) {
-    console.error('❌ Error getting users:', error);
+    console.error('Error getting users:', error);
     return [];
   }
 }
 
 export async function logout(): Promise<void> {
-  console.log('🚪 Logging out user');
-  
   try {
     await signOut(auth);
-    console.log('✅ User logged out successfully');
   } catch (error) {
-    console.error('❌ Error signing out:', error);
+    console.error('Error signing out:', error);
     throw error;
   }
 }
 
 export function getCurrentUser(): User | null {
   const firebaseUser = auth.currentUser;
-  if (!firebaseUser) {
-    console.log('❌ No current user found');
-    return null;
-  }
+  if (!firebaseUser) return null;
   
-  const user = {
+  return {
     uid: firebaseUser.uid,
     email: firebaseUser.email || '',
     displayName: firebaseUser.displayName || undefined,
     lastLogin: new Date()
   };
-  
-  console.log('👤 Current user:', user);
-  return user;
 }

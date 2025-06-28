@@ -5,71 +5,36 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Package2, User, Lock, LogIn, AlertCircle } from 'lucide-react';
+import { Package2, User, Lock, LogIn } from 'lucide-react';
 import { verifyUser } from '@/lib/firebase/users';
 import { useFirebase } from '@/contexts/FirebaseContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { user, authLoading, isOnline, error } = useFirebase();
+  const { user, authLoading } = useFirebase();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Enhanced logging for authentication state
   useEffect(() => {
-    console.log('🔐 Login Component - Auth State Changed:', {
-      user: user ? {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName
-      } : null,
-      authLoading,
-      isOnline,
-      error: error?.message
-    });
-
     if (!authLoading && user) {
       console.log('✅ User authenticated, redirecting to dashboard');
       navigate('/');
     }
-  }, [user, authLoading, navigate, isOnline, error]);
+  }, [user, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    console.log('🚀 Starting login attempt:', {
-      email,
-      passwordLength: password.length,
-      isOnline,
-      timestamp: new Date().toISOString()
-    });
-
     try {
       const loggedInUser = await verifyUser(email, password);
-      console.log('✅ Login successful:', {
-        user: loggedInUser ? {
-          uid: loggedInUser.uid,
-          email: loggedInUser.email,
-          displayName: loggedInUser.displayName
-        } : null,
-        timestamp: new Date().toISOString()
-      });
-
       if (loggedInUser) {
         const displayName = loggedInUser.displayName || loggedInUser.email.split('@')[0];
         toast.success(`Welcome back, ${displayName}!`);
-        console.log('🎉 Login toast shown, navigation should happen automatically');
       }
     } catch (error: any) {
-      console.error('❌ Login failed:', {
-        error: error.message,
-        code: error.code,
-        fullError: error,
-        email,
-        timestamp: new Date().toISOString()
-      });
+      console.error('Login error:', error);
       toast.error(error.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
@@ -77,56 +42,21 @@ export default function Login() {
   };
 
   const handleQuickLogin = () => {
-    console.log('🔧 Quick login button clicked');
     setEmail('Carl.Jukes@dakin-flathers.com');
     setPassword('29@qDy2A9s#');
   };
 
   // Show loading while auth state is being determined
   if (authLoading) {
-    console.log('⏳ Showing auth loading screen');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
           <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Online: {isOnline ? 'Yes' : 'No'}
-          </p>
         </div>
       </div>
     );
   }
-
-  // Show connection error if offline
-  if (!isOnline && error) {
-    console.log('🔌 Showing offline error screen');
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-red-100 dark:from-gray-900 dark:to-gray-800 p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle className="text-red-600 flex items-center justify-center gap-2">
-              <AlertCircle className="h-5 w-5" />
-              Connection Error
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-center space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Unable to connect to Firebase. Please check your internet connection.
-            </p>
-            <p className="text-xs text-red-600">
-              Error: {error.message}
-            </p>
-            <Button onClick={() => window.location.reload()} variant="outline">
-              Retry Connection
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  console.log('🖥️ Rendering login form');
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
@@ -219,28 +149,6 @@ export default function Login() {
                 Use Default Credentials
               </Button>
             </div>
-
-            {/* Debug Information */}
-            <div className="text-xs text-muted-foreground space-y-1 p-3 bg-muted/50 rounded border">
-              <div className="font-medium text-center mb-2">System Status</div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>Auth: {authLoading ? 'Loading' : user ? 'Authenticated' : 'Not authenticated'}</div>
-                <div>Online: {isOnline ? 'Yes' : 'No'}</div>
-                {user && (
-                  <>
-                    <div className="col-span-2 pt-1 border-t">
-                      <div>UID: {user.uid}</div>
-                      <div>Email: {user.email}</div>
-                    </div>
-                  </>
-                )}
-                {error && (
-                  <div className="col-span-2 text-red-600 pt-1 border-t">
-                    Error: {error.message}
-                  </div>
-                )}
-              </div>
-            </div>
           </CardContent>
         </Card>
 
@@ -253,9 +161,6 @@ export default function Login() {
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 Use your Firebase Authentication credentials or click "Default Credentials" for quick access.
               </p>
-              <div className="text-xs text-blue-600 dark:text-blue-400 mt-2">
-                Your UID: GRkjeVQpVvVgu9EwMAJIwPzZ03M2 ✅
-              </div>
             </div>
           </CardContent>
         </Card>

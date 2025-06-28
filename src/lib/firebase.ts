@@ -20,7 +20,7 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firestore with settings optimized for offline support
 const db = initializeFirestore(app, {
   cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-  experimentalForceLongPolling: true,
+  experimentalForceLongPolling: false, // Changed to false for better performance
 });
 
 // Initialize Functions
@@ -40,6 +40,8 @@ if (typeof window !== 'undefined') {
       console.warn('Firebase persistence failed: Multiple tabs open');
     } else if (err.code === 'unimplemented') {
       console.warn('Firebase persistence not supported in this browser');
+    } else {
+      console.warn('Firebase persistence error:', err);
     }
   });
 }

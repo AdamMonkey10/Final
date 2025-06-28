@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, getDocs, onSnapshot } from 'firebase/firestore';
-import { enableNetwork } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { toast } from 'sonner';
 
@@ -35,25 +34,21 @@ const FirebaseContext = createContext<FirebaseContextType>({
 export function FirebaseProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [error, setError] = useState<Error | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Monitor authentication state with enhanced logging
+  // Monitor authentication state
   useEffect(() => {
-    console.log('🔥 Firebase Context - Setting up auth state listener');
+    console.log('🔥 Setting up Firebase auth listener');
     
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
-      console.log('🔐 Auth state changed:', {
-        firebaseUser: firebaseUser ? {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-          emailVerified: firebaseUser.emailVerified
-        } : null,
-        timestamp: new Date().toISOString()
-      });
+      console.log('🔐 Auth state changed:', firebaseUser ? {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        emailVerified: firebaseUser.emailVerified
+      } : 'No user');
 
       if (firebaseUser) {
         const userData: User = {
@@ -62,203 +57,97 @@ export function FirebaseProvider({ children }: { children: React.ReactNode }) {
           displayName: firebaseUser.displayName || undefined,
           lastLogin: new Date()
         };
-        console.log('✅ Setting user data:', userData);
         setUser(userData);
       } else {
-        console.log('❌ No user, clearing user data');
         setUser(null);
       }
       
-      console.log('🔄 Setting authLoading to false');
-      setAuthLoading(false);
-    }, (error) => {
-      console.error('❌ Auth state change error:', error);
       setAuthLoading(false);
     });
 
-    return () => {
-      console.log('🧹 Cleaning up auth state listener');
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   // Monitor online/offline status
   useEffect(() => {
-    console.log('🌐 Setting up online/offline listeners');
-    
     const handleOnline = () => {
-      console.log('✅ Connection restored');
       setIsOnline(true);
+      setError(null);
       toast.success('Back online');
     };
 
     const handleOffline = () => {
-      console.log('❌ Connection lost');
       setIsOnline(false);
-      toast.warning('Working offline', {
-        description: 'Changes will sync when connection is restored'
-      });
+      toast.warning('Working offline');
     };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
     return () => {
-      console.log('🧹 Cleaning up online/offline listeners');
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // Initialize Firebase and set up connection monitoring
+  // Initialize Firebase connection
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-
     const initializeFirebase = async () => {
-      console.log('🚀 Initializing Firebase connection');
-      
       try {
         setLoading(true);
+        console.log('🚀 Testing Firebase connection');
         
-        // Set up a real-time listener for connection state
-        console.log('📡 Setting up connection test listener');
-        unsubscribe = onSnapshot(
-          collection(db, '__connectionTest__'),
-          () => {
-            console.log('✅ Connection test successful');
-            setIsOnline(true);
-            setError(null);
-          },
-          (error) => {
-            console.error('❌ Connection test failed:', error);
-            if (error.code === 'unavailable') {
-              setIsOnline(false);
-              toast.warning('Connection lost', {
-                description: 'Working offline. Changes will sync when connection is restored.'
-              });
-            }
-          }
-        );
-
-        // Test initial connection
-        console.log('🧪 Testing initial connection');
-        await getDocs(collection(db, 'test_connection'));
-        console.log('✅ Initial connection test successful');
+        // Simple connection test
+        await getDocs(collection(db, 'test'));
         
+        console.log('✅ Firebase connection successful');
         setIsInitialized(true);
         setError(null);
-
-      } catch (err) {
-        console.error('❌ Firebase initialization failed:', err);
-        const error = err instanceof Error ? err : new Error('Failed to initialize Firebase');
-        setError(error);
+      } catch (err: any) {
+        console.error('❌ Firebase connection failed:', err);
+        setError(err);
         
-        if (err.code === 'unavailable') {
-          console.log('📴 Setting offline mode');
-          setIsOnline(false);
-          toast.warning('Working offline', {
-            description: 'Changes will sync when connection is restored'
-          });
+        // Don't show error toast for offline scenarios
+        if (err.code !== 'unavailable') {
+          toast.error('Firebase connection failed');
         }
       } finally {
-        console.log('🏁 Firebase initialization complete, setting loading to false');
         setLoading(false);
       }
     };
 
     initializeFirebase();
-
-    return () => {
-      console.log('🧹 Cleaning up Firebase initialization');
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
   }, []);
 
   // Function to manually attempt reconnection
   const reconnect = async () => {
-    console.log('🔄 Manual reconnection attempt');
     try {
       setLoading(true);
-      await enableNetwork(db);
-      await getDocs(collection(db, 'test_connection'));
+      await getDocs(collection(db, 'test'));
       setIsOnline(true);
       setError(null);
-      console.log('✅ Reconnection successful');
       toast.success('Successfully reconnected');
-    } catch (err) {
-      console.error('❌ Reconnection failed:', err);
-      setError(err instanceof Error ? err : new Error('Failed to reconnect'));
-      toast.error('Reconnection failed', {
-        description: 'Please check your internet connection'
-      });
+    } catch (err: any) {
+      setError(err);
+      toast.error('Reconnection failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // Log current state periodically for debugging
-  useEffect(() => {
-    const interval = setInterval(() => {
-      console.log('📊 Firebase Context State:', {
-        loading,
-        isInitialized,
-        isOnline,
-        error: error?.message,
-        user: user ? { uid: user.uid, email: user.email } : null,
-        authLoading,
-        timestamp: new Date().toISOString()
-      });
-    }, 10000); // Log every 10 seconds
-
-    return () => clearInterval(interval);
-  }, [loading, isInitialized, isOnline, error, user, authLoading]);
-
-  // Show loading screen while both Firebase and auth are initializing
+  // Show loading screen while initializing
   if (loading || authLoading) {
-    console.log('⏳ Showing loading screen:', { loading, authLoading });
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
           <p className="mt-2 text-sm text-muted-foreground">
-            {isOnline ? 'Initializing...' : 'Working offline...'}
+            {authLoading ? 'Checking authentication...' : 'Connecting to Firebase...'}
           </p>
-          <div className="mt-2 text-xs text-muted-foreground space-y-1">
-            <div>Firebase: {loading ? 'Loading' : 'Ready'}</div>
-            <div>Auth: {authLoading ? 'Loading' : 'Ready'}</div>
-            <div>Online: {isOnline ? 'Yes' : 'No'}</div>
-          </div>
         </div>
       </div>
     );
   }
-
-  if (error && !isOnline) {
-    console.log('🔌 Showing offline error screen');
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <p className="text-destructive">Working Offline</p>
-          <p className="text-sm text-muted-foreground">
-            Changes will sync when connection is restored
-          </p>
-          <button
-            onClick={reconnect}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-          >
-            Try Reconnecting
-          </button>
-          <div className="text-xs text-muted-foreground">
-            Error: {error.message}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  console.log('✅ Firebase Context ready, rendering children');
 
   return (
     <FirebaseContext.Provider 
