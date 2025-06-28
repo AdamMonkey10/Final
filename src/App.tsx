@@ -40,13 +40,24 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [verified, setVerified] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleVerify = async () => {
-    const isValid = await verifySetupUser(username, password, user);
-    if (isValid) {
-      setVerified(true);
-    } else {
-      toast.error('Invalid setup credentials');
+    setLoading(true);
+    try {
+      console.log('Attempting setup verification with:', { username, user: user?.email });
+      const isValid = await verifySetupUser(username, password, user);
+      if (isValid) {
+        setVerified(true);
+        toast.success('Setup access granted');
+      } else {
+        toast.error('Invalid setup credentials');
+      }
+    } catch (error) {
+      console.error('Setup verification error:', error);
+      toast.error('Setup verification failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -57,23 +68,36 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
           <div className="text-center">
             <h2 className="text-2xl font-bold">Setup Access Required</h2>
             <p className="text-sm text-muted-foreground">Enter setup credentials to continue</p>
+            {user && (
+              <p className="text-xs text-blue-600 mt-2">
+                Logged in as: {user.email}
+              </p>
+            )}
           </div>
           <div className="space-y-4">
             <Input
               type="text"
-              placeholder="Username"
+              placeholder="Username (try 'Team2')"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
             <Input
               type="password"
-              placeholder="Password"
+              placeholder="Password (try 'Team2')"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <Button onClick={handleVerify} className="w-full">
-              Verify
+            <Button 
+              onClick={handleVerify} 
+              className="w-full"
+              disabled={loading}
+            >
+              {loading ? 'Verifying...' : 'Verify'}
             </Button>
+          </div>
+          <div className="text-center text-xs text-muted-foreground">
+            <p>Try username: Team2, password: Team2</p>
+            <p>Or use admin email: Carl.Jukes@dakin-flathers.com</p>
           </div>
         </div>
       </div>
