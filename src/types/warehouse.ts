@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase/firestore';
 
 export interface Item {
   id: string;
-  itemCode: string;
+  itemCode: string; // This is now the Product/SKU
   systemCode: string;
   description: string;
   weight: number;
@@ -27,7 +27,7 @@ export interface Movement {
   weight: number;
   timestamp: Timestamp;
   operator: string;
-  reference: string;
+  reference: string; // This is now the Product/SKU
   notes?: string;
   quantity?: number;
 }

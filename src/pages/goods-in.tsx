@@ -45,19 +45,21 @@ import { addMovement } from '@/lib/firebase/movements';
 import { getCategories, updateCategoryQuantity, subscribeToCategory } from '@/lib/firebase/categories';
 import { getLocations, updateLocation, getLocationByCode, getAvailableLocations } from '@/lib/firebase/locations';
 import { generateItemCode } from '@/lib/utils';
-import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package, CheckCircle, AlertTriangle, Search, Filter, RefreshCcw } from 'lucide-react';
+import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package, CheckCircle, AlertTriangle, RefreshCcw, Search, Filter, Trash2 } from 'lucide-react';
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { ProductSelector } from '@/components/product-selector';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import type { Category } from '@/lib/firebase/categories';
 import type { Item, Location } from '@/types/warehouse';
+import type { Product } from '@/lib/firebase/products';
 
 interface FormData {
-  itemCode: string;
+  productSku: string;
   description: string;
   weight: string;
   category: string;
@@ -73,7 +75,7 @@ export default function GoodsIn() {
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
   const [formData, setFormData] = useState<FormData>({
-    itemCode: '',
+    productSku: '',
     description: '',
     weight: '',
     category: '',
@@ -98,13 +100,12 @@ export default function GoodsIn() {
   const [scanMode, setScanMode] = useState<'location' | 'item'>('location');
   const [pendingItem, setPendingItem] = useState<Item | null>(null);
 
-  // Goods out state
+  // Goods Out state
   const [warehouseItems, setWarehouseItems] = useState<Item[]>([]);
   const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'itemCode' | 'description' | 'location' | 'category'>('itemCode');
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState<'productSku' | 'description' | 'location' | 'category'>('productSku');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -132,31 +133,9 @@ export default function GoodsIn() {
     }
   }, [formData.category, categories]);
 
-  // Filter items based on search and filter type
   useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredItems(warehouseItems);
-      return;
-    }
-
-    const searchLower = searchTerm.toLowerCase();
-    const filtered = warehouseItems.filter(item => {
-      switch (filterType) {
-        case 'itemCode':
-          return item.itemCode.toLowerCase().includes(searchLower);
-        case 'description':
-          return item.description.toLowerCase().includes(searchLower);
-        case 'location':
-          return (item.location || '').toLowerCase().includes(searchLower);
-        case 'category':
-          return item.category.toLowerCase().includes(searchLower);
-        default:
-          return false;
-      }
-    });
-
-    setFilteredItems(filtered);
-  }, [searchTerm, filterType, warehouseItems]);
+    filterItems();
+  }, [search, filterType, warehouseItems]);
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -198,6 +177,31 @@ export default function GoodsIn() {
     }
   };
 
+  const filterItems = () => {
+    if (!search.trim()) {
+      setFilteredItems(warehouseItems);
+      return;
+    }
+
+    const searchLower = search.toLowerCase();
+    const filtered = warehouseItems.filter(item => {
+      switch (filterType) {
+        case 'productSku':
+          return item.itemCode.toLowerCase().includes(searchLower);
+        case 'description':
+          return item.description.toLowerCase().includes(searchLower);
+        case 'category':
+          return item.category.toLowerCase().includes(searchLower);
+        case 'location':
+          return (item.location || '').toLowerCase().includes(searchLower);
+        default:
+          return false;
+      }
+    });
+
+    setFilteredItems(filtered);
+  };
+
   const getOperatorName = () => {
     return selectedOperator?.name || user?.email || 'System';
   };
@@ -211,6 +215,18 @@ export default function GoodsIn() {
       console.error('Error finding suggested location:', error);
       return null;
     }
+  };
+
+  const handleProductSelect = (product: Product) => {
+    setFormData(prev => ({
+      ...prev,
+      productSku: product.sku,
+      description: product.description,
+      weight: product.weight?.toString() || '',
+      category: product.category,
+      coilNumber: product.metadata?.coilNumber || '',
+      coilLength: product.metadata?.coilLength || ''
+    }));
   };
 
   const handleGoodsIn = async (e: React.FormEvent) => {
@@ -245,7 +261,7 @@ export default function GoodsIn() {
           type: 'IN',
           weight: 0,
           operator: getOperatorName(),
-          reference: formData.itemCode,
+          reference: formData.productSku,
           notes: `Added ${quantity} units of ${selectedCategory.name}`,
           quantity
         });
@@ -288,7 +304,7 @@ export default function GoodsIn() {
         }
 
         const itemData = {
-          itemCode: formData.itemCode,
+          itemCode: formData.productSku,
           systemCode,
           description,
           weight,
@@ -312,7 +328,7 @@ export default function GoodsIn() {
           type: 'IN',
           weight,
           operator: getOperatorName(),
-          reference: formData.itemCode,
+          reference: formData.productSku,
           notes: `Goods in: ${description} - awaiting placement`
         });
 
@@ -369,11 +385,11 @@ export default function GoodsIn() {
       await updateCategoryQuantity(selectedCategory.id, -quantity);
 
       await addMovement({
-        itemId: formData.itemCode,
+        itemId: formData.productSku,
         type: 'OUT',
         weight: 0,
         operator: getOperatorName(),
-        reference: formData.itemCode,
+        reference: formData.productSku,
         notes: `Removed ${quantity} units of ${selectedCategory.name}`,
         quantity
       });
@@ -388,24 +404,22 @@ export default function GoodsIn() {
     }
   };
 
-  const handleRemovePhysicalItem = async (item: Item) => {
+  const handleRemoveItem = async (item: Item) => {
     if (!selectedOperator) {
       toast.error('Please select an operator before proceeding');
       return;
     }
 
-    setLoading(true);
     try {
-      // Get the current location
-      const currentLocation = await getLocationByCode(item.location!);
-      if (!currentLocation) {
-        throw new Error('Item location not found');
-      }
-
       // Update location weight
-      await updateLocation(currentLocation.id, {
-        currentWeight: Math.max(0, currentLocation.currentWeight - item.weight)
-      });
+      if (item.location) {
+        const location = await getLocationByCode(item.location);
+        if (location) {
+          await updateLocation(location.id, {
+            currentWeight: Math.max(0, location.currentWeight - item.weight)
+          });
+        }
+      }
 
       // Update item status
       await updateItem(item.id, {
@@ -421,16 +435,14 @@ export default function GoodsIn() {
         weight: item.weight,
         operator: getOperatorName(),
         reference: item.itemCode,
-        notes: `Removed from ${item.location}`
+        notes: `Removed from ${item.location || 'warehouse'}`
       });
 
-      toast.success(`Item ${item.itemCode} removed from warehouse`);
+      toast.success(`Item ${item.itemCode} removed successfully`);
       loadWarehouseItems(); // Refresh the list
     } catch (error) {
       console.error('Error removing item:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to remove item');
-    } finally {
-      setLoading(false);
+      toast.error('Failed to remove item');
     }
   };
 
@@ -496,7 +508,7 @@ export default function GoodsIn() {
               </div>
               <div class="code">${generatedCode}</div>
               <div class="details">
-                <p><strong>Reference:</strong> ${formData.itemCode}</p>
+                <p><strong>Product/SKU:</strong> ${formData.productSku}</p>
                 ${selectedCategory?.prefix === 'RAW' ? `
                   <p><strong>Coils:</strong> ${formData.coilNumber}</p>
                   <p><strong>Length:</strong> ${formData.coilLength}ft</p>
@@ -658,7 +670,7 @@ export default function GoodsIn() {
 
   const resetForm = () => {
     setFormData({
-      itemCode: '',
+      productSku: '',
       description: '',
       weight: '',
       category: '',
@@ -675,7 +687,6 @@ export default function GoodsIn() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
-    setSelectedItem(null);
   };
 
   const getCategoryBadge = (category: string) => {
@@ -746,18 +757,16 @@ export default function GoodsIn() {
               <CardContent>
                 <form onSubmit={handleGoodsIn} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="itemCode">Reference Code</Label>
-                      <Input
-                        id="itemCode"
-                        placeholder="Enter reference code"
-                        value={formData.itemCode}
-                        onChange={(e) =>
-                          setFormData({ ...formData, itemCode: e.target.value })
-                        }
-                        required
+                    <div className="col-span-2">
+                      <ProductSelector
+                        value={formData.productSku}
+                        onChange={(value) => setFormData({ ...formData, productSku: value })}
+                        onProductSelect={handleProductSelect}
+                        category={formData.category}
+                        disabled={loading}
                       />
                     </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="category">Category</Label>
                       <Select
@@ -963,7 +972,7 @@ export default function GoodsIn() {
                   <div className="text-center">
                     <div className="text-lg font-bold">{generatedCode}</div>
                     <div className="text-sm text-muted-foreground">
-                      Reference: {formData.itemCode}
+                      Product/SKU: {formData.productSku}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       Weight: {formData.weight}kg
@@ -1012,7 +1021,7 @@ export default function GoodsIn() {
                     <div className="text-sm text-muted-foreground">
                       {selectedCategory?.kanbanRules?.goodsIn 
                         ? `Added ${formData.quantity} units to ${selectedCategory.name}`
-                        : `${formData.itemCode} placed successfully`
+                        : `${formData.productSku} placed successfully`
                       }
                     </div>
                   </div>
@@ -1027,12 +1036,12 @@ export default function GoodsIn() {
 
         <TabsContent value="out">
           <div className="space-y-6">
-            {/* Kanban Items Goods Out */}
+            {/* Kanban Goods Out */}
             <Card>
               <CardHeader>
-                <CardTitle>Remove Kanban Items</CardTitle>
+                <CardTitle>Process Goods Out (Kanban)</CardTitle>
                 <CardDescription>
-                  Remove items from managed inventory categories
+                  Remove items from managed inventory
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1068,15 +1077,12 @@ export default function GoodsIn() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="itemCode">Reference</Label>
-                          <Input
-                            id="itemCode"
-                            placeholder="Enter reference"
-                            value={formData.itemCode}
-                            onChange={(e) =>
-                              setFormData({ ...formData, itemCode: e.target.value })
-                            }
-                            required
+                          <ProductSelector
+                            value={formData.productSku}
+                            onChange={(value) => setFormData({ ...formData, productSku: value })}
+                            category={formData.category}
+                            placeholder="Select Product/SKU for reference"
+                            disabled={loading}
                           />
                         </div>
 
@@ -1113,118 +1119,114 @@ export default function GoodsIn() {
               </CardContent>
             </Card>
 
-            {/* Physical Items in Warehouse */}
+            {/* Physical Items List */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span>Remove Physical Items</span>
+                  <span>Physical Items in Warehouse</span>
                   <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="px-3 py-1">
+                      {warehouseItems.length} items
+                    </Badge>
                     <Button onClick={loadWarehouseItems} variant="outline" size="sm" disabled={itemsLoading}>
                       <RefreshCcw className={`h-4 w-4 mr-2 ${itemsLoading ? 'animate-spin' : ''}`} />
                       Refresh
                     </Button>
-                    <Badge variant="outline" className="px-3 py-1">
-                      {warehouseItems.length} items
-                    </Badge>
                   </div>
                 </CardTitle>
                 <CardDescription>
-                  Select physical items currently in the warehouse to remove them
+                  Remove individual items from warehouse locations
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {/* Search and Filter */}
-                  <div className="flex gap-4">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search items..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-9"
-                      />
-                    </div>
-                    <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
-                      <SelectTrigger className="w-[180px]">
-                        <Filter className="h-4 w-4 mr-2" />
-                        <SelectValue placeholder="Filter by" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="itemCode">Item Code</SelectItem>
-                        <SelectItem value="description">Description</SelectItem>
-                        <SelectItem value="location">Location</SelectItem>
-                        <SelectItem value="category">Category</SelectItem>
-                      </SelectContent>
-                    </Select>
+                <div className="flex gap-4 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search items..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9"
+                    />
                   </div>
-
-                  {/* Items List */}
-                  {itemsLoading ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                      Loading warehouse items...
-                    </div>
-                  ) : filteredItems.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      {warehouseItems.length === 0 ? (
-                        <div>
-                          <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                          <p className="text-lg font-medium mb-2">No items in warehouse</p>
-                          <p className="text-sm">Process some goods in to see items here.</p>
-                        </div>
-                      ) : (
-                        <div>
-                          <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                          <p className="text-lg font-medium mb-2">No items match your search</p>
-                          <p className="text-sm">Try adjusting your search terms or filter.</p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="border rounded-md">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Item Code</TableHead>
-                            <TableHead>Description</TableHead>
-                            <TableHead>Category</TableHead>
-                            <TableHead>Location</TableHead>
-                            <TableHead>Weight</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredItems.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className="font-medium">{item.itemCode}</TableCell>
-                              <TableCell>{item.description}</TableCell>
-                              <TableCell>{getCategoryBadge(item.category)}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                  {item.location}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>{item.weight}kg</TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleRemovePhysicalItem(item)}
-                                  disabled={loading || !selectedOperator}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <ArrowUpFromLine className="h-4 w-4 mr-2" />
-                                  Remove
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                  <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+                    <SelectTrigger className="w-[180px]">
+                      <Filter className="h-4 w-4 mr-2" />
+                      <SelectValue placeholder="Filter by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="productSku">Product/SKU</SelectItem>
+                      <SelectItem value="description">Description</SelectItem>
+                      <SelectItem value="category">Category</SelectItem>
+                      <SelectItem value="location">Location</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {itemsLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    Loading warehouse items...
+                  </div>
+                ) : filteredItems.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {warehouseItems.length === 0 ? (
+                      <div>
+                        <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-medium mb-2">No items in warehouse</p>
+                        <p className="text-sm">Process some goods in to see items here.</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-medium mb-2">No items match your search</p>
+                        <p className="text-sm">Try adjusting your search terms or filter.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product/SKU</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Weight</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredItems.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium">{item.itemCode}</TableCell>
+                            <TableCell>{item.description}</TableCell>
+                            <TableCell>{getCategoryBadge(item.category)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                {item.location}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{item.weight}kg</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRemoveItem(item)}
+                                disabled={!selectedOperator}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Remove
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
