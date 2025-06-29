@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,18 +10,6 @@ interface CameraScannerProps {
   onError?: (error: string) => void;
   className?: string;
   isActive?: boolean;
-}
-
-// Debounce utility function
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
 }
 
 export function CameraScanner({ 
@@ -36,15 +24,6 @@ export function CameraScanner({
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const scannerRef = useRef<HTMLDivElement>(null);
-  const lastScanTimeRef = useRef<number>(0);
-
-  // Create debounced version of onResult callback
-  const debouncedOnResult = useCallback(
-    debounce((data: string) => {
-      onResult(data);
-    }, 300), // 300ms debounce delay
-    [onResult]
-  );
 
   useEffect(() => {
     if (isActive) {
@@ -75,22 +54,11 @@ export function CameraScanner({
   };
 
   const handleScan = (result: any) => {
-    if (result?.text) {
-      const now = Date.now();
-      
-      // Prevent duplicate scans within 1 second
-      if (result.text === lastScan && now - lastScanTimeRef.current < 1000) {
-        return;
-      }
-
-      // Update last scan tracking
+    if (result?.text && result.text !== lastScan) {
       setLastScan(result.text);
-      lastScanTimeRef.current = now;
+      onResult(result.text);
       
-      // Call debounced onResult
-      debouncedOnResult(result.text);
-      
-      // Brief visual feedback without affecting scanner
+      // Brief visual feedback
       setIsScanning(false);
       setTimeout(() => setIsScanning(true), 100);
     }
