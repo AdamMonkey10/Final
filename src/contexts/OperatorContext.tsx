@@ -34,12 +34,20 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
       const fetchedOperators = await getOperators();
       setOperators(fetchedOperators);
       
-      // Auto-select first operator if none selected
+      // If selected operator no longer exists, clear selection
+      if (selectedOperator && !fetchedOperators.find(op => op.id === selectedOperator.id)) {
+        setSelectedOperator(null);
+      }
+      
+      // Auto-select first operator if none selected and operators exist
       if (!selectedOperator && fetchedOperators.length > 0) {
         setSelectedOperator(fetchedOperators[0]);
       }
     } catch (error) {
       console.error('Error loading operators:', error);
+      // Clear operators on error
+      setOperators([]);
+      setSelectedOperator(null);
     } finally {
       setLoading(false);
     }
@@ -49,6 +57,17 @@ export function OperatorProvider({ children }: { children: React.ReactNode }) {
     if (user && !authLoading) {
       refreshOperators();
     }
+  }, [user, authLoading]);
+
+  // Set up periodic refresh to catch external changes
+  useEffect(() => {
+    if (!user || authLoading) return;
+
+    const interval = setInterval(() => {
+      refreshOperators();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
   }, [user, authLoading]);
 
   return (

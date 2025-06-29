@@ -60,6 +60,7 @@ import { CategoryDialog } from '@/components/category-dialog';
 import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers, Printer, TestTube } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
+import { useOperator } from '@/contexts/OperatorContext';
 import type { Location } from '@/types/warehouse';
 import type { Category } from '@/lib/firebase/categories';
 import type { User } from '@/lib/firebase/users';
@@ -72,6 +73,7 @@ const MAX_LEVELS = 10; // Maximum possible levels
 
 export default function Setup() {
   const { user, authLoading } = useFirebase();
+  const { refreshOperators } = useOperator();
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
@@ -363,7 +365,10 @@ export default function Setup() {
       toast.success('Operator added successfully');
       setNewOperator({ name: '', email: '' });
       setShowOperatorDialog(false);
-      loadOperators();
+      
+      // Refresh both local state and global context
+      await loadOperators();
+      await refreshOperators();
     } catch (error) {
       console.error('Error adding operator:', error);
       toast.error('Failed to add operator');
@@ -374,7 +379,10 @@ export default function Setup() {
     try {
       await deleteOperatorPermanently(operatorId);
       toast.success('Operator deleted permanently');
-      loadOperators();
+      
+      // Refresh both local state and global context
+      await loadOperators();
+      await refreshOperators();
     } catch (error) {
       console.error('Error deleting operator:', error);
       toast.error('Failed to delete operator');

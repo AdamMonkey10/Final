@@ -16,17 +16,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { User, UserPlus, Users } from 'lucide-react';
+import { User, UserPlus, Users, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { addOperator } from '@/lib/firebase/operators';
 import { useOperator } from '@/contexts/OperatorContext';
 
 export function OperatorSelector() {
-  const { operators, selectedOperator, setSelectedOperator, refreshOperators } = useOperator();
+  const { operators, selectedOperator, setSelectedOperator, refreshOperators, loading } = useOperator();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState('');
   const [newOperatorEmail, setNewOperatorEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [addLoading, setAddLoading] = useState(false);
 
   const handleAddOperator = async () => {
     if (!newOperatorName.trim()) {
@@ -34,7 +34,7 @@ export function OperatorSelector() {
       return;
     }
 
-    setLoading(true);
+    setAddLoading(true);
     try {
       await addOperator(newOperatorName.trim(), newOperatorEmail.trim());
       await refreshOperators();
@@ -46,9 +46,96 @@ export function OperatorSelector() {
       console.error('Error adding operator:', error);
       toast.error('Failed to add operator');
     } finally {
-      setLoading(false);
+      setAddLoading(false);
     }
   };
+
+  const handleRefresh = async () => {
+    try {
+      await refreshOperators();
+      toast.success('Operators refreshed');
+    } catch (error) {
+      console.error('Error refreshing operators:', error);
+      toast.error('Failed to refresh operators');
+    }
+  };
+
+  if (operators.length === 0 && !loading) {
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">
+          No Operators
+        </Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowAddDialog(true)}
+          className="flex-shrink-0"
+        >
+          <UserPlus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          className="flex-shrink-0"
+          disabled={loading}
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </Button>
+
+        {/* Add Operator Dialog */}
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Add New Operator
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="operatorName">Name *</Label>
+                <Input
+                  id="operatorName"
+                  value={newOperatorName}
+                  onChange={(e) => setNewOperatorName(e.target.value)}
+                  placeholder="Enter operator name"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="operatorEmail">Email (optional)</Label>
+                <Input
+                  id="operatorEmail"
+                  type="email"
+                  value={newOperatorEmail}
+                  onChange={(e) => setNewOperatorEmail(e.target.value)}
+                  placeholder="Enter email address"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleAddOperator}
+                  disabled={addLoading || !newOperatorName.trim()}
+                  className="flex-1"
+                >
+                  {addLoading ? 'Adding...' : 'Add Operator'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAddDialog(false)}
+                  disabled={addLoading}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2">
@@ -90,6 +177,16 @@ export function OperatorSelector() {
         <UserPlus className="h-4 w-4" />
       </Button>
 
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleRefresh}
+        className="flex-shrink-0"
+        disabled={loading}
+      >
+        <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+      </Button>
+
       {/* Add Operator Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
@@ -123,15 +220,15 @@ export function OperatorSelector() {
             <div className="flex gap-2">
               <Button
                 onClick={handleAddOperator}
-                disabled={loading || !newOperatorName.trim()}
+                disabled={addLoading || !newOperatorName.trim()}
                 className="flex-1"
               >
-                {loading ? 'Adding...' : 'Add Operator'}
+                {addLoading ? 'Adding...' : 'Add Operator'}
               </Button>
               <Button
                 variant="outline"
                 onClick={() => setShowAddDialog(false)}
-                disabled={loading}
+                disabled={addLoading}
               >
                 Cancel
               </Button>
