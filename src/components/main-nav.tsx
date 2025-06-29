@@ -17,7 +17,8 @@ import {
   Menu,
   Package2,
   LogOut,
-  QrCode
+  QrCode,
+  ExternalLink
 } from 'lucide-react';
 import { logout } from '@/lib/firebase/users';
 
@@ -63,6 +64,10 @@ export function MainNav() {
     navigate('/login');
   };
 
+  const handleBladetechLink = () => {
+    window.open('https://bladetech-data.web.app/home', '_blank');
+  };
+
   const NavLinks = () => (
     <>
       {routes.map((route) => {
@@ -85,6 +90,17 @@ export function MainNav() {
           </Button>
         );
       })}
+      
+      {/* Bladetech Main App Link */}
+      <Button
+        variant="ghost"
+        onClick={handleBladetechLink}
+        className="justify-start text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-950"
+      >
+        <ExternalLink className="h-4 w-4 mr-2" />
+        <span>Bladetech Main</span>
+      </Button>
+      
       <Button
         variant="ghost"
         onClick={handleLogout}
