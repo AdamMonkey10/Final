@@ -41,77 +41,174 @@ export function CameraScanner({
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
     debounce((data: string) => {
+      console.log('📱 Scanner: Debounced result callback triggered with:', data);
       onResult(data);
-    }, 500), // 500ms debounce delay - increased for better stability
+    }, 500), // 500ms debounce delay
     [onResult]
   );
 
   useEffect(() => {
     if (isActive) {
+      console.log('📱 Scanner: Component activated, requesting camera permission');
       requestCameraPermission();
+    } else {
+      console.log('📱 Scanner: Component deactivated');
     }
   }, [isActive]);
 
   const requestCameraPermission = async () => {
+    console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode } 
+      const constraints = { 
+        video: { 
+          facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      };
+      
+      console.log('📱 Scanner: Using constraints:', constraints);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      console.log('✅ Scanner: Camera permission granted');
+      console.log('📱 Scanner: Stream details:', {
+        active: stream.active,
+        tracks: stream.getTracks().length,
+        videoTracks: stream.getVideoTracks().length
       });
+      
       setHasPermission(true);
       setError(null);
+      
       // Stop the stream immediately as QrScanner will handle it
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(track => {
+        console.log('📱 Scanner: Stopping track:', track.kind, track.label);
+        track.stop();
+      });
     } catch (err: any) {
-      console.error('Camera permission error:', err);
+      console.error('❌ Scanner: Camera permission error:', {
+        error: err,
+        name: err?.name,
+        message: err?.message,
+        code: err?.code,
+        constraint: err?.constraint
+      });
+      
       setHasPermission(false);
-      const errorMessage = err.name === 'NotAllowedError' 
-        ? 'Camera permission denied. Please allow camera access and try again.'
-        : err.name === 'NotFoundError'
-        ? 'No camera found on this device.'
-        : 'Camera access failed. Please check your camera and try again.';
+      
+      let errorMessage = 'Camera access failed. Please check your camera and try again.';
+      
+      if (err.name === 'NotAllowedError') {
+        errorMessage = 'Camera permission denied. Please allow camera access and try again.';
+      } else if (err.name === 'NotFoundError') {
+        errorMessage = 'No camera found on this device.';
+      } else if (err.name === 'NotReadableError') {
+        errorMessage = 'Camera is already in use by another application.';
+      } else if (err.name === 'OverconstrainedError') {
+        errorMessage = 'Camera constraints not supported. Trying with basic settings.';
+        // Try again with basic constraints
+        setTimeout(() => {
+          console.log('📱 Scanner: Retrying with basic constraints');
+          requestBasicCameraPermission();
+        }, 1000);
+        return;
+      } else if (err.name === 'SecurityError') {
+        errorMessage = 'Camera access blocked by security policy.';
+      }
+      
       setError(errorMessage);
       onError?.(errorMessage);
     }
   };
 
+  const requestBasicCameraPermission = async () => {
+    try {
+      console.log('📱 Scanner: Trying basic camera constraints');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      
+      console.log('✅ Scanner: Basic camera permission granted');
+      setHasPermission(true);
+      setError(null);
+      
+      stream.getTracks().forEach(track => track.stop());
+    } catch (err: any) {
+      console.error('❌ Scanner: Basic camera permission also failed:', err);
+      setError('Camera access failed completely. Please check your device settings.');
+      onError?.('Camera access failed completely. Please check your device settings.');
+    }
+  };
+
   const handleScan = (result: any) => {
+    console.log('📱 Scanner: Raw scan result received:', {
+      result,
+      type: typeof result,
+      text: result?.text,
+      data: result?.data
+    });
+
     if (result?.text) {
+      const scannedText = result.text;
       const now = Date.now();
       
-      // Prevent duplicate scans within 2 seconds for better stability
-      if (result.text === lastScan && now - lastScanTimeRef.current < 2000) {
+      console.log('📱 Scanner: Processing scanned text:', scannedText);
+      console.log('📱 Scanner: Last scan:', lastScan, 'Time since last:', now - lastScanTimeRef.current);
+      
+      // Prevent duplicate scans within 2 seconds
+      if (scannedText === lastScan && now - lastScanTimeRef.current < 2000) {
+        console.log('📱 Scanner: Duplicate scan ignored (within 2 seconds)');
         return;
       }
 
       // Update last scan tracking
-      setLastScan(result.text);
+      setLastScan(scannedText);
       lastScanTimeRef.current = now;
       
+      console.log('📱 Scanner: Calling debounced result callback');
       // Call debounced onResult to prevent rapid state updates
-      debouncedOnResult(result.text);
+      debouncedOnResult(scannedText);
       
-      // Brief visual feedback without affecting scanner
+      // Brief visual feedback
       setIsScanning(false);
       setTimeout(() => setIsScanning(true), 200);
+    } else {
+      console.log('📱 Scanner: No text found in scan result');
     }
   };
 
   const handleError = (error: any) => {
-    console.error('Scanner error:', error);
-    const errorMessage = 'Scanner error occurred. Please try again.';
+    console.error('❌ Scanner: QR Scanner error:', {
+      error,
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+      type: typeof error,
+      stack: error?.stack
+    });
+    
+    let errorMessage = 'Scanner error occurred. Please try again.';
+    
+    if (error?.message) {
+      errorMessage = `Scanner error: ${error.message}`;
+    } else if (typeof error === 'string') {
+      errorMessage = `Scanner error: ${error}`;
+    }
+    
     setError(errorMessage);
     onError?.(errorMessage);
   };
 
   const toggleCamera = () => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    console.log('📱 Scanner: Switching camera from', facingMode, 'to', newFacingMode);
+    
+    setFacingMode(newFacingMode);
     setError(null);
-    // Reset last scan when switching cameras
     setLastScan(null);
     lastScanTimeRef.current = 0;
   };
 
   const retryPermission = () => {
+    console.log('📱 Scanner: Retrying camera permission');
     setError(null);
     setHasPermission(null);
     setLastScan(null);
@@ -155,6 +252,8 @@ export function CameraScanner({
       </div>
     );
   }
+
+  console.log('📱 Scanner: Rendering QR scanner with facingMode:', facingMode);
 
   return (
     <div className={cn("relative", className)}>
@@ -225,6 +324,16 @@ export function CameraScanner({
           Position the barcode or QR code within the frame to scan
         </p>
       </div>
+
+      {/* Debug info (only in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
+          <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
+          <div>Facing: {facingMode}</div>
+          <div>Last scan: {lastScan || 'None'}</div>
+          <div>Error: {error || 'None'}</div>
+        </div>
+      )}
     </div>
   );
 }
