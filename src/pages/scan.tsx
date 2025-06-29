@@ -14,13 +14,20 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { QrCode, RefreshCcw, Package, MapPin } from 'lucide-react';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
+import { QrCode, RefreshCcw, Package, MapPin, Camera, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { CameraScanner } from '@/components/camera-scanner';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
@@ -40,7 +47,8 @@ export default function ScanPage() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showVisualDialog, setShowVisualDialog] = useState(false);
-  const [showScanDialog, setShowScanDialog] = useState(true);
+  const [showScanDialog, setShowScanDialog] = useState(false);
+  const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
 
   useEffect(() => {
     if (user && !authLoading && showLocationDialog) {
@@ -62,27 +70,20 @@ export default function ScanPage() {
     return selectedOperator?.name || user?.email || 'System';
   };
 
-  const handleScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleScanResult = async (scannedCode: string) => {
     if (!selectedOperator) {
       toast.error('Please select an operator before scanning');
       return;
     }
 
-    const form = e.target as HTMLFormElement;
-    const input = form.elements.namedItem('scanInput') as HTMLInputElement;
-    const scannedCode = input.value.trim();
-    form.reset();
-
-    if (!scannedCode) {
-      toast.error('Please enter a barcode');
+    if (!scannedCode.trim()) {
+      toast.error('Invalid barcode scanned');
       return;
     }
 
     setLoading(true);
     try {
-      const item = await getItemBySystemCode(scannedCode);
+      const item = await getItemBySystemCode(scannedCode.trim());
       
       if (!item) {
         toast.error('Item not found');
@@ -119,6 +120,16 @@ export default function ScanPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const input = form.elements.namedItem('scanInput') as HTMLInputElement;
+    const scannedCode = input.value.trim();
+    form.reset();
+
+    await handleScanResult(scannedCode);
   };
 
   const handleLocationSelect = async (location: Location) => {
@@ -215,7 +226,7 @@ export default function ScanPage() {
     setSelectedLocation(null);
     setShowLocationDialog(false);
     setShowVisualDialog(false);
-    setShowScanDialog(true);
+    setShowScanDialog(false);
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -239,8 +250,13 @@ export default function ScanPage() {
       type: "warning" as const
     },
     {
+      title: "Choose Scan Method",
+      description: "Use camera scanning for quick barcode capture or manual entry for typing codes directly.",
+      type: "info" as const
+    },
+    {
       title: "Scan Item Barcode",
-      description: "Click 'Start Scanning' and scan or enter the item's system-generated barcode to identify it.",
+      description: "Point your camera at the barcode or enter the system-generated code to identify the item.",
       type: "info" as const
     },
     {
@@ -251,11 +267,6 @@ export default function ScanPage() {
     {
       title: "Placed Items - Pick",
       description: "For placed items, the system will show their current location and allow you to pick them.",
-      type: "info" as const
-    },
-    {
-      title: "Visual Confirmation",
-      description: "Use the bay visualizer to confirm the exact location before completing the operation.",
       type: "success" as const
     }
   ];
@@ -274,7 +285,7 @@ export default function ScanPage() {
       {showInstructions && (
         <InstructionPanel
           title="Warehouse Scanner Guide"
-          description="Scan item barcodes to place pending items in locations or pick placed items from storage."
+          description="Scan item barcodes to place pending items in locations or pick placed items from storage. Choose between camera scanning or manual entry."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -326,31 +337,61 @@ export default function ScanPage() {
 
       {/* Scan Input Dialog */}
       <Dialog open={showScanDialog} onOpenChange={setShowScanDialog}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Scan Item Barcode</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleScan} className="space-y-4">
-            <div className="relative">
-              <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                name="scanInput"
-                placeholder="Scan or enter barcode..."
-                className="pl-9"
-                autoComplete="off"
-                autoFocus
-                disabled={loading}
+          
+          <Tabs value={scanMode} onValueChange={(value: any) => setScanMode(value)}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="camera" className="flex items-center gap-2">
+                <Camera className="h-4 w-4" />
+                Camera Scan
+              </TabsTrigger>
+              <TabsTrigger value="manual" className="flex items-center gap-2">
+                <Keyboard className="h-4 w-4" />
+                Manual Entry
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="camera" className="space-y-4">
+              <CameraScanner
+                onResult={handleScanResult}
+                onError={(error) => toast.error(error)}
+                isActive={scanMode === 'camera' && showScanDialog}
+                className="w-full"
               />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading || !selectedOperator}>
-              {loading ? 'Scanning...' : 'Scan Item'}
-            </Button>
-            {selectedOperator && (
-              <div className="text-xs text-center text-muted-foreground">
-                Operator: {selectedOperator.name}
-              </div>
-            )}
-          </form>
+              {selectedOperator && (
+                <div className="text-xs text-center text-muted-foreground">
+                  Operator: {selectedOperator.name}
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="manual" className="space-y-4">
+              <form onSubmit={handleManualScan} className="space-y-4">
+                <div className="relative">
+                  <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    name="scanInput"
+                    placeholder="Enter barcode manually..."
+                    className="pl-9"
+                    autoComplete="off"
+                    autoFocus
+                    disabled={loading}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading || !selectedOperator}>
+                  {loading ? 'Scanning...' : 'Scan Item'}
+                </Button>
+                {selectedOperator && (
+                  <div className="text-xs text-center text-muted-foreground">
+                    Operator: {selectedOperator.name}
+                  </div>
+                )}
+              </form>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
