@@ -19,12 +19,15 @@ import { Badge } from '@/components/ui/badge';
 import { getMovements } from '@/lib/firebase/movements';
 import { ArrowDownToLine, ArrowUpFromLine, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { toast } from 'sonner';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Movement } from '@/types/warehouse';
 
 export default function MovementsPage() {
   const { user, authLoading } = useFirebase();
+  const { showInstructions } = useInstructions();
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -54,6 +57,29 @@ export default function MovementsPage() {
     return format(timestamp.toDate(), 'PPpp');
   };
 
+  const instructionSteps = [
+    {
+      title: "Movement Types",
+      description: "IN movements (blue) represent items entering the warehouse, OUT movements (orange) represent items leaving.",
+      type: "info" as const
+    },
+    {
+      title: "Movement Details",
+      description: "View reference codes (Product/SKU), weights, operators, detailed notes, and timestamps for each movement.",
+      type: "info" as const
+    },
+    {
+      title: "Real-time Updates",
+      description: "The movement log automatically updates when new transactions are processed in the warehouse.",
+      type: "tip" as const
+    },
+    {
+      title: "Audit Trail",
+      description: "This provides a complete audit trail of all warehouse activities for tracking and compliance purposes.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -63,6 +89,17 @@ export default function MovementsPage() {
           Refresh
         </Button>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Movement History"
+          description="Track all warehouse movements and transactions. Monitor goods in, goods out, and item placements in real-time."
+          steps={instructionSteps}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       <Card>
         <CardHeader>

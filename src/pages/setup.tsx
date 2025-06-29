@@ -54,6 +54,8 @@ import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
 import { CategoryDialog } from '@/components/category-dialog';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
@@ -69,6 +71,7 @@ const MAX_LEVELS = 10; // Maximum possible levels
 
 export default function Setup() {
   const { user, authLoading } = useFirebase();
+  const { showInstructions } = useInstructions();
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
@@ -421,6 +424,34 @@ export default function Setup() {
     }
   };
 
+  const setupInstructions = [
+    {
+      title: "Location Generation",
+      description: "Generate warehouse locations by selecting row, bay range, and number of levels. Each bay creates 3 positions per level.",
+      type: "info" as const
+    },
+    {
+      title: "Category Management",
+      description: "Create and manage item categories with optional Kanban rules for quantity-based stock management.",
+      type: "info" as const
+    },
+    {
+      title: "Operator Management",
+      description: "Add warehouse operators who will be performing transactions. Operators are required for all warehouse operations.",
+      type: "warning" as const
+    },
+    {
+      title: "Printer Configuration",
+      description: "Configure your Zebra printer settings for direct ZPL label printing. Test the connection before use.",
+      type: "tip" as const
+    },
+    {
+      title: "Data Management",
+      description: "Export inventory data and manage user accounts. Keep your warehouse data organized and accessible.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -429,6 +460,17 @@ export default function Setup() {
           {existingLocations.length} locations
         </Badge>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Warehouse Setup Guide"
+          description="Configure your warehouse system including locations, categories, operators, and printer settings. Complete setup before starting warehouse operations."
+          steps={setupInstructions}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       <Tabs defaultValue="locations">
         <TabsList>

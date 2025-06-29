@@ -21,6 +21,8 @@ import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
@@ -31,6 +33,7 @@ import type { Location } from '@/types/warehouse';
 export default function ScanPage() {
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
+  const { showInstructions } = useInstructions();
   const [loading, setLoading] = useState(false);
   const [scannedItem, setScannedItem] = useState<Item | null>(null);
   const [availableLocations, setAvailableLocations] = useState<Location[]>([]);
@@ -229,6 +232,34 @@ export default function ScanPage() {
     );
   };
 
+  const instructionSteps = [
+    {
+      title: "Select Operator",
+      description: "Ensure an operator is selected from the top-right corner before scanning any items.",
+      type: "warning" as const
+    },
+    {
+      title: "Scan Item Barcode",
+      description: "Click 'Start Scanning' and scan or enter the item's system-generated barcode to identify it.",
+      type: "info" as const
+    },
+    {
+      title: "Pending Items - Place",
+      description: "For pending items, select a suitable location and confirm placement by scanning the location barcode.",
+      type: "info" as const
+    },
+    {
+      title: "Placed Items - Pick",
+      description: "For placed items, the system will show their current location and allow you to pick them.",
+      type: "info" as const
+    },
+    {
+      title: "Visual Confirmation",
+      description: "Use the bay visualizer to confirm the exact location before completing the operation.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -238,6 +269,17 @@ export default function ScanPage() {
           Reset
         </Button>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Warehouse Scanner Guide"
+          description="Scan item barcodes to place pending items in locations or pick placed items from storage."
+          steps={instructionSteps}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       {!selectedOperator && (
         <Card className="border-yellow-200 bg-yellow-50">

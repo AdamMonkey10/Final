@@ -39,6 +39,8 @@ import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Rule
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { LocationBarcodePrint } from '@/components/location-barcode-print';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -50,6 +52,7 @@ interface LocationWithItem extends Location {
 
 export default function LocationsPage() {
   const { user, authLoading } = useFirebase();
+  const { showInstructions } = useInstructions();
   const [locations, setLocations] = useState<LocationWithItem[]>([]);
   const [filteredLocations, setFilteredLocations] = useState<LocationWithItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -205,6 +208,34 @@ export default function LocationsPage() {
     }
   };
 
+  const instructionSteps = [
+    {
+      title: "Search and Filter",
+      description: "Use the search bar and filter dropdown to find specific locations by code, row, bay, level, or rack type.",
+      type: "info" as const
+    },
+    {
+      title: "Location Status",
+      description: "View weight status indicators: Empty (green), In Use (blue), Heavy (yellow), or Full (red).",
+      type: "tip" as const
+    },
+    {
+      title: "Print Barcodes",
+      description: "Print individual location barcodes or bulk print all/filtered locations directly to your Zebra printer.",
+      type: "info" as const
+    },
+    {
+      title: "View Location Details",
+      description: "Click 'View Location' to see the bay visualizer and get detailed location information.",
+      type: "info" as const
+    },
+    {
+      title: "Item Barcodes",
+      description: "For locations with stored items, you can also print the item's barcode for easy identification.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -219,6 +250,17 @@ export default function LocationsPage() {
           </Badge>
         </div>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Location Management"
+          description="View and manage all warehouse locations. Print barcodes, check status, and view detailed location information."
+          steps={instructionSteps}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       <Card>
         <CardHeader>

@@ -51,6 +51,8 @@ import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { ProductSelector } from '@/components/product-selector';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
@@ -74,6 +76,7 @@ export default function GoodsIn() {
   const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
+  const { showInstructions } = useInstructions();
   const [formData, setFormData] = useState<FormData>({
     productSku: '',
     description: '',
@@ -711,6 +714,57 @@ export default function GoodsIn() {
     );
   };
 
+  const goodsInInstructions = [
+    {
+      title: "Select Product/SKU",
+      description: "Start by selecting an existing product or entering a new Product/SKU. The system will remember products for future use.",
+      type: "info" as const
+    },
+    {
+      title: "Choose Category",
+      description: "Select the appropriate category. Some categories have Kanban rules for quantity-based management.",
+      type: "info" as const
+    },
+    {
+      title: "Enter Details",
+      description: "Fill in weight, description, and any category-specific information (like coil data for raw materials).",
+      type: "info" as const
+    },
+    {
+      title: "System Generates Barcode",
+      description: "The system creates a unique barcode for tracking. Print and attach it to the physical item.",
+      type: "tip" as const
+    },
+    {
+      title: "Location Placement",
+      description: "Follow the suggested location or manually select where to place the item. Scan to confirm placement.",
+      type: "success" as const
+    }
+  ];
+
+  const goodsOutInstructions = [
+    {
+      title: "Kanban Goods Out",
+      description: "For quantity-managed categories, simply select the category and enter the quantity to remove.",
+      type: "info" as const
+    },
+    {
+      title: "Physical Item Removal",
+      description: "Use the Physical Items table to remove individual items from specific warehouse locations.",
+      type: "info" as const
+    },
+    {
+      title: "Search and Filter",
+      description: "Use the search bar and filters to quickly find specific items by Product/SKU, description, category, or location.",
+      type: "tip" as const
+    },
+    {
+      title: "Operator Required",
+      description: "Ensure an operator is selected before processing any goods out transactions.",
+      type: "warning" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -719,6 +773,17 @@ export default function GoodsIn() {
           Go to Scanner
         </Button>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Stock Management Guide"
+          description="Process goods in and out of the warehouse. Handle both quantity-based Kanban items and physical item placement."
+          steps={activeTab === 'in' ? goodsInInstructions : goodsOutInstructions}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       {!selectedOperator && (
         <Card className="border-yellow-200 bg-yellow-50">

@@ -27,16 +27,19 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { getItemsByStatus } from '@/lib/firebase/items';
 import { Search, Filter, Package, RefreshCcw } from 'lucide-react';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item } from '@/types/warehouse';
 
 export default function Inventory() {
   const { user, authLoading } = useFirebase();
+  const { showInstructions } = useInstructions();
   const [items, setItems] = useState<Item[]>([]);
   const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<'code' | 'description' | 'category' | 'location'>('code');
+  const [filterType, setFilterType] = useState<'systemCode' | 'description' | 'category' | 'location'>('systemCode');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -74,8 +77,8 @@ export default function Inventory() {
     const searchLower = search.toLowerCase();
     const filtered = items.filter(item => {
       switch (filterType) {
-        case 'code':
-          return item.code.toLowerCase().includes(searchLower);
+        case 'systemCode':
+          return item.systemCode.toLowerCase().includes(searchLower);
         case 'description':
           return item.description.toLowerCase().includes(searchLower);
         case 'category':
@@ -112,6 +115,29 @@ export default function Inventory() {
     );
   };
 
+  const instructionSteps = [
+    {
+      title: "Search and Filter",
+      description: "Use the search bar to find specific items by system code, description, category, or location.",
+      type: "info" as const
+    },
+    {
+      title: "Filter Options",
+      description: "Change the filter type to search by different item attributes like Product/SKU, description, category, or location.",
+      type: "tip" as const
+    },
+    {
+      title: "Item Information",
+      description: "View detailed information including system codes, Product/SKU, descriptions, categories, locations, and weights.",
+      type: "info" as const
+    },
+    {
+      title: "Real-time Updates",
+      description: "The inventory automatically updates when items are moved, placed, or removed from the warehouse.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -121,6 +147,17 @@ export default function Inventory() {
           Refresh
         </Button>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Inventory Management"
+          description="View and search all items currently stored in warehouse locations. Track item details and locations in real-time."
+          steps={instructionSteps}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -149,7 +186,7 @@ export default function Inventory() {
                 <SelectValue placeholder="Filter by" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="code">Item Code</SelectItem>
+                <SelectItem value="systemCode">System Code</SelectItem>
                 <SelectItem value="description">Description</SelectItem>
                 <SelectItem value="category">Category</SelectItem>
                 <SelectItem value="location">Location</SelectItem>
@@ -170,7 +207,8 @@ export default function Inventory() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Code</TableHead>
+                    <TableHead>System Code</TableHead>
+                    <TableHead>Product/SKU</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Location</TableHead>
@@ -180,10 +218,15 @@ export default function Inventory() {
                 <TableBody>
                   {filteredItems.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.code}</TableCell>
+                      <TableCell className="font-medium font-mono text-sm">{item.systemCode}</TableCell>
+                      <TableCell className="font-medium">{item.itemCode}</TableCell>
                       <TableCell>{item.description}</TableCell>
                       <TableCell>{getCategoryBadge(item.category)}</TableCell>
-                      <TableCell>{item.location}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                          {item.location}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{item.weight}kg</TableCell>
                     </TableRow>
                   ))}
