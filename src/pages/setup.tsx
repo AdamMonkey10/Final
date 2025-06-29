@@ -45,22 +45,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addLocation, getLocations, deleteLocation } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
-import { getOperators, addOperator, deactivateOperator, deleteOperatorPermanently } from '@/lib/firebase/operators';
+import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
-import { generateBulkLocationZPL } from '@/lib/zpl-generator';
-import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers, Printer, TestTube, Grid2X2, RefreshCcw } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
-import { useOperator } from '@/contexts/OperatorContext';
 import type { Location } from '@/types/warehouse';
 import type { Category } from '@/lib/firebase/categories';
 import type { User } from '@/lib/firebase/users';
@@ -73,19 +69,10 @@ const MAX_LEVELS = 10; // Maximum possible levels
 
 export default function Setup() {
   const { user, authLoading } = useFirebase();
-  const { refreshOperators } = useOperator();
   const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
   const [maxLevel, setMaxLevel] = useState(4); // How many levels high to go (0-4 = 5 levels total)
-  const [selectedRackType, setSelectedRackType] = useState('standard');
-  const [customHeights, setCustomHeights] = useState<Record<string, number>>({
-    '0': 0,
-    '1': 2.5,
-    '2': 5.0,
-    '3': 7.5,
-    '4': 10.0,
-  });
   const [generatedLocations, setGeneratedLocations] = useState<Array<{
     code: string;
     row: string;
@@ -93,11 +80,8 @@ export default function Setup() {
     level: string;
     location: string;
     maxWeight: number;
-    height: number;
-    rackType: string;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
-  const [loadingExistingLocations, setLoadingExistingLocations] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -107,13 +91,8 @@ export default function Setup() {
   const [selectedCategory, setSelectedCategory] = useState<Category | undefined>();
   const [newUser, setNewUser] = useState({ username: '', password: '' });
   const [newOperator, setNewOperator] = useState({ name: '', email: '' });
-  const [weightLimits, setWeightLimits] = useState({
-    '0': LEVEL_MAX_WEIGHTS['0'],
-    '1': LEVEL_MAX_WEIGHTS['1'],
-    '2': LEVEL_MAX_WEIGHTS['2'],
-    '3': LEVEL_MAX_WEIGHTS['3'],
-    '4': LEVEL_MAX_WEIGHTS['4'],
-  });
+  const [locationToDelete, setLocationToDelete] = useState<Location | null>(null);
+  const [loadingLocations, setLoadingLocations] = useState(false);
 
   // Printer settings state
   const [printerSettings, setPrinterSettings] = useState<PrinterSettings>({
@@ -141,74 +120,6 @@ export default function Setup() {
       fetchExistingLocations();
     }
   }, [user, authLoading]);
-
-  useEffect(() => {
-    // Update custom heights when rack type changes
-    if (selectedRackType !== 'custom') {
-      const rackConfig = RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES];
-      if (rackConfig) {
-        setCustomHeights(rackConfig.levelHeights);
-      }
-    }
-  }, [selectedRackType]);
-
-  // Update heights when max level changes
-  useEffect(() => {
-    if (selectedRackType !== 'custom') {
-      const rackConfig = RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES];
-      if (rackConfig) {
-        const newHeights: Record<string, number> = {};
-        for (let i = 0; i <= maxLevel; i++) {
-          const levelKey = i.toString();
-          newHeights[levelKey] = rackConfig.levelHeights[levelKey] || (i * 2.5);
-        }
-        setCustomHeights(newHeights);
-      }
-    }
-  }, [maxLevel, selectedRackType]);
-
-  const fetchExistingLocations = async () => {
-    if (!user || authLoading) return;
-    
-    try {
-      setLoadingExistingLocations(true);
-      const locations = await getLocations();
-      setExistingLocations(locations);
-      toast.success(`Found ${locations.length} existing locations`);
-    } catch (error) {
-      console.error('Error fetching locations:', error);
-      toast.error('Error fetching existing locations');
-    } finally {
-      setLoadingExistingLocations(false);
-    }
-  };
-
-  const handleDeleteLocation = async (locationId: string) => {
-    try {
-      await deleteLocation(locationId);
-      toast.success('Location deleted successfully');
-      await fetchExistingLocations(); // Refresh the list
-    } catch (error) {
-      console.error('Error deleting location:', error);
-      toast.error('Failed to delete location');
-    }
-  };
-
-  const getWeightStatusColor = (currentWeight: number, maxWeight: number) => {
-    if (currentWeight === 0) return 'bg-green-100 text-green-800';
-    if (maxWeight === Infinity) return 'bg-blue-100 text-blue-800'; // Ground level
-    if (currentWeight >= maxWeight * 0.9) return 'bg-red-100 text-red-800';
-    if (currentWeight >= maxWeight * 0.7) return 'bg-yellow-100 text-yellow-800';
-    return 'bg-blue-100 text-blue-800';
-  };
-
-  const getWeightStatusText = (currentWeight: number, maxWeight: number) => {
-    if (currentWeight === 0) return 'Empty';
-    if (maxWeight === Infinity) return 'In Use'; // Ground level
-    if (currentWeight >= maxWeight * 0.9) return 'Full';
-    if (currentWeight >= maxWeight * 0.7) return 'Heavy';
-    return 'In Use';
-  };
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -256,26 +167,6 @@ export default function Setup() {
     }
   };
 
-  const handleWeightChange = (level: string, value: string) => {
-    const weight = parseInt(value);
-    if (!isNaN(weight) && weight > 0) {
-      setWeightLimits(prev => ({
-        ...prev,
-        [level]: weight
-      }));
-    }
-  };
-
-  const handleHeightChange = (level: string, value: string) => {
-    const height = parseFloat(value);
-    if (!isNaN(height) && height >= 0) {
-      setCustomHeights(prev => ({
-        ...prev,
-        [level]: height
-      }));
-    }
-  };
-
   const generateLocations = () => {
     if (!selectedRow || !bayStart || !bayEnd) {
       toast.error('Please fill in all fields');
@@ -298,7 +189,6 @@ export default function Setup() {
         for (const level of levels) {
           const bayFormatted = bay.toString().padStart(2, '0');
           const code = `${selectedRow}${bayFormatted}-${level}-${position}`;
-          const height = customHeights[level.toString()] || 0;
           
           locations.push({
             code,
@@ -306,12 +196,10 @@ export default function Setup() {
             bay: bayFormatted,
             level: level.toString(),
             location: position.toString(),
-            maxWeight: weightLimits[level.toString()] || (level === 0 ? Infinity : 1000),
+            maxWeight: level === 0 ? Infinity : 1000, // Ground level unlimited, others 1000kg
             currentWeight: 0,
             available: true,
-            verified: true,
-            height,
-            rackType: selectedRackType
+            verified: true
           });
         }
       }
@@ -334,6 +222,59 @@ export default function Setup() {
       console.error('Error saving locations:', error);
       toast.error('Failed to save locations');
     }
+  };
+
+  const fetchExistingLocations = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      setLoadingLocations(true);
+      const locations = await getLocations();
+      setExistingLocations(locations);
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+      toast.error('Error fetching existing locations');
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
+  const handleDeleteLocation = async (location: Location) => {
+    if (location.currentWeight > 0) {
+      toast.error('Cannot delete location with items. Please remove items first.');
+      return;
+    }
+    setLocationToDelete(location);
+  };
+
+  const confirmDeleteLocation = async () => {
+    if (!locationToDelete) return;
+
+    try {
+      await deleteLocation(locationToDelete.id);
+      toast.success(`Location ${locationToDelete.code} deleted successfully`);
+      setLocationToDelete(null);
+      fetchExistingLocations();
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      toast.error('Failed to delete location');
+    }
+  };
+
+  const getWeightStatusColor = (currentWeight: number, maxWeight: number) => {
+    if (currentWeight === 0) return 'bg-green-100 text-green-800';
+    if (maxWeight === Infinity) return 'bg-blue-100 text-blue-800'; // Ground level
+    if (currentWeight >= maxWeight * 0.9) return 'bg-red-100 text-red-800';
+    if (currentWeight >= maxWeight * 0.7) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-blue-100 text-blue-800';
+  };
+
+  const getWeightStatusText = (currentWeight: number, maxWeight: number) => {
+    if (currentWeight === 0) return 'Empty';
+    if (maxWeight === Infinity) return 'In Use'; // Ground level
+    if (currentWeight >= maxWeight * 0.9) return 'Full';
+    if (currentWeight >= maxWeight * 0.7) return 'Heavy';
+    return 'In Use';
   };
 
   const handleSaveCategory = async (data: any) => {
@@ -399,27 +340,21 @@ export default function Setup() {
       toast.success('Operator added successfully');
       setNewOperator({ name: '', email: '' });
       setShowOperatorDialog(false);
-      
-      // Refresh both local state and global context
-      await loadOperators();
-      await refreshOperators();
+      loadOperators();
     } catch (error) {
       console.error('Error adding operator:', error);
       toast.error('Failed to add operator');
     }
   };
 
-  const handleDeleteOperator = async (operatorId: string) => {
+  const handleDeactivateOperator = async (operatorId: string) => {
     try {
-      await deleteOperatorPermanently(operatorId);
-      toast.success('Operator deleted permanently');
-      
-      // Refresh both local state and global context
-      await loadOperators();
-      await refreshOperators();
+      await deactivateOperator(operatorId);
+      toast.success('Operator deactivated');
+      loadOperators();
     } catch (error) {
-      console.error('Error deleting operator:', error);
-      toast.error('Failed to delete operator');
+      console.error('Error deactivating operator:', error);
+      toast.error('Failed to deactivate operator');
     }
   };
 
@@ -490,10 +425,9 @@ export default function Setup() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Warehouse Setup</h1>
-        <Button onClick={fetchExistingLocations} disabled={loadingExistingLocations}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loadingExistingLocations ? 'animate-spin' : ''}`} />
-          Refresh Locations
-        </Button>
+        <Badge variant="outline" className="px-3 py-1">
+          {existingLocations.length} locations
+        </Badge>
       </div>
 
       <Tabs defaultValue="locations">
@@ -501,87 +435,40 @@ export default function Setup() {
           <TabsTrigger value="locations">Locations</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
           <TabsTrigger value="operators">Operators</TabsTrigger>
-          <TabsTrigger value="weights">Weight Settings</TabsTrigger>
-          <TabsTrigger value="heights">Height Settings</TabsTrigger>
           <TabsTrigger value="printer">Printer Settings</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="data">Data Management</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="locations" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Generate Locations</CardTitle>
-              <CardDescription>
-                Generate warehouse locations with configurable rack heights and levels. Each bay has {LOCATIONS_PER_BAY} locations.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="space-y-2">
-                  <Label>Row</Label>
-                  <Select value={selectedRow} onValueChange={setSelectedRow}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select row" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ROWS.map((row) => (
-                        <SelectItem key={row} value={row}>
-                          Row {row}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Rack Type</Label>
-                  <Select value={selectedRackType} onValueChange={setSelectedRackType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select rack type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(RACK_TYPES).map(([key, config]) => (
-                        <SelectItem key={key} value={key}>
-                          <div className="flex flex-col">
-                            <span>{config.name}</span>
-                            <span className="text-xs text-muted-foreground">{config.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Start Bay</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bayStart}
-                    onChange={(e) => setBayStart(e.target.value)}
-                    placeholder="1"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>End Bay</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={bayEnd}
-                    onChange={(e) => setBayEnd(e.target.value)}
-                    placeholder="10"
-                  />
-                </div>
-              </div>
-
-              {/* Rack Levels Configuration */}
-              <div className="mb-4 p-4 border rounded-lg">
-                <h3 className="font-medium mb-3 flex items-center gap-2">
-                  <Layers className="h-4 w-4" />
-                  Rack Levels Configuration
-                </h3>
+        <TabsContent value="locations">
+          <div className="space-y-6">
+            {/* Generate Locations Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Generate Locations</CardTitle>
+                <CardDescription>
+                  Generate warehouse locations. Each bay has {LOCATIONS_PER_BAY} locations across multiple levels.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="space-y-2">
-                    <Label>Maximum Level (How many levels high?)</Label>
+                    <Label>Row</Label>
+                    <Select value={selectedRow} onValueChange={setSelectedRow}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select row" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROWS.map((row) => (
+                          <SelectItem key={row} value={row}>
+                            Row {row}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Levels High (How many levels?)</Label>
                     <Select value={maxLevel.toString()} onValueChange={(value) => setMaxLevel(parseInt(value))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select max level" />
@@ -589,68 +476,134 @@ export default function Setup() {
                       <SelectContent>
                         {Array.from({ length: MAX_LEVELS }, (_, i) => (
                           <SelectItem key={i} value={i.toString()}>
-                            Level {i} (Ground only)
-                            {i > 0 && ` - ${i + 1} levels total (0-${i})`}
+                            {i === 0 ? 'Ground only (Level 0)' : `${i + 1} levels high (0-${i})`}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex items-end">
-                    <Badge variant="outline" className="flex items-center gap-1">
-                      <Layers className="h-3 w-3" />
-                      {maxLevel + 1} levels total (0-{maxLevel})
-                    </Badge>
+                  <div className="space-y-2">
+                    <Label>Start Bay</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={bayStart}
+                      onChange={(e) => setBayStart(e.target.value)}
+                      placeholder="1"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Bay</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={bayEnd}
+                      onChange={(e) => setBayEnd(e.target.value)}
+                      placeholder="10"
+                    />
                   </div>
                 </div>
-                <div className="text-sm text-muted-foreground mb-3">
-                  This will create locations from ground level (0) up to level {maxLevel}
-                </div>
-              </div>
 
-              {/* Height Configuration */}
-              <div className="mb-4 p-4 border rounded-lg">
-                <h3 className="font-medium mb-3 flex items-center gap-2">
-                  <Ruler className="h-4 w-4" />
-                  Height Configuration ({RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name})
-                </h3>
-                <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(maxLevel + 1, 6)}, 1fr)` }}>
-                  {getLevelsArray().map((level) => (
-                    <div key={level} className="space-y-2">
-                      <Label className="text-sm">
-                        Level {level}
-                        {level === 0 && ' (Ground)'}
-                      </Label>
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          value={customHeights[level.toString()] || 0}
-                          onChange={(e) => handleHeightChange(level.toString(), e.target.value)}
-                          disabled={selectedRackType !== 'custom'}
-                          className="text-sm"
-                        />
-                        <span className="text-xs text-muted-foreground">m</span>
-                      </div>
+                <div className="mb-4 p-4 border rounded-lg">
+                  <h3 className="font-medium mb-3 flex items-center gap-2">
+                    <Layers className="h-4 w-4" />
+                    Configuration Summary
+                  </h3>
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p>• This will create locations from ground level (0) up to level {maxLevel}</p>
+                    <p>• Total levels: {maxLevel + 1} (0-{maxLevel})</p>
+                    <p>• Each bay will have {LOCATIONS_PER_BAY} positions per level</p>
+                    <p>• Ground level (0) has unlimited weight capacity</p>
+                    <p>• Upper levels (1-{maxLevel}) have 1000kg weight limit each</p>
+                  </div>
+                </div>
+
+                <Button onClick={generateLocations} className="w-full">
+                  Generate Locations
+                </Button>
+
+                {generatedLocations.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-4">Generated Locations</h3>
+                    <div className="border rounded-md max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Code</TableHead>
+                            <TableHead>Row</TableHead>
+                            <TableHead>Bay</TableHead>
+                            <TableHead>Level</TableHead>
+                            <TableHead>Max Weight</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {generatedLocations.slice(0, 20).map((location) => (
+                            <TableRow key={location.code}>
+                              <TableCell className="font-medium">
+                                {location.code}
+                              </TableCell>
+                              <TableCell>{location.row}</TableCell>
+                              <TableCell>{location.bay}</TableCell>
+                              <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
+                              <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
+                            </TableRow>
+                          ))}
+                          {generatedLocations.length > 20 && (
+                            <TableRow>
+                              <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                ... and {generatedLocations.length - 20} more locations
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
                     </div>
-                  ))}
-                </div>
-                {selectedRackType !== 'custom' && (
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Heights are preset for {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name}. Select "Custom Rack" to modify.
-                  </p>
+                    <div className="mt-4 p-3 bg-muted rounded-lg">
+                      <p className="text-sm text-muted-foreground">
+                        <strong>Summary:</strong> {generatedLocations.length} locations will be created across {maxLevel + 1} levels (0-{maxLevel}).
+                      </p>
+                    </div>
+                    <Button
+                      onClick={saveLocations}
+                      className="w-full mt-4"
+                      variant="default"
+                    >
+                      Save All Locations
+                    </Button>
+                  </div>
                 )}
-              </div>
+              </CardContent>
+            </Card>
 
-              <Button onClick={generateLocations} className="w-full">
-                Generate Locations
-              </Button>
-
-              {generatedLocations.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="text-lg font-semibold mb-4">Generated Locations</h3>
-                  <div className="border rounded-md max-h-96 overflow-y-auto">
+            {/* Existing Locations Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Existing Locations</span>
+                  <Button onClick={fetchExistingLocations} variant="outline" disabled={loadingLocations}>
+                    <RefreshCcw className={`h-4 w-4 mr-2 ${loadingLocations ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  Manage existing warehouse locations
+                  {loadingLocations && <span className="text-blue-600"> • Loading...</span>}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingLocations && existingLocations.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    Loading locations...
+                  </div>
+                ) : existingLocations.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Layers className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No locations found</p>
+                    <p className="text-sm">Generate locations above to get started.</p>
+                  </div>
+                ) : (
+                  <div className="border rounded-md">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -658,165 +611,55 @@ export default function Setup() {
                           <TableHead>Row</TableHead>
                           <TableHead>Bay</TableHead>
                           <TableHead>Level</TableHead>
-                          <TableHead>Height</TableHead>
+                          <TableHead>Weight Status</TableHead>
                           <TableHead>Max Weight</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {generatedLocations.slice(0, 20).map((location) => (
-                          <TableRow key={location.code}>
-                            <TableCell className="font-medium">
-                              {location.code}
-                            </TableCell>
+                        {existingLocations.map((location) => (
+                          <TableRow key={location.id}>
+                            <TableCell className="font-medium">{location.code}</TableCell>
                             <TableCell>{location.row}</TableCell>
                             <TableCell>{location.bay}</TableCell>
                             <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
-                            <TableCell>{location.height}m</TableCell>
-                            <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
-                          </TableRow>
-                        ))}
-                        {generatedLocations.length > 20 && (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-muted-foreground">
-                              ... and {generatedLocations.length - 20} more locations
+                            <TableCell>
+                              <Badge 
+                                variant="outline" 
+                                className={getWeightStatusColor(location.currentWeight, location.maxWeight)}
+                              >
+                                {getWeightStatusText(location.currentWeight, location.maxWeight)}
+                                {location.currentWeight > 0 && ` (${location.currentWeight}kg)`}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDeleteLocation(location)}
+                                className={cn(
+                                  location.currentWeight > 0 
+                                    ? "text-gray-400 cursor-not-allowed" 
+                                    : "text-red-500 hover:text-red-600 hover:bg-red-50"
+                                )}
+                                disabled={location.currentWeight > 0}
+                                title={location.currentWeight > 0 ? "Cannot delete location with items" : "Delete location"}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </TableCell>
                           </TableRow>
-                        )}
+                        ))}
                       </TableBody>
                     </Table>
                   </div>
-                  <div className="mt-4 p-3 bg-muted rounded-lg">
-                    <p className="text-sm text-muted-foreground">
-                      <strong>Summary:</strong> {generatedLocations.length} locations will be created across {maxLevel + 1} levels (0-{maxLevel}) with {RACK_TYPES[selectedRackType as keyof typeof RACK_TYPES]?.name} configuration.
-                    </p>
-                  </div>
-                  <Button
-                    onClick={saveLocations}
-                    className="w-full mt-4"
-                    variant="default"
-                  >
-                    Save All Locations
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Existing Locations Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Grid2X2 className="h-5 w-5" />
-                Existing Locations
-                {!loadingExistingLocations && (
-                  <Badge variant="outline" className="ml-2">
-                    {existingLocations.length} locations
-                  </Badge>
                 )}
-              </CardTitle>
-              <CardDescription>
-                View and manage all locations currently stored in the system. You can permanently delete locations that are no longer needed.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loadingExistingLocations ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                  Loading existing locations...
-                </div>
-              ) : existingLocations.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Grid2X2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium mb-2">No locations found</p>
-                  <p className="text-sm">Generate locations using the form above to get started.</p>
-                </div>
-              ) : (
-                <div className="border rounded-md max-h-96 overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Code</TableHead>
-                        <TableHead>Row</TableHead>
-                        <TableHead>Bay</TableHead>
-                        <TableHead>Level</TableHead>
-                        <TableHead>Height</TableHead>
-                        <TableHead>Weight Status</TableHead>
-                        <TableHead>Max Weight</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {existingLocations.map((location) => (
-                        <TableRow key={location.id}>
-                          <TableCell className="font-medium">{location.code}</TableCell>
-                          <TableCell>{location.row}</TableCell>
-                          <TableCell>{location.bay}</TableCell>
-                          <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Ruler className="h-3 w-3 text-muted-foreground" />
-                              {location.height || 0}m
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge 
-                              variant="outline" 
-                              className={getWeightStatusColor(location.currentWeight, location.maxWeight)}
-                            >
-                              {getWeightStatusText(location.currentWeight, location.maxWeight)}
-                              {location.currentWeight > 0 && ` (${location.currentWeight}kg)`}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                                  disabled={location.currentWeight > 0}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Location</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to permanently delete location "{location.code}"? 
-                                    This action cannot be undone and will remove all associated data.
-                                    {location.currentWeight > 0 && (
-                                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-800">
-                                        <strong>Warning:</strong> This location currently has items stored in it. 
-                                        Please remove all items before deleting.
-                                      </div>
-                                    )}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteLocation(location.id)}
-                                    className="bg-red-600 hover:bg-red-700"
-                                    disabled={location.currentWeight > 0}
-                                  >
-                                    Delete Permanently
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="categories">
@@ -955,7 +798,7 @@ export default function Setup() {
                 </Button>
               </CardTitle>
               <CardDescription>
-                Manage warehouse operators who perform transactions. You can permanently delete operators to clear the list.
+                Manage warehouse operators who perform transactions
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -977,144 +820,26 @@ export default function Setup() {
                         </TableCell>
                         <TableCell>{operator.email || '—'}</TableCell>
                         <TableCell>
-                          <Badge variant={operator.active ? 'default' : 'secondary'}>
+                          <Badge variant={operator.active ? 'success' : 'secondary'}>
                             {operator.active ? 'Active' : 'Inactive'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           {operator.active && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete Operator</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to permanently delete "{operator.name}"? This action cannot be undone.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteOperator(operator.id)}
-                                    className="bg-red-600 hover:bg-red-700"
-                                  >
-                                    Delete Permanently
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeactivateOperator(operator.id)}
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           )}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-              {operators.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <UserCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium mb-2">No operators found</p>
-                  <p className="text-sm">Add operators using the "Add Operator" button above.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="weights">
-          <Card>
-            <CardHeader>
-              <CardTitle>Level Weight Settings</CardTitle>
-              <CardDescription>
-                Configure maximum weight limits for each level (applies to levels 0-{maxLevel})
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4">
-                {getLevelsArray().map((level) => (
-                  <div key={level} className="flex items-center gap-4">
-                    <Label className="w-32">
-                      Level {level}
-                      {level === 0 && ' (Ground)'}:
-                    </Label>
-                    <div className="flex-1">
-                      <Input
-                        type="number"
-                        value={weightLimits[level.toString()] || (level === 0 ? 'Infinity' : 1000)}
-                        onChange={(e) => handleWeightChange(level.toString(), e.target.value)}
-                        min="0"
-                        step="100"
-                        disabled={level === 0}
-                      />
-                    </div>
-                    <span className="text-sm text-muted-foreground w-8">
-                      {level === 0 ? '∞' : 'kg'}
-                    </span>
-                  </div>
-                ))}
-                <p className="text-sm text-muted-foreground mt-4">
-                  Note: Changes will apply to newly generated locations only. Ground level has unlimited weight capacity.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="heights">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Ruler className="h-5 w-5" />
-                Rack Height Configurations
-              </CardTitle>
-              <CardDescription>
-                Predefined height configurations for different rack types
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {Object.entries(RACK_TYPES).map(([key, config]) => (
-                  <div key={key} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h3 className="font-medium">{config.name}</h3>
-                        <p className="text-sm text-muted-foreground">{config.description}</p>
-                      </div>
-                      <Badge variant="outline">
-                        Max: {config.maxHeight}m
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-5 gap-4">
-                      {Object.entries(config.levelHeights).map(([level, height]) => (
-                        <div key={level} className="text-center">
-                          <div className="text-sm font-medium">Level {level}</div>
-                          <div className="text-lg">{height}m</div>
-                          {level === '0' && (
-                            <div className="text-xs text-muted-foreground">Ground</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                <h4 className="font-medium text-blue-900 mb-2">Usage Notes:</h4>
-                <ul className="text-sm text-blue-800 space-y-1">
-                  <li>• Heights are used for location identification and safety calculations</li>
-                  <li>• Ground level (Level 0) always has 0m height</li>
-                  <li>• Custom rack type allows manual height configuration</li>
-                  <li>• Heights are stored with each location for future reference</li>
-                  <li>• Configure max levels in the Locations tab to control rack height</li>
-                </ul>
               </div>
             </CardContent>
           </Card>
@@ -1182,15 +907,6 @@ export default function Setup() {
                     <li>• Set the printer to accept HTTP POST requests on the specified port</li>
                     <li>• Test the connection using the "Test Connection" button</li>
                     <li>• Labels will be printed directly via ZPL commands</li>
-                  </ul>
-                </div>
-
-                <div className="p-4 bg-yellow-50 rounded-lg">
-                  <h4 className="font-medium text-yellow-900 mb-2">Network Requirements:</h4>
-                  <ul className="text-sm text-yellow-800 space-y-1">
-                    <li>• Printer must be accessible from this device's network</li>
-                    <li>• Default port 9100 is standard for Zebra printers</li>
-                    <li>• Ensure firewall allows HTTP requests to the printer</li>
                   </ul>
                 </div>
               </div>
@@ -1351,6 +1067,25 @@ export default function Setup() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Location Confirmation Dialog */}
+      <AlertDialog open={!!locationToDelete} onOpenChange={() => setLocationToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Location</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete location <strong>{locationToDelete?.code}</strong>? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteLocation} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
