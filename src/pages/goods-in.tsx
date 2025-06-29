@@ -30,14 +30,22 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { addItem, updateItem, getItemBySystemCode } from '@/lib/firebase/items';
+import { addItem, updateItem, getItemBySystemCode, getItemsByStatus } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
 import { getCategories, updateCategoryQuantity, subscribeToCategory } from '@/lib/firebase/categories';
 import { getLocations, updateLocation, getLocationByCode, getAvailableLocations } from '@/lib/firebase/locations';
 import { generateItemCode } from '@/lib/utils';
-import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Barcode as BarcodeIcon, Printer, ArrowDownToLine, ArrowUpFromLine, QrCode, MapPin, Package, CheckCircle, AlertTriangle, Search, Filter, RefreshCcw } from 'lucide-react';
 import { Barcode } from '@/components/barcode';
 import { StockLevelIndicator } from '@/components/stock-level-indicator';
 import { LocationSelector } from '@/components/location-selector';
@@ -90,12 +98,23 @@ export default function GoodsIn() {
   const [scanMode, setScanMode] = useState<'location' | 'item'>('location');
   const [pendingItem, setPendingItem] = useState<Item | null>(null);
 
+  // Goods out state
+  const [warehouseItems, setWarehouseItems] = useState<Item[]>([]);
+  const [filteredItems, setFilteredItems] = useState<Item[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<'itemCode' | 'description' | 'location' | 'category'>('itemCode');
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+
   useEffect(() => {
     if (user && !authLoading) {
       loadCategories();
       loadLocations();
+      if (activeTab === 'out') {
+        loadWarehouseItems();
+      }
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, activeTab]);
 
   useEffect(() => {
     if (formData.category) {
@@ -112,6 +131,32 @@ export default function GoodsIn() {
       setSelectedCategory(null);
     }
   }, [formData.category, categories]);
+
+  // Filter items based on search and filter type
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredItems(warehouseItems);
+      return;
+    }
+
+    const searchLower = searchTerm.toLowerCase();
+    const filtered = warehouseItems.filter(item => {
+      switch (filterType) {
+        case 'itemCode':
+          return item.itemCode.toLowerCase().includes(searchLower);
+        case 'description':
+          return item.description.toLowerCase().includes(searchLower);
+        case 'location':
+          return (item.location || '').toLowerCase().includes(searchLower);
+        case 'category':
+          return item.category.toLowerCase().includes(searchLower);
+        default:
+          return false;
+      }
+    });
+
+    setFilteredItems(filtered);
+  }, [searchTerm, filterType, warehouseItems]);
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -134,6 +179,22 @@ export default function GoodsIn() {
     } catch (error) {
       console.error('Error loading locations:', error);
       toast.error('Failed to load locations');
+    }
+  };
+
+  const loadWarehouseItems = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      setItemsLoading(true);
+      const items = await getItemsByStatus('placed');
+      setWarehouseItems(items);
+      setFilteredItems(items);
+    } catch (error) {
+      console.error('Error loading warehouse items:', error);
+      toast.error('Failed to load warehouse items');
+    } finally {
+      setItemsLoading(false);
     }
   };
 
@@ -322,6 +383,52 @@ export default function GoodsIn() {
     } catch (error) {
       console.error('Error processing goods out:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to process goods out');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemovePhysicalItem = async (item: Item) => {
+    if (!selectedOperator) {
+      toast.error('Please select an operator before proceeding');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Get the current location
+      const currentLocation = await getLocationByCode(item.location!);
+      if (!currentLocation) {
+        throw new Error('Item location not found');
+      }
+
+      // Update location weight
+      await updateLocation(currentLocation.id, {
+        currentWeight: Math.max(0, currentLocation.currentWeight - item.weight)
+      });
+
+      // Update item status
+      await updateItem(item.id, {
+        status: 'removed',
+        location: null,
+        locationVerified: false
+      });
+
+      // Record movement
+      await addMovement({
+        itemId: item.id,
+        type: 'OUT',
+        weight: item.weight,
+        operator: getOperatorName(),
+        reference: item.itemCode,
+        notes: `Removed from ${item.location}`
+      });
+
+      toast.success(`Item ${item.itemCode} removed from warehouse`);
+      loadWarehouseItems(); // Refresh the list
+    } catch (error) {
+      console.error('Error removing item:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to remove item');
     } finally {
       setLoading(false);
     }
@@ -568,6 +675,29 @@ export default function GoodsIn() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
+    setSelectedItem(null);
+  };
+
+  const getCategoryBadge = (category: string) => {
+    const styles = {
+      raw: 'bg-blue-100 text-blue-800',
+      finished: 'bg-green-100 text-green-800',
+      packaging: 'bg-yellow-100 text-yellow-800',
+      spare: 'bg-purple-100 text-purple-800',
+    }[category] || 'bg-gray-100 text-gray-800';
+
+    const labels = {
+      raw: 'Raw Materials',
+      finished: 'Finished Goods',
+      packaging: 'Packaging',
+      spare: 'Spare Parts',
+    }[category] || category;
+
+    return (
+      <Badge variant="outline" className={styles}>
+        {labels}
+      </Badge>
+    );
   };
 
   return (
@@ -896,90 +1026,208 @@ export default function GoodsIn() {
         </TabsContent>
 
         <TabsContent value="out">
-          <Card>
-            <CardHeader>
-              <CardTitle>Process Goods Out</CardTitle>
-              <CardDescription>
-                Remove items from managed inventory
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleGoodsOut} className="space-y-4">
-                <div className="grid gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Category</Label>
-                    <Select
-                      value={formData.category}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, category: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Please select category" />
+          <div className="space-y-6">
+            {/* Kanban Items Goods Out */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Remove Kanban Items</CardTitle>
+                <CardDescription>
+                  Remove items from managed inventory categories
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleGoodsOut} className="space-y-4">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="category">Category</Label>
+                      <Select
+                        value={formData.category}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, category: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Please select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories
+                            .filter(category => category.kanbanRules?.goodsIn)
+                            .map((category) => (
+                              <SelectItem key={category.id} value={category.id}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedCategory?.kanbanRules?.goodsIn && (
+                      <>
+                        <div className="space-y-2">
+                          <StockLevelIndicator rules={selectedCategory.kanbanRules} />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="itemCode">Reference</Label>
+                          <Input
+                            id="itemCode"
+                            placeholder="Enter reference"
+                            value={formData.itemCode}
+                            onChange={(e) =>
+                              setFormData({ ...formData, itemCode: e.target.value })
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="quantity">Quantity</Label>
+                          <Input
+                            id="quantity"
+                            type="number"
+                            min="1"
+                            max={selectedCategory.kanbanRules.currentQuantity}
+                            placeholder="Enter quantity"
+                            value={formData.quantity}
+                            onChange={(e) =>
+                              setFormData({ ...formData, quantity: e.target.value })
+                            }
+                            required
+                          />
+                          <div className="text-sm text-muted-foreground">
+                            Available: {selectedCategory.kanbanRules.currentQuantity} units
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <Button 
+                    type="submit" 
+                    className="w-full" 
+                    disabled={loading || !selectedCategory?.kanbanRules?.goodsIn || !selectedOperator}
+                  >
+                    {loading ? 'Processing...' : 'Process Goods Out'}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Physical Items in Warehouse */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Remove Physical Items</span>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={loadWarehouseItems} variant="outline" size="sm" disabled={itemsLoading}>
+                      <RefreshCcw className={`h-4 w-4 mr-2 ${itemsLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </Button>
+                    <Badge variant="outline" className="px-3 py-1">
+                      {warehouseItems.length} items
+                    </Badge>
+                  </div>
+                </CardTitle>
+                <CardDescription>
+                  Select physical items currently in the warehouse to remove them
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Search and Filter */}
+                  <div className="flex gap-4">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search items..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+                      <SelectTrigger className="w-[180px]">
+                        <Filter className="h-4 w-4 mr-2" />
+                        <SelectValue placeholder="Filter by" />
                       </SelectTrigger>
                       <SelectContent>
-                        {categories
-                          .filter(category => category.kanbanRules?.goodsIn)
-                          .map((category) => (
-                            <SelectItem key={category.id} value={category.id}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
+                        <SelectItem value="itemCode">Item Code</SelectItem>
+                        <SelectItem value="description">Description</SelectItem>
+                        <SelectItem value="location">Location</SelectItem>
+                        <SelectItem value="category">Category</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {selectedCategory?.kanbanRules?.goodsIn && (
-                    <>
-                      <div className="space-y-2">
-                        <StockLevelIndicator rules={selectedCategory.kanbanRules} />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="itemCode">Reference</Label>
-                        <Input
-                          id="itemCode"
-                          placeholder="Enter reference"
-                          value={formData.itemCode}
-                          onChange={(e) =>
-                            setFormData({ ...formData, itemCode: e.target.value })
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="quantity">Quantity</Label>
-                        <Input
-                          id="quantity"
-                          type="number"
-                          min="1"
-                          max={selectedCategory.kanbanRules.currentQuantity}
-                          placeholder="Enter quantity"
-                          value={formData.quantity}
-                          onChange={(e) =>
-                            setFormData({ ...formData, quantity: e.target.value })
-                          }
-                          required
-                        />
-                        <div className="text-sm text-muted-foreground">
-                          Available: {selectedCategory.kanbanRules.currentQuantity} units
+                  {/* Items List */}
+                  {itemsLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                      Loading warehouse items...
+                    </div>
+                  ) : filteredItems.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      {warehouseItems.length === 0 ? (
+                        <div>
+                          <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium mb-2">No items in warehouse</p>
+                          <p className="text-sm">Process some goods in to see items here.</p>
                         </div>
-                      </div>
-                    </>
+                      ) : (
+                        <div>
+                          <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="text-lg font-medium mb-2">No items match your search</p>
+                          <p className="text-sm">Try adjusting your search terms or filter.</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border rounded-md">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Item Code</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Location</TableHead>
+                            <TableHead>Weight</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredItems.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell className="font-medium">{item.itemCode}</TableCell>
+                              <TableCell>{item.description}</TableCell>
+                              <TableCell>{getCategoryBadge(item.category)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                  {item.location}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{item.weight}kg</TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleRemovePhysicalItem(item)}
+                                  disabled={loading || !selectedOperator}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                >
+                                  <ArrowUpFromLine className="h-4 w-4 mr-2" />
+                                  Remove
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   )}
                 </div>
-
-                <Button 
-                  type="submit" 
-                  className="w-full" 
-                  disabled={loading || !selectedCategory?.kanbanRules?.goodsIn || !selectedOperator}
-                >
-                  {loading ? 'Processing...' : 'Process Goods Out'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
 
