@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { QrScanner } from 'react-qr-scanner';
+import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
