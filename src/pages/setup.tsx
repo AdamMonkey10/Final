@@ -49,7 +49,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { addLocation, getLocations } from '@/lib/firebase/locations';
+import { addLocation, getLocations, deleteLocation } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator, deleteOperatorPermanently } from '@/lib/firebase/operators';
@@ -57,7 +57,7 @@ import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type Pr
 import { generateBulkLocationZPL } from '@/lib/zpl-generator';
 import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
 import { CategoryDialog } from '@/components/category-dialog';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers, Printer, TestTube } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Ruler, Layers, Printer, TestTube, Grid2X2, RefreshCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
@@ -97,6 +97,7 @@ export default function Setup() {
     rackType: string;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
+  const [loadingExistingLocations, setLoadingExistingLocations] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
@@ -137,6 +138,7 @@ export default function Setup() {
       loadUsers();
       loadOperators();
       loadPrinterSettings();
+      fetchExistingLocations();
     }
   }, [user, authLoading]);
 
@@ -164,6 +166,49 @@ export default function Setup() {
       }
     }
   }, [maxLevel, selectedRackType]);
+
+  const fetchExistingLocations = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      setLoadingExistingLocations(true);
+      const locations = await getLocations();
+      setExistingLocations(locations);
+      toast.success(`Found ${locations.length} existing locations`);
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+      toast.error('Error fetching existing locations');
+    } finally {
+      setLoadingExistingLocations(false);
+    }
+  };
+
+  const handleDeleteLocation = async (locationId: string) => {
+    try {
+      await deleteLocation(locationId);
+      toast.success('Location deleted successfully');
+      await fetchExistingLocations(); // Refresh the list
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      toast.error('Failed to delete location');
+    }
+  };
+
+  const getWeightStatusColor = (currentWeight: number, maxWeight: number) => {
+    if (currentWeight === 0) return 'bg-green-100 text-green-800';
+    if (maxWeight === Infinity) return 'bg-blue-100 text-blue-800'; // Ground level
+    if (currentWeight >= maxWeight * 0.9) return 'bg-red-100 text-red-800';
+    if (currentWeight >= maxWeight * 0.7) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-blue-100 text-blue-800';
+  };
+
+  const getWeightStatusText = (currentWeight: number, maxWeight: number) => {
+    if (currentWeight === 0) return 'Empty';
+    if (maxWeight === Infinity) return 'In Use'; // Ground level
+    if (currentWeight >= maxWeight * 0.9) return 'Full';
+    if (currentWeight >= maxWeight * 0.7) return 'Heavy';
+    return 'In Use';
+  };
 
   const loadCategories = async () => {
     if (!user || authLoading) return;
@@ -288,17 +333,6 @@ export default function Setup() {
     } catch (error) {
       console.error('Error saving locations:', error);
       toast.error('Failed to save locations');
-    }
-  };
-
-  const fetchExistingLocations = async () => {
-    try {
-      const locations = await getLocations();
-      setExistingLocations(locations);
-      toast.success(`Found ${locations.length} existing locations`);
-    } catch (error) {
-      console.error('Error fetching locations:', error);
-      toast.error('Error fetching existing locations');
     }
   };
 
@@ -456,7 +490,8 @@ export default function Setup() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Warehouse Setup</h1>
-        <Button onClick={fetchExistingLocations}>
+        <Button onClick={fetchExistingLocations} disabled={loadingExistingLocations}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loadingExistingLocations ? 'animate-spin' : ''}`} />
           Refresh Locations
         </Button>
       </div>
@@ -473,7 +508,7 @@ export default function Setup() {
           <TabsTrigger value="data">Data Management</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="locations">
+        <TabsContent value="locations" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Generate Locations</CardTitle>
@@ -625,7 +660,6 @@ export default function Setup() {
                           <TableHead>Level</TableHead>
                           <TableHead>Height</TableHead>
                           <TableHead>Max Weight</TableHead>
-                          <TableHead>Rack Type</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -639,16 +673,11 @@ export default function Setup() {
                             <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
                             <TableCell>{location.height}m</TableCell>
                             <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType}
-                              </Badge>
-                            </TableCell>
                           </TableRow>
                         ))}
                         {generatedLocations.length > 20 && (
                           <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground">
+                            <TableCell colSpan={6} className="text-center text-muted-foreground">
                               ... and {generatedLocations.length - 20} more locations
                             </TableCell>
                           </TableRow>
@@ -668,6 +697,122 @@ export default function Setup() {
                   >
                     Save All Locations
                   </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Existing Locations Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Grid2X2 className="h-5 w-5" />
+                Existing Locations
+                {!loadingExistingLocations && (
+                  <Badge variant="outline" className="ml-2">
+                    {existingLocations.length} locations
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                View and manage all locations currently stored in the system. You can permanently delete locations that are no longer needed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingExistingLocations ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading existing locations...
+                </div>
+              ) : existingLocations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Grid2X2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No locations found</p>
+                  <p className="text-sm">Generate locations using the form above to get started.</p>
+                </div>
+              ) : (
+                <div className="border rounded-md max-h-96 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Row</TableHead>
+                        <TableHead>Bay</TableHead>
+                        <TableHead>Level</TableHead>
+                        <TableHead>Height</TableHead>
+                        <TableHead>Weight Status</TableHead>
+                        <TableHead>Max Weight</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {existingLocations.map((location) => (
+                        <TableRow key={location.id}>
+                          <TableCell className="font-medium">{location.code}</TableCell>
+                          <TableCell>{location.row}</TableCell>
+                          <TableCell>{location.bay}</TableCell>
+                          <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Ruler className="h-3 w-3 text-muted-foreground" />
+                              {location.height || 0}m
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant="outline" 
+                              className={getWeightStatusColor(location.currentWeight, location.maxWeight)}
+                            >
+                              {getWeightStatusText(location.currentWeight, location.maxWeight)}
+                              {location.currentWeight > 0 && ` (${location.currentWeight}kg)`}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                                  disabled={location.currentWeight > 0}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Location</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to permanently delete location "{location.code}"? 
+                                    This action cannot be undone and will remove all associated data.
+                                    {location.currentWeight > 0 && (
+                                      <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-800">
+                                        <strong>Warning:</strong> This location currently has items stored in it. 
+                                        Please remove all items before deleting.
+                                      </div>
+                                    )}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteLocation(location.id)}
+                                    className="bg-red-600 hover:bg-red-700"
+                                    disabled={location.currentWeight > 0}
+                                  >
+                                    Delete Permanently
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </CardContent>
