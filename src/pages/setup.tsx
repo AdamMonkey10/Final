@@ -36,12 +36,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addLocation, getLocations } from '@/lib/firebase/locations';
 import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
-import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
+import { getOperators, addOperator, deactivateOperator, deleteOperatorPermanently } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
 import { generateBulkLocationZPL } from '@/lib/zpl-generator';
 import { LEVEL_MAX_WEIGHTS, RACK_TYPES, STANDARD_RACK_HEIGHTS } from '@/lib/warehouse-logic';
@@ -359,14 +370,14 @@ export default function Setup() {
     }
   };
 
-  const handleDeactivateOperator = async (operatorId: string) => {
+  const handleDeleteOperator = async (operatorId: string) => {
     try {
-      await deactivateOperator(operatorId);
-      toast.success('Operator deactivated');
+      await deleteOperatorPermanently(operatorId);
+      toast.success('Operator deleted permanently');
       loadOperators();
     } catch (error) {
-      console.error('Error deactivating operator:', error);
-      toast.error('Failed to deactivate operator');
+      console.error('Error deleting operator:', error);
+      toast.error('Failed to delete operator');
     }
   };
 
@@ -791,7 +802,7 @@ export default function Setup() {
                 </Button>
               </CardTitle>
               <CardDescription>
-                Manage warehouse operators who perform transactions
+                Manage warehouse operators who perform transactions. You can permanently delete operators to clear the list.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -813,20 +824,40 @@ export default function Setup() {
                         </TableCell>
                         <TableCell>{operator.email || '—'}</TableCell>
                         <TableCell>
-                          <Badge variant={operator.active ? 'success' : 'secondary'}>
+                          <Badge variant={operator.active ? 'default' : 'secondary'}>
                             {operator.active ? 'Active' : 'Inactive'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           {operator.active && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeactivateOperator(operator.id)}
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Operator</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to permanently delete "{operator.name}"? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteOperator(operator.id)}
+                                    className="bg-red-600 hover:bg-red-700"
+                                  >
+                                    Delete Permanently
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           )}
                         </TableCell>
                       </TableRow>
@@ -834,6 +865,13 @@ export default function Setup() {
                   </TableBody>
                 </Table>
               </div>
+              {operators.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <UserCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium mb-2">No operators found</p>
+                  <p className="text-sm">Add operators using the "Add Operator" button above.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -124,3 +124,14 @@ export async function deactivateOperator(id: string): Promise<void> {
     throw error;
   }
 }
+
+export async function deleteOperatorPermanently(id: string): Promise<void> {
+  try {
+    const operatorRef = doc(db, COLLECTION, id);
+    await deleteDoc(operatorRef);
+    console.log(`Operator ${id} permanently deleted`);
+  } catch (error) {
+    console.error('Error permanently deleting operator:', error);
+    throw error;
+  }
+}
