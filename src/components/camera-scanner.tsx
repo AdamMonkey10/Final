@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,18 @@ interface CameraScannerProps {
   onError?: (error: string) => void;
   className?: string;
   isActive?: boolean;
+}
+
+// Debounce utility function
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
 }
 
 export function CameraScanner({ 
@@ -24,6 +36,15 @@ export function CameraScanner({
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const scannerRef = useRef<HTMLDivElement>(null);
+  const lastScanTimeRef = useRef<number>(0);
+
+  // Create debounced version of onResult callback
+  const debouncedOnResult = useCallback(
+    debounce((data: string) => {
+      onResult(data);
+    }, 500), // 500ms debounce delay - increased for better stability
+    [onResult]
+  );
 
   useEffect(() => {
     if (isActive) {
@@ -54,13 +75,24 @@ export function CameraScanner({
   };
 
   const handleScan = (result: any) => {
-    if (result?.text && result.text !== lastScan) {
-      setLastScan(result.text);
-      onResult(result.text);
+    if (result?.text) {
+      const now = Date.now();
       
-      // Brief visual feedback
+      // Prevent duplicate scans within 2 seconds for better stability
+      if (result.text === lastScan && now - lastScanTimeRef.current < 2000) {
+        return;
+      }
+
+      // Update last scan tracking
+      setLastScan(result.text);
+      lastScanTimeRef.current = now;
+      
+      // Call debounced onResult to prevent rapid state updates
+      debouncedOnResult(result.text);
+      
+      // Brief visual feedback without affecting scanner
       setIsScanning(false);
-      setTimeout(() => setIsScanning(true), 100);
+      setTimeout(() => setIsScanning(true), 200);
     }
   };
 
@@ -74,11 +106,16 @@ export function CameraScanner({
   const toggleCamera = () => {
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
     setError(null);
+    // Reset last scan when switching cameras
+    setLastScan(null);
+    lastScanTimeRef.current = 0;
   };
 
   const retryPermission = () => {
     setError(null);
     setHasPermission(null);
+    setLastScan(null);
+    lastScanTimeRef.current = 0;
     requestCameraPermission();
   };
 
