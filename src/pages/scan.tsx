@@ -20,7 +20,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard, Search, CheckCircle, AlertCircle } from 'lucide-react';
+import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard, Search, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
@@ -145,36 +145,26 @@ export default function ScanPage() {
         duration: 4000
       });
 
+      // Automatically proceed to next step based on item status
       if (item.status === 'pending') {
-        // Item needs to be placed
-        toast.info(`📦 Item is pending placement`, {
-          description: `Select a location to place ${item.itemCode}`,
-          duration: 4000
-        });
+        // Item needs to be placed - show location selection
+        console.log('📦 Item is pending - proceeding to location selection');
         
-        // Show finding locations toast
-        const locationToast = toast.loading('🔍 Finding suitable locations...', {
-          duration: Infinity
-        });
-        
+        // Close scan dialog and show location dialog
         setShowScanDialog(false);
+        
+        // Load locations and show dialog
+        await loadLocations();
         setShowLocationDialog(true);
         
-        // Dismiss location search toast after dialog opens
-        setTimeout(() => {
-          toast.dismiss(locationToast);
-          toast.success('📍 Available locations loaded', {
-            description: 'Select the best location for this item',
-            duration: 3000
-          });
-        }, 1000);
-        
-      } else if (item.status === 'placed') {
-        // Item can be picked
-        toast.success(`📍 Item is at location ${item.location}`, {
-          description: `Ready to pick ${item.itemCode}`,
+        toast.info(`📦 Select location for placement`, {
+          description: `Choose where to place ${item.itemCode}`,
           duration: 4000
         });
+        
+      } else if (item.status === 'placed') {
+        // Item can be picked - show location visualization
+        console.log('📍 Item is placed - proceeding to pick confirmation');
         
         setShowScanDialog(false);
         
@@ -184,6 +174,11 @@ export default function ScanPage() {
         if (currentLocation) {
           setSelectedLocation(currentLocation);
           setShowVisualDialog(true);
+          
+          toast.success(`📍 Item ready for picking`, {
+            description: `${item.itemCode} is at location ${item.location}`,
+            duration: 4000
+          });
         } else {
           toast.error('❌ Current location not found', {
             description: 'Location data may be outdated',
@@ -392,6 +387,28 @@ export default function ScanPage() {
     }
   };
 
+  const getNextStepMessage = () => {
+    if (!scannedItem) return null;
+    
+    if (scannedItem.status === 'pending') {
+      return (
+        <div className="flex items-center gap-2 text-blue-600">
+          <ArrowRight className="h-4 w-4" />
+          <span className="text-sm font-medium">Next: Select location to place item</span>
+        </div>
+      );
+    } else if (scannedItem.status === 'placed') {
+      return (
+        <div className="flex items-center gap-2 text-green-600">
+          <ArrowRight className="h-4 w-4" />
+          <span className="text-sm font-medium">Next: Confirm picking from {scannedItem.location}</span>
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
   const instructionSteps = [
     {
       title: "Select Operator",
@@ -477,6 +494,7 @@ export default function ScanPage() {
                     {scannedItem.description} • {scannedItem.weight}kg • {getItemStatusBadge(scannedItem.status)}
                   </div>
                 )}
+                {getNextStepMessage()}
               </div>
             </div>
           </CardContent>
