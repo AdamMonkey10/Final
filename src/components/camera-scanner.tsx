@@ -9,7 +9,6 @@ interface CameraScannerProps {
   onError?: (error: string) => void;
   className?: string;
   isActive?: boolean;
-  autoComplete?: boolean; // New prop to control auto-completion
 }
 
 // Debounce utility function
@@ -28,8 +27,7 @@ export function CameraScanner({
   onResult, 
   onError, 
   className,
-  isActive = true,
-  autoComplete = true // Default to auto-complete behavior
+  isActive = true 
 }: CameraScannerProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,17 +137,13 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Optimized constraints for barcode scanning with 720x1280 preference
+    // Simplified constraints for better compatibility
     const constraints = {
       video: {
         facingMode: facingMode,
-        width: { ideal: 720, min: 480 },
-        height: { ideal: 1280, min: 640 },
-        frameRate: { ideal: 30, min: 15 },
-        aspectRatio: { ideal: 9/16 }, // Portrait aspect ratio
-        focusMode: 'continuous',
-        exposureMode: 'continuous',
-        whiteBalanceMode: 'continuous'
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 }
       },
       audio: false
     };
@@ -163,23 +157,10 @@ export function CameraScanner({
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        
-        // Set video properties for better quality
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         videoRef.current.muted = true;
-        
         await videoRef.current.play();
-        
-        // Log actual video dimensions
-        videoRef.current.addEventListener('loadedmetadata', () => {
-          console.log('📱 Video dimensions:', {
-            videoWidth: videoRef.current?.videoWidth,
-            videoHeight: videoRef.current?.videoHeight,
-            clientWidth: videoRef.current?.clientWidth,
-            clientHeight: videoRef.current?.clientHeight
-          });
-        });
       }
       
       setStream(mediaStream);
@@ -189,6 +170,37 @@ export function CameraScanner({
       
     } catch (err: any) {
       console.error('❌ Scanner: Camera permission failed:', err);
+      
+      // Try fallback constraints if the initial ones fail
+      if (err.name === 'OverconstrainedError') {
+        console.log('📱 Scanner: Trying fallback constraints');
+        try {
+          const fallbackConstraints = {
+            video: {
+              facingMode: facingMode
+            },
+            audio: false
+          };
+          
+          const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream;
+            videoRef.current.setAttribute('playsinline', 'true');
+            videoRef.current.setAttribute('webkit-playsinline', 'true');
+            videoRef.current.muted = true;
+            await videoRef.current.play();
+          }
+          
+          setStream(fallbackStream);
+          setHasPermission(true);
+          setError(null);
+          setCameraReady(true);
+          return;
+        } catch (fallbackErr) {
+          console.error('❌ Scanner: Fallback also failed:', fallbackErr);
+        }
+      }
       
       let errorMessage = 'Camera access failed';
       
@@ -203,30 +215,7 @@ export function CameraScanner({
           errorMessage = 'Camera is in use by another application.';
           break;
         case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported. Trying fallback...';
-          // Try with fallback constraints
-          try {
-            const fallbackConstraints = {
-              video: {
-                facingMode: facingMode,
-                width: { ideal: 640 },
-                height: { ideal: 480 }
-              },
-              audio: false
-            };
-            const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-            if (videoRef.current) {
-              videoRef.current.srcObject = fallbackStream;
-              await videoRef.current.play();
-            }
-            setStream(fallbackStream);
-            setHasPermission(true);
-            setError(null);
-            setCameraReady(true);
-            return;
-          } catch (fallbackErr) {
-            errorMessage = 'Camera constraints not supported on this device.';
-          }
+          errorMessage = 'Camera constraints not supported on this device.';
           break;
         default:
           errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
@@ -333,12 +322,7 @@ export function CameraScanner({
     setIsScanning(true);
     
     console.log('📱 Scanner: Calling result callback');
-    if (autoComplete) {
-      debouncedOnResult(scannedText);
-    } else {
-      onResult(scannedText);
-      setIsScanning(false);
-    }
+    debouncedOnResult(scannedText);
   };
 
   const toggleCamera = () => {
@@ -413,11 +397,6 @@ export function CameraScanner({
           playsInline
           muted
           className="w-full h-96 object-cover"
-          style={{ 
-            aspectRatio: '9/16',
-            maxHeight: '500px',
-            objectFit: 'cover'
-          }}
           onLoadedMetadata={() => {
             console.log('📱 Scanner: Video loaded');
             setCameraReady(true);

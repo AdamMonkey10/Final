@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -49,8 +49,7 @@ export default function ScanPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
-  const [manualInput, setManualInput] = useState(''); // State for manual input
-  const manualInputRef = useRef<HTMLInputElement>(null);
+  const [manualInput, setManualInput] = useState('');
 
   useEffect(() => {
     if (user && !authLoading && showLocationDialog) {
@@ -240,7 +239,7 @@ export default function ScanPage() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
-    setManualInput(''); // Clear manual input
+    setManualInput('');
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -387,7 +386,6 @@ export default function ScanPage() {
                 <div className="relative">
                   <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
-                    ref={manualInputRef}
                     value={manualInput}
                     onChange={(e) => setManualInput(e.target.value)}
                     placeholder="Enter barcode manually or scan with camera..."
@@ -407,7 +405,7 @@ export default function ScanPage() {
                 )}
               </form>
               
-              {/* Camera scan button in manual mode */}
+              {/* Camera scan in manual mode */}
               <div className="text-center">
                 <div className="text-sm text-muted-foreground mb-2">Or use camera to scan:</div>
                 <CameraScanner
