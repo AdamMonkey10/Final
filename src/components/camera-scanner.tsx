@@ -341,22 +341,45 @@ export function CameraScanner({
   };
 
   const requestCameraPermission = async () => {
-    console.log('📱 Scanner: Requesting camera permission');
+    console.log('📱 Scanner: Requesting camera permission with optimized resolution');
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera API not supported in this browser');
     }
     
+    // Optimized constraint sets with 720x1280 as primary target
     const constraintSets = [
+      // First try: Exact 720x1280 resolution for optimal scanning
       {
         video: {
           facingMode: { exact: facingMode },
+          width: { ideal: 720, min: 720 },
+          height: { ideal: 1280, min: 1280 },
+          frameRate: { ideal: 30, min: 15 }
+        },
+        audio: false
+      },
+      // Second try: 720x1280 without exact constraints
+      {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 720 },
+          height: { ideal: 1280 },
+          frameRate: { ideal: 30, min: 15 }
+        },
+        audio: false
+      },
+      // Third try: Standard HD resolution
+      {
+        video: {
+          facingMode: facingMode,
           width: { ideal: 1280, min: 640 },
           height: { ideal: 720, min: 480 },
           frameRate: { ideal: 30, min: 15 }
         },
         audio: false
       },
+      // Fourth try: Medium quality
       {
         video: {
           facingMode: facingMode,
@@ -366,6 +389,7 @@ export function CameraScanner({
         },
         audio: false
       },
+      // Fifth try: Basic constraints
       {
         video: {
           facingMode: facingMode,
@@ -374,12 +398,14 @@ export function CameraScanner({
         },
         audio: false
       },
+      // Sixth try: Just facing mode
       {
         video: {
           facingMode: facingMode
         },
         audio: false
       },
+      // Last resort: Any video
       {
         video: true,
         audio: false
@@ -397,6 +423,15 @@ export function CameraScanner({
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         usedConstraints = constraints;
         console.log(`✅ Scanner: Success with constraint set ${i + 1}`);
+        
+        // Log the actual resolution we got
+        if (mediaStream) {
+          const videoTrack = mediaStream.getVideoTracks()[0];
+          if (videoTrack) {
+            const settings = videoTrack.getSettings();
+            console.log(`📱 Scanner: Actual resolution: ${settings.width}x${settings.height}`);
+          }
+        }
         break;
       } catch (err: any) {
         console.warn(`❌ Scanner: Constraint set ${i + 1} failed:`, err.name, err.message);
@@ -411,7 +446,7 @@ export function CameraScanner({
       throw new Error('Failed to get camera stream with any constraints');
     }
     
-    console.log('✅ Scanner: Camera permission granted');
+    console.log('✅ Scanner: Camera permission granted with optimized resolution');
     
     setStreamInfo({
       tracks: mediaStream.getTracks().length,
@@ -633,7 +668,7 @@ export function CameraScanner({
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-sm text-muted-foreground">
-            {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
+            {isInitializing ? 'Initializing camera with optimized resolution...' : 'Requesting camera permission...'}
           </p>
           {deviceInfo.isMobile && (
             <p className="text-xs text-blue-600 mt-2">
@@ -753,18 +788,8 @@ export function CameraScanner({
                 <AlertCircle className="h-8 w-8 mx-auto mb-2" />
                 <div className="font-bold">Camera Recovery Mode</div>
                 <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
-                <div className="text-xs mt-1">Continuous checks: {dimensionCheckCount}</div>
-                <div className="text-xs">Zero count: {zeroDimensionCountRef.current}</div>
+                <div className="text-xs mt-1">Target: 720x1280 for optimal scanning</div>
                 <div className="text-xs">Recovery attempts: {recoveryAttempts}</div>
-                <div className="text-xs">Stream reinits: {streamReinitCount}</div>
-                {deviceInfo.isMobile && (
-                  <div className="text-xs mt-1">Mobile recovery active...</div>
-                )}
-                {lastValidDimensionsRef.current.width > 0 && (
-                  <div className="text-xs mt-1">
-                    Last valid: {lastValidDimensionsRef.current.width}x{lastValidDimensionsRef.current.height}
-                  </div>
-                )}
               </div>
             </div>
           ) : null}
@@ -783,16 +808,9 @@ export function CameraScanner({
               Mobile
             </Badge>
           )}
-          {continuousMonitoring && (
+          {videoDimensions.width > 0 && videoDimensions.height > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
-              <Monitor className="h-3 w-3 mr-1" />
-              Monitoring
-            </Badge>
-          )}
-          {playbackStatus === 'recovering' && (
-            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300">
-              <Wifi className="h-3 w-3 mr-1" />
-              Recovering
+              📐 {videoDimensions.width}x{videoDimensions.height}
             </Badge>
           )}
           {scanSuccess && (
@@ -805,12 +823,6 @@ export function CameraScanner({
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
               <Zap className="h-3 w-3 mr-1" />
               {scanCount} scans
-            </Badge>
-          )}
-          {lastScan && (
-            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.length > 10 ? lastScan.substring(0, 10) + '...' : lastScan}
             </Badge>
           )}
         </div>
@@ -854,7 +866,7 @@ export function CameraScanner({
 
       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-sm text-blue-800 text-center">
-          <strong>📱 Position your QR code or barcode within the red frame</strong><br />
+          <strong>📱 Optimized for 720x1280 resolution scanning</strong><br />
           {autoComplete ? 
             "Scan will complete automatically when detected • Hold steady for best results" :
             "Hold steady for best results • Ensure good lighting • Keep code flat and clean"
@@ -869,86 +881,15 @@ export function CameraScanner({
           )}
         </div>
         
-        {continuousMonitoring && (
-          <div className="mt-2 text-xs text-green-600 text-center">
-            🔄 Continuous camera monitoring active (Check #{dimensionCheckCount})
+        {videoDimensions.width > 0 && videoDimensions.height > 0 && (
+          <div className="mt-2 text-xs text-center">
+            <span className={videoDimensions.width === 720 && videoDimensions.height === 1280 ? 
+              "text-green-600 font-bold" : "text-blue-600"}>
+              Current resolution: {videoDimensions.width}x{videoDimensions.height}
+              {videoDimensions.width === 720 && videoDimensions.height === 1280 && " ✅ Optimal!"}
+            </span>
           </div>
         )}
-        
-        {scanSuccess && autoComplete && (
-          <div className="mt-2 text-xs text-green-600 text-center">
-            ✅ Scan completed successfully! Click "Scan Again" to scan another code.
-          </div>
-        )}
-        
-        {zeroDimensionCountRef.current > 25 && (
-          <div className="mt-2 text-xs text-orange-600 text-center">
-            ⚠️ Extended 0x0 dimensions detected - automatic recovery will trigger soon
-          </div>
-        )}
-      </div>
-
-      <div className="mt-2 p-3 bg-gray-100 rounded text-xs border">
-        <div className="font-medium mb-2 text-gray-800 flex items-center gap-2">
-          📊 Camera Diagnostics
-          {deviceInfo.isMobile && <Smartphone className="h-3 w-3" />}
-          {continuousMonitoring && <Monitor className="h-3 w-3 text-green-600" />}
-          {playbackStatus === 'recovering' && <Wifi className="h-3 w-3 text-orange-600" />}
-          {scanSuccess && <CheckCircle className="h-3 w-3 text-green-600" />}
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-gray-700">
-          <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
-          <div>Facing: <span className="font-mono">{facingMode}</span></div>
-          <div>Camera Ready: <span className="font-mono">{cameraReady ? 'Yes' : 'No'}</span></div>
-          <div>Playback: <span className={cn("font-mono", playbackStatus === 'recovering' && "text-orange-600 font-bold")}>{playbackStatus}</span></div>
-          <div>Video Size: <span className={cn("font-mono", (videoDimensions.width === 0 || videoDimensions.height === 0) && "text-red-600 font-bold")}>
-            {videoDimensions.width}x{videoDimensions.height}
-          </span></div>
-          <div>Stream: <span className="font-mono">{streamInfo.tracks} tracks, {streamInfo.active ? 'active' : 'inactive'}</span></div>
-          <div>Scan Count: <span className="font-mono">{scanCount}</span></div>
-          <div>Scan Success: <span className={cn("font-mono", scanSuccess && "text-green-600 font-bold")}>{scanSuccess ? 'YES' : 'NO'}</span></div>
-          <div>Auto Complete: <span className="font-mono">{autoComplete ? 'ON' : 'OFF'}</span></div>
-          <div>BarcodeDetector: <span className="font-mono">{'BarcodeDetector' in window ? 'Available' : 'Not Available'}</span></div>
-          <div>Device: <span className="font-mono">{deviceInfo.isMobile ? 'Mobile' : 'Desktop'}</span></div>
-          <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
-          <div>Load Attempts: <span className="font-mono">{videoLoadAttempts}</span></div>
-          <div>Ready State: <span className="font-mono">{videoRef.current?.readyState || 'N/A'}</span></div>
-          <div>Monitoring: <span className={cn("font-mono", continuousMonitoring && "text-green-600 font-bold")}>
-            {continuousMonitoring ? 'ACTIVE' : 'STOPPED'}
-          </span></div>
-          <div>Dimension Checks: <span className={cn("font-mono", continuousMonitoring && "text-blue-600 font-bold")}>
-            {dimensionCheckCount} {continuousMonitoring ? '(continuous)' : '(stopped)'}
-          </span></div>
-          <div>Last Valid: <span className="font-mono text-green-700">
-            {lastValidDimensionsRef.current.width}x{lastValidDimensionsRef.current.height}
-          </span></div>
-          <div>Zero Count: <span className={cn("font-mono", zeroDimensionCountRef.current > 25 && "text-red-600 font-bold")}>
-            {zeroDimensionCountRef.current}
-          </span></div>
-          <div>Recovery Attempts: <span className="font-mono text-orange-700">{recoveryAttempts}</span></div>
-          <div>Stream Reinits: <span className="font-mono text-purple-700">{streamReinitCount}</span></div>
-        </div>
-        {streamInfo.constraints && (
-          <div className="mt-2 pt-2 border-t border-gray-300">
-            <div className="text-xs">
-              <div>Constraints: <span className="font-mono text-blue-700">{JSON.stringify(streamInfo.constraints.video, null, 0)}</span></div>
-            </div>
-          </div>
-        )}
-        {lastScan && (
-          <div className="mt-2 pt-2 border-t border-gray-300">
-            <div>Last scan: <span className="font-mono text-green-700">{lastScan}</span></div>
-          </div>
-        )}
-        {error && (
-          <div className="mt-2 pt-2 border-t border-gray-300">
-            <div>Error: <span className="font-mono text-red-700">{error}</span></div>
-          </div>
-        )}
-        <div className="mt-2 pt-2 border-t border-gray-300 text-xs">
-          <div>User Agent: <span className="font-mono text-gray-600">{deviceInfo.userAgent.substring(0, 50)}...</span></div>
-          <div>Platform: <span className="font-mono text-gray-600">{deviceInfo.platform}</span></div>
-        </div>
       </div>
     </div>
   );
