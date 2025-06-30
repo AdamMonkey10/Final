@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -20,7 +20,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { QrCode, RefreshCcw, Package, MapPin, Camera, Keyboard } from 'lucide-react';
+import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
@@ -49,6 +49,8 @@ export default function ScanPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
+  const [manualInput, setManualInput] = useState(''); // State for manual input
+  const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user && !authLoading && showLocationDialog) {
@@ -81,9 +83,26 @@ export default function ScanPage() {
       return;
     }
 
+    console.log('📱 Scan result received:', scannedCode);
+
+    // Update manual input field with scanned result
+    setManualInput(scannedCode.trim());
+    
+    // If we're in manual mode, focus the input and let user submit manually
+    if (scanMode === 'manual' && manualInputRef.current) {
+      manualInputRef.current.focus();
+      toast.success(`Barcode scanned: ${scannedCode.trim()}`);
+      return;
+    }
+
+    // For camera mode, process immediately
+    await processScannedCode(scannedCode.trim());
+  };
+
+  const processScannedCode = async (scannedCode: string) => {
     setLoading(true);
     try {
-      const item = await getItemBySystemCode(scannedCode.trim());
+      const item = await getItemBySystemCode(scannedCode);
       
       if (!item) {
         toast.error('Item not found');
@@ -124,12 +143,13 @@ export default function ScanPage() {
 
   const handleManualScan = async (e: React.FormEvent) => {
     e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const input = form.elements.namedItem('scanInput') as HTMLInputElement;
-    const scannedCode = input.value.trim();
-    form.reset();
+    
+    if (!manualInput.trim()) {
+      toast.error('Please enter a barcode');
+      return;
+    }
 
-    await handleScanResult(scannedCode);
+    await processScannedCode(manualInput.trim());
   };
 
   const handleLocationSelect = async (location: Location) => {
@@ -227,6 +247,7 @@ export default function ScanPage() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
+    setManualInput(''); // Clear manual input
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -276,7 +297,7 @@ export default function ScanPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Warehouse Scanner</h1>
         <Button onClick={resetState} variant="outline" disabled={loading}>
-          <RefreshCcw className="h-4 w-4 mr-2" />
+          <RefreshCw className="h-4 w-4 mr-2" />
           Reset
         </Button>
       </div>
@@ -359,11 +380,27 @@ export default function ScanPage() {
                 onResult={handleScanResult}
                 onError={(error) => toast.error(error)}
                 isActive={scanMode === 'camera' && showScanDialog}
+                autoComplete={false} // Don't auto-complete, let user see the result
                 className="w-full"
               />
               {selectedOperator && (
                 <div className="text-xs text-center text-muted-foreground">
                   Operator: {selectedOperator.name}
+                </div>
+              )}
+              
+              {/* Show scanned result in camera mode */}
+              {manualInput && scanMode === 'camera' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="text-sm font-medium text-green-800 mb-1">Scanned Code:</div>
+                  <div className="font-mono text-green-700">{manualInput}</div>
+                  <Button 
+                    onClick={() => processScannedCode(manualInput)}
+                    className="w-full mt-2"
+                    disabled={loading}
+                  >
+                    {loading ? 'Processing...' : 'Process Scanned Code'}
+                  </Button>
                 </div>
               )}
             </TabsContent>
@@ -373,16 +410,18 @@ export default function ScanPage() {
                 <div className="relative">
                   <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
-                    name="scanInput"
-                    placeholder="Enter barcode manually..."
+                    ref={manualInputRef}
+                    value={manualInput}
+                    onChange={(e) => setManualInput(e.target.value)}
+                    placeholder="Enter barcode manually or scan with camera..."
                     className="pl-9"
                     autoComplete="off"
                     autoFocus
                     disabled={loading}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={loading || !selectedOperator}>
-                  {loading ? 'Scanning...' : 'Scan Item'}
+                <Button type="submit" className="w-full" disabled={loading || !selectedOperator || !manualInput.trim()}>
+                  {loading ? 'Processing...' : 'Process Barcode'}
                 </Button>
                 {selectedOperator && (
                   <div className="text-xs text-center text-muted-foreground">
@@ -390,6 +429,18 @@ export default function ScanPage() {
                   </div>
                 )}
               </form>
+              
+              {/* Camera scan button in manual mode */}
+              <div className="text-center">
+                <div className="text-sm text-muted-foreground mb-2">Or use camera to scan:</div>
+                <CameraScanner
+                  onResult={handleScanResult}
+                  onError={(error) => toast.error(error)}
+                  isActive={scanMode === 'manual' && showScanDialog}
+                  autoComplete={false} // Populate input field instead
+                  className="w-full"
+                />
+              </div>
             </TabsContent>
           </Tabs>
         </DialogContent>
