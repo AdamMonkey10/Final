@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, Wifi, WifiOff, Settings } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, Wifi, WifiOff, Settings, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -36,18 +36,21 @@ export function CameraScanner({
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [isHttps, setIsHttps] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [deviceInfo, setDeviceInfo] = useState<{
     hasCamera: boolean;
     cameraCount: number;
     userAgent: string;
     isLocalhost: boolean;
     supportedConstraints: string[];
+    isSecureContext: boolean;
   }>({
     hasCamera: false,
     cameraCount: 0,
     userAgent: '',
     isLocalhost: false,
-    supportedConstraints: []
+    supportedConstraints: [],
+    isSecureContext: false
   });
   const scannerRef = useRef<HTMLDivElement>(null);
   const lastScanTimeRef = useRef<number>(0);
@@ -62,12 +65,24 @@ export function CameraScanner({
   );
 
   useEffect(() => {
-    // Check environment
+    // Check environment more thoroughly
     const isSecure = window.location.protocol === 'https:';
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isLocal = window.location.hostname === 'localhost' || 
+                   window.location.hostname === '127.0.0.1' ||
+                   window.location.hostname.endsWith('.local');
+    const isSecureContext = window.isSecureContext;
     
     setIsHttps(isSecure);
     
+    console.log('🔒 Security Context:', {
+      protocol: window.location.protocol,
+      hostname: window.location.hostname,
+      isSecure,
+      isLocal,
+      isSecureContext,
+      href: window.location.href
+    });
+
     // Get supported constraints
     const supportedConstraints = navigator.mediaDevices?.getSupportedConstraints ? 
       Object.keys(navigator.mediaDevices.getSupportedConstraints()) : [];
@@ -78,7 +93,8 @@ export function CameraScanner({
       cameraCount: 0,
       userAgent: navigator.userAgent,
       isLocalhost: isLocal,
-      supportedConstraints
+      supportedConstraints,
+      isSecureContext
     });
 
     // Try to enumerate devices to get camera count
@@ -103,7 +119,7 @@ export function CameraScanner({
     } else {
       console.log('📱 Scanner: Component deactivated');
     }
-  }, [isActive]);
+  }, [isActive, retryCount]);
 
   const requestCameraPermission = async () => {
     console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
@@ -118,9 +134,11 @@ export function CameraScanner({
       return;
     }
 
-    // Check if we're on HTTPS or localhost
+    // Check security context more thoroughly
     const isLocal = deviceInfo.isLocalhost;
-    if (!isHttps && !isLocal) {
+    const isSecureContext = deviceInfo.isSecureContext;
+    
+    if (!isSecureContext && !isLocal) {
       const errorMsg = 'Camera access requires HTTPS or localhost. Please use a secure connection.';
       console.error('❌ Scanner:', errorMsg);
       setError(errorMsg);
@@ -203,6 +221,7 @@ export function CameraScanner({
       
       setHasPermission(true);
       setError(null);
+      setRetryCount(0);
       
       // Stop the stream immediately as QrScanner will handle it
       stream.getTracks().forEach(track => {
@@ -355,7 +374,7 @@ export function CameraScanner({
     setHasPermission(null);
     setLastScan(null);
     lastScanTimeRef.current = 0;
-    requestCameraPermission();
+    setRetryCount(prev => prev + 1);
   };
 
   const openCameraSettings = () => {
@@ -378,6 +397,10 @@ export function CameraScanner({
     }
   };
 
+  const refreshPage = () => {
+    window.location.reload();
+  };
+
   if (!isActive) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-muted rounded-lg", className)}>
@@ -390,7 +413,7 @@ export function CameraScanner({
   }
 
   // Show HTTPS warning if not on secure connection and not localhost
-  if (!isHttps && !deviceInfo.isLocalhost) {
+  if (!deviceInfo.isSecureContext && !deviceInfo.isLocalhost) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg", className)}>
         <div className="text-center">
@@ -399,10 +422,15 @@ export function CameraScanner({
           <p className="text-xs text-red-600 mb-4">
             Camera access requires a secure connection. Please access this site via HTTPS.
           </p>
-          <div className="text-xs text-red-500 space-y-1">
+          <div className="text-xs text-red-500 space-y-1 mb-4">
             <p>Current: {window.location.protocol}//{window.location.host}</p>
             <p>Required: https://{window.location.host}</p>
+            <p>Secure Context: {deviceInfo.isSecureContext ? 'Yes' : 'No'}</p>
           </div>
+          <Button onClick={refreshPage} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Page
+          </Button>
         </div>
       </div>
     );
@@ -437,6 +465,8 @@ export function CameraScanner({
             <p>Protocol: {window.location.protocol}</p>
             <p>Cameras: {deviceInfo.cameraCount}</p>
             <p>Environment: {deviceInfo.isLocalhost ? 'Localhost' : 'Remote'}</p>
+            <p>Secure: {deviceInfo.isSecureContext ? 'Yes' : 'No'}</p>
+            {retryCount > 0 && <p>Retry: {retryCount}</p>}
           </div>
         </div>
       </div>
@@ -462,6 +492,10 @@ export function CameraScanner({
                 Try {facingMode === 'environment' ? 'Front' : 'Back'} Camera
               </Button>
             )}
+            <Button onClick={refreshPage} variant="outline" size="sm">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh Page
+            </Button>
             <Button onClick={openCameraSettings} variant="outline" size="sm">
               <Settings className="h-4 w-4 mr-2" />
               Camera Settings
@@ -474,6 +508,7 @@ export function CameraScanner({
             <p>• Close other apps using the camera</p>
             <p>• Try refreshing the page</p>
             <p>• Ensure camera is connected and working</p>
+            <p>• Make sure you're on HTTPS: {window.location.href}</p>
           </div>
 
           <div className="text-xs text-gray-500 space-y-1 mt-2">
@@ -481,6 +516,8 @@ export function CameraScanner({
             <p>Cameras: {deviceInfo.cameraCount}</p>
             <p>Facing: {facingMode}</p>
             <p>Localhost: {deviceInfo.isLocalhost ? 'Yes' : 'No'}</p>
+            <p>Secure Context: {deviceInfo.isSecureContext ? 'Yes' : 'No'}</p>
+            <p>Retries: {retryCount}</p>
           </div>
         </div>
       </div>
@@ -531,7 +568,7 @@ export function CameraScanner({
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <Wifi className="h-3 w-3 mr-1" />
-            {isHttps ? 'Secure' : deviceInfo.isLocalhost ? 'Local' : 'Insecure'}
+            {deviceInfo.isSecureContext ? 'Secure' : deviceInfo.isLocalhost ? 'Local' : 'Insecure'}
           </Badge>
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
             <Camera className="h-3 w-3 mr-1" />
@@ -573,6 +610,11 @@ export function CameraScanner({
             Development mode - camera access allowed on localhost
           </p>
         )}
+        {deviceInfo.isSecureContext && !deviceInfo.isLocalhost && (
+          <p className="text-xs text-green-600 text-center mt-1">
+            ✓ Secure HTTPS connection - camera access enabled
+          </p>
+        )}
       </div>
 
       {/* Debug info (only in development) */}
@@ -581,11 +623,13 @@ export function CameraScanner({
           <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
           <div>Protocol: {window.location.protocol}</div>
           <div>Localhost: {deviceInfo.isLocalhost ? 'Yes' : 'No'}</div>
+          <div>Secure Context: {deviceInfo.isSecureContext ? 'Yes' : 'No'}</div>
           <div>Facing: {facingMode}</div>
           <div>Cameras: {deviceInfo.cameraCount}</div>
           <div>Constraints: {deviceInfo.supportedConstraints.length}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
+          <div>Retries: {retryCount}</div>
         </div>
       )}
     </div>
