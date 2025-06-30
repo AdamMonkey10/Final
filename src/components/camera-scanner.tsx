@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -34,7 +34,9 @@ export function CameraScanner({
   const [error, setError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [isInitializing, setIsInitializing] = useState(false);
   const lastScanTimeRef = useRef<number>(0);
+  const initAttemptRef = useRef<number>(0);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -48,119 +50,152 @@ export function CameraScanner({
   useEffect(() => {
     if (isActive) {
       console.log('📱 Scanner: Component activated, requesting camera permission');
-      requestCameraPermission();
+      initializeCamera();
     } else {
       console.log('📱 Scanner: Component deactivated');
+      setHasPermission(null);
+      setError(null);
     }
   }, [isActive, facingMode]);
+
+  const initializeCamera = async () => {
+    setIsInitializing(true);
+    initAttemptRef.current += 1;
+    const currentAttempt = initAttemptRef.current;
+    
+    try {
+      setError(null);
+      setHasPermission(null);
+      
+      // Wait a bit to ensure previous streams are cleaned up
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check if this attempt is still current
+      if (currentAttempt !== initAttemptRef.current) {
+        console.log('📱 Scanner: Initialization cancelled (newer attempt started)');
+        return;
+      }
+      
+      await requestCameraPermission();
+    } catch (err) {
+      console.error('📱 Scanner: Initialization failed:', err);
+      if (currentAttempt === initAttemptRef.current) {
+        setError('Failed to initialize camera');
+        setHasPermission(false);
+      }
+    } finally {
+      if (currentAttempt === initAttemptRef.current) {
+        setIsInitializing(false);
+      }
+    }
+  };
 
   const requestCameraPermission = async () => {
     console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
     
-    try {
-      setError(null);
-      
-      // Primary constraints with explicit video requirements
-      const constraints = { 
+    // Progressive fallback strategy for mobile devices
+    const constraintSets = [
+      // Try with specific facing mode and ideal resolution
+      { 
         video: { 
-          facingMode,
+          facingMode: { exact: facingMode },
           width: { ideal: 1280 },
           height: { ideal: 720 }
         } 
-      };
-      
-      console.log('📱 Scanner: Using primary constraints:', constraints);
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      console.log('✅ Scanner: Camera permission granted');
-      console.log('📱 Scanner: Stream details:', {
-        active: stream.active,
-        tracks: stream.getTracks().length,
-        videoTracks: stream.getVideoTracks().length
-      });
-      
-      setHasPermission(true);
-      setError(null);
-      
-      // Stop the stream immediately as QrScanner will handle it
-      stream.getTracks().forEach(track => {
-        console.log('📱 Scanner: Stopping track:', track.kind, track.label);
-        track.stop();
-      });
-    } catch (err: any) {
-      console.error('❌ Scanner: Primary camera permission error:', {
-        error: err,
-        name: err?.name,
-        message: err?.message,
-        code: err?.code,
-        constraint: err?.constraint
-      });
-      
-      // Handle specific error types
-      if (err.name === 'OverconstrainedError') {
-        console.log('📱 Scanner: Constraints too specific, trying basic constraints');
-        await requestBasicCameraPermission();
-        return;
-      }
-      
-      // Try fallback with basic video constraint
-      await requestBasicCameraPermission();
-    }
-  };
-
-  const requestBasicCameraPermission = async () => {
-    try {
-      console.log('📱 Scanner: Trying basic camera constraints');
-      
-      // Basic constraints - just video with facingMode
-      const basicConstraints = { 
+      },
+      // Try with preferred facing mode
+      { 
         video: { 
-          facingMode 
+          facingMode: facingMode,
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         } 
-      };
+      },
+      // Try with just facing mode
+      { 
+        video: { 
+          facingMode: facingMode
+        } 
+      },
+      // Try with any camera
+      { 
+        video: true 
+      }
+    ];
+
+    for (let i = 0; i < constraintSets.length; i++) {
+      const constraints = constraintSets[i];
+      console.log(`📱 Scanner: Trying constraint set ${i + 1}:`, constraints);
       
-      console.log('📱 Scanner: Using basic constraints:', basicConstraints);
-      const stream = await navigator.mediaDevices.getUserMedia(basicConstraints);
-      
-      console.log('✅ Scanner: Basic camera permission granted');
-      setHasPermission(true);
-      setError(null);
-      
-      stream.getTracks().forEach(track => {
-        console.log('📱 Scanner: Stopping basic track:', track.kind, track.label);
-        track.stop();
-      });
-    } catch (fallbackErr: any) {
-      console.error('❌ Scanner: Basic camera permission also failed:', fallbackErr);
-      
-      // Try absolute minimum - just video: true
       try {
-        console.log('📱 Scanner: Trying absolute minimum constraints');
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         
-        console.log('✅ Scanner: Minimum camera permission granted');
+        console.log('✅ Scanner: Camera permission granted with constraint set', i + 1);
+        console.log('📱 Scanner: Stream details:', {
+          active: stream.active,
+          tracks: stream.getTracks().length,
+          videoTracks: stream.getVideoTracks().length
+        });
+        
+        // Log video track settings
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          const settings = videoTrack.getSettings();
+          console.log('📱 Scanner: Video track settings:', settings);
+        }
+        
         setHasPermission(true);
         setError(null);
         
-        stream.getTracks().forEach(track => track.stop());
-      } catch (minimalErr: any) {
-        console.error('❌ Scanner: All camera attempts failed:', minimalErr);
-        setHasPermission(false);
+        // Stop the stream immediately as QrScanner will handle it
+        stream.getTracks().forEach(track => {
+          console.log('📱 Scanner: Stopping track:', track.kind, track.label);
+          track.stop();
+        });
         
-        let errorMessage = 'Camera access failed. Please check your camera and try again.';
+        return; // Success, exit the loop
         
-        if (fallbackErr.name === 'NotAllowedError') {
-          errorMessage = 'Camera permission denied. Please allow camera access and try again.';
-        } else if (fallbackErr.name === 'NotFoundError') {
-          errorMessage = 'No camera found on this device.';
-        } else if (fallbackErr.name === 'NotReadableError') {
-          errorMessage = 'Camera is already in use by another application.';
-        } else if (fallbackErr.name === 'SecurityError') {
-          errorMessage = 'Camera access blocked by security policy.';
+      } catch (err: any) {
+        console.error(`❌ Scanner: Constraint set ${i + 1} failed:`, {
+          error: err,
+          name: err?.name,
+          message: err?.message,
+          code: err?.code,
+          constraint: err?.constraint
+        });
+        
+        // If this is the last constraint set, handle the error
+        if (i === constraintSets.length - 1) {
+          setHasPermission(false);
+          
+          let errorMessage = 'Camera access failed. Please check your camera permissions.';
+          
+          switch (err.name) {
+            case 'NotAllowedError':
+              errorMessage = 'Camera permission denied. Please allow camera access in your browser settings and refresh the page.';
+              break;
+            case 'NotFoundError':
+              errorMessage = 'No camera found on this device.';
+              break;
+            case 'NotReadableError':
+              errorMessage = 'Camera is already in use by another application. Please close other camera apps and try again.';
+              break;
+            case 'OverconstrainedError':
+              errorMessage = 'Camera constraints not supported. Try switching camera or refreshing the page.';
+              break;
+            case 'SecurityError':
+              errorMessage = 'Camera access blocked by security policy. Please check your browser settings.';
+              break;
+            case 'AbortError':
+              errorMessage = 'Camera access was aborted. Please try again.';
+              break;
+            default:
+              errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
+          }
+          
+          setError(errorMessage);
+          onError?.(errorMessage);
         }
-        
-        setError(errorMessage);
-        onError?.(errorMessage);
       }
     }
   };
@@ -236,7 +271,11 @@ export function CameraScanner({
     setHasPermission(null);
     setLastScan(null);
     lastScanTimeRef.current = 0;
-    requestCameraPermission();
+    initializeCamera();
+  };
+
+  const refreshPage = () => {
+    window.location.reload();
   };
 
   if (!isActive) {
@@ -250,12 +289,14 @@ export function CameraScanner({
     );
   }
 
-  if (hasPermission === null) {
+  if (hasPermission === null || isInitializing) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-muted rounded-lg", className)}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-sm text-muted-foreground">Requesting camera permission...</p>
+          <p className="text-sm text-muted-foreground">
+            {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
+          </p>
         </div>
       </div>
     );
@@ -268,13 +309,23 @@ export function CameraScanner({
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
           <p className="text-sm text-red-700 mb-4">{error}</p>
           <div className="space-y-2">
-            <Button onClick={retryPermission} variant="outline" size="sm">
+            <Button onClick={retryPermission} variant="outline" size="sm" className="w-full">
               <RotateCcw className="h-4 w-4 mr-2" />
-              Retry
+              Retry Camera
             </Button>
-            <Button onClick={() => window.location.reload()} variant="outline" size="sm">
+            <Button onClick={refreshPage} variant="outline" size="sm" className="w-full">
+              <RefreshCw className="h-4 w-4 mr-2" />
               Refresh Page
             </Button>
+          </div>
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+            <p className="text-xs text-blue-700">
+              <strong>Troubleshooting:</strong><br />
+              • Allow camera permissions in browser settings<br />
+              • Close other camera apps<br />
+              • Try refreshing the page<br />
+              • Check if camera is working in other apps
+            </p>
           </div>
         </div>
       </div>
@@ -360,6 +411,7 @@ export function CameraScanner({
           <div>Facing: {facingMode}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
+          <div>Initializing: {isInitializing ? 'Yes' : 'No'}</div>
         </div>
       )}
     </div>
