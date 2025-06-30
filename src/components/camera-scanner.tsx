@@ -89,20 +89,12 @@ export function CameraScanner({
     debounce((data: string) => {
       console.log('📱 Scanner: Debounced result callback triggered with:', data);
       onResult(data);
-      setIsScanning(false);
       
       if (autoComplete) {
         // Show success state briefly
-        setScanSuccess(true);
         setTimeout(() => {
           setScanSuccess(false);
         }, 2000);
-        
-        // Stop scanning after successful scan in auto-complete mode
-        if (scanningIntervalRef.current) {
-          clearInterval(scanningIntervalRef.current);
-          scanningIntervalRef.current = null;
-        }
       }
     }, 300), // Reduced debounce time for faster response
     [onResult, autoComplete]
@@ -419,24 +411,24 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Progressive constraint fallback for mobile devices
+    // Progressive constraint fallback for mobile devices - CORRECTED RESOLUTION
     const constraintSets = [
-      // First try: High quality with exact facing mode
+      // First try: High quality with exact facing mode - CORRECTED: 720 wide x 1280 high
       {
         video: {
           facingMode: { exact: facingMode },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
+          width: { ideal: 720, min: 480 },
+          height: { ideal: 1280, min: 640 },
           frameRate: { ideal: 30, min: 15 }
         },
         audio: false
       },
-      // Second try: Medium quality with preferred facing mode
+      // Second try: Medium quality with preferred facing mode - CORRECTED: 720 wide x 1280 high
       {
         video: {
           facingMode: facingMode,
-          width: { ideal: 640, min: 320 },
-          height: { ideal: 480, min: 240 },
+          width: { ideal: 720, min: 320 },
+          height: { ideal: 1280, min: 480 },
           frameRate: { ideal: 24, min: 10 }
         },
         audio: false
@@ -670,6 +662,17 @@ export function CameraScanner({
     lastScanTimeRef.current = now;
     setScanCount(prev => prev + 1);
     setIsScanning(true);
+    
+    // IMMEDIATE FEEDBACK FOR AUTO-COMPLETE MODE
+    if (autoComplete) {
+      // Immediately stop scanning and show success
+      setScanSuccess(true);
+      if (scanningIntervalRef.current) {
+        clearInterval(scanningIntervalRef.current);
+        scanningIntervalRef.current = null;
+      }
+      console.log('📱 Scanner: Auto-complete mode - immediate success feedback');
+    }
     
     console.log('📱 Scanner: Calling result callback');
     debouncedOnResult(scannedText);
