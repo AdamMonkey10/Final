@@ -9,10 +9,9 @@ interface CameraScannerProps {
   onError?: (error: string) => void;
   className?: string;
   isActive?: boolean;
-  autoComplete?: boolean; // New prop to control auto-completion
+  autoComplete?: boolean;
 }
 
-// Debounce utility function
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -29,7 +28,7 @@ export function CameraScanner({
   onError, 
   className,
   isActive = true,
-  autoComplete = true // Default to auto-complete behavior
+  autoComplete = true
 }: CameraScannerProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +41,6 @@ export function CameraScanner({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [scanSuccess, setScanSuccess] = useState(false);
   
-  // Enhanced diagnostic states
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error' | 'recovering'>('idle');
   const [streamInfo, setStreamInfo] = useState<{ tracks: number; active: boolean; constraints: any }>({ tracks: 0, active: false, constraints: null });
@@ -69,7 +67,6 @@ export function CameraScanner({
   const zeroDimensionCountRef = useRef<number>(0);
   const lastRecoveryAttemptRef = useRef<number>(0);
 
-  // Detect device info on mount
   useEffect(() => {
     const userAgent = navigator.userAgent;
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
@@ -84,32 +81,29 @@ export function CameraScanner({
     console.log('📱 Device Info:', { isMobile, userAgent, platform });
   }, []);
 
-  // Create debounced version of onResult callback
-  const debouncedOnResult = useCallback(
-    debounce((data: string) => {
-      console.log('📱 Scanner: Debounced result callback triggered with:', data);
+  // IMMEDIATE callback - no debouncing for critical scan results
+  const handleScanResult = useCallback((data: string) => {
+    console.log('🔥 IMMEDIATE SCAN RESULT:', data);
+    
+    // Call parent callback IMMEDIATELY
+    onResult(data);
+    
+    // Update local state
+    setIsScanning(false);
+    
+    if (autoComplete) {
+      setScanSuccess(true);
+      setTimeout(() => {
+        setScanSuccess(false);
+      }, 3000);
       
-      // Call the parent's onResult callback immediately
-      onResult(data);
-      
-      setIsScanning(false);
-      
-      if (autoComplete) {
-        // Show success state briefly
-        setScanSuccess(true);
-        setTimeout(() => {
-          setScanSuccess(false);
-        }, 3000); // Show success for 3 seconds
-        
-        // Stop scanning after successful scan in auto-complete mode
-        if (scanningIntervalRef.current) {
-          clearInterval(scanningIntervalRef.current);
-          scanningIntervalRef.current = null;
-        }
+      // Stop scanning after successful scan
+      if (scanningIntervalRef.current) {
+        clearInterval(scanningIntervalRef.current);
+        scanningIntervalRef.current = null;
       }
-    }, 300), // Reduced debounce time for faster response
-    [onResult, autoComplete]
-  );
+    }
+  }, [onResult, autoComplete]);
 
   useEffect(() => {
     if (isActive) {
@@ -174,10 +168,7 @@ export function CameraScanner({
       setError(null);
       setHasPermission(null);
       
-      // Clean up any existing stream
       cleanup();
-      
-      // Wait a bit to ensure cleanup is complete
       await new Promise(resolve => setTimeout(resolve, 300));
       
       if (currentAttempt !== initAttemptRef.current) {
@@ -210,10 +201,9 @@ export function CameraScanner({
     setContinuousMonitoring(true);
     zeroDimensionCountRef.current = 0;
     
-    // Start continuous dimension checking that never stops
     dimensionCheckIntervalRef.current = setInterval(() => {
       checkVideoReadinessAndPlay();
-    }, 200); // Check every 200ms
+    }, 200);
   };
 
   const checkVideoReadinessAndPlay = () => {
@@ -226,64 +216,50 @@ export function CameraScanner({
     setDimensionCheckCount(prev => prev + 1);
     setVideoDimensions({ width: currentWidth, height: currentHeight });
     
-    console.log(`📱 Scanner: Continuous check #${dimensionCheckCount + 1} - ${currentWidth}x${currentHeight}`);
-    
-    // Check if dimensions are valid
     const hasValidDimensions = currentWidth > 0 && currentHeight > 0;
     
     if (hasValidDimensions) {
-      // Reset zero dimension counter
       zeroDimensionCountRef.current = 0;
-      
-      // Update last valid dimensions
       lastValidDimensionsRef.current = { width: currentWidth, height: currentHeight };
       
       if (!cameraReady) {
         console.log('✅ Scanner: Valid video dimensions detected! Camera now ready.');
         setCameraReady(true);
         setPlaybackStatus('playing');
-        setRecoveryAttempts(0); // Reset recovery attempts on success
+        setRecoveryAttempts(0);
         
-        // Start scanning if not already started and not in success state
         if (!scanningIntervalRef.current && !scanSuccess) {
           startScanning();
         }
       }
       
-      // Ensure video is playing
       if (video.paused) {
         video.play().catch(err => {
           console.warn('📱 Scanner: Play attempt failed:', err);
         });
       }
     } else {
-      // Dimensions are 0x0 - increment counter
       zeroDimensionCountRef.current++;
       
-      // Dimensions are 0x0 - camera needs recovery
       if (cameraReady) {
         console.warn('⚠️ Scanner: Camera dimensions lost! Attempting recovery...');
         setCameraReady(false);
         setPlaybackStatus('recovering');
         
-        // Stop scanning while recovering
         if (scanningIntervalRef.current) {
           clearInterval(scanningIntervalRef.current);
           scanningIntervalRef.current = null;
         }
       }
       
-      // Trigger aggressive recovery if we've had 0x0 for too long
       const now = Date.now();
       const timeSinceLastRecovery = now - lastRecoveryAttemptRef.current;
       
-      // Attempt recovery every 5 seconds if dimensions stay at 0x0
-      if (zeroDimensionCountRef.current > 25 && timeSinceLastRecovery > 5000) { // 25 checks * 200ms = 5 seconds
-        console.log('🔄 Scanner: Triggering aggressive stream recovery after', zeroDimensionCountRef.current, 'zero dimension checks');
+      if (zeroDimensionCountRef.current > 25 && timeSinceLastRecovery > 5000) {
+        console.log('🔄 Scanner: Triggering aggressive stream recovery');
         lastRecoveryAttemptRef.current = now;
         attemptStreamReinitialize();
       } else {
-        // Regular recovery attempts
         attemptCameraRecovery();
       }
     }
@@ -295,7 +271,6 @@ export function CameraScanner({
     setPlaybackStatus('recovering');
     
     try {
-      // Stop current stream completely
       if (stream) {
         stream.getTracks().forEach(track => {
           console.log('🔄 Scanner: Force stopping track:', track.kind);
@@ -304,20 +279,16 @@ export function CameraScanner({
         setStream(null);
       }
       
-      // Clear video source
       if (videoRef.current) {
         videoRef.current.srcObject = null;
         videoRef.current.load();
       }
       
-      // Wait for cleanup
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Request new stream with fresh constraints
       await requestCameraPermission();
       
       console.log('✅ Scanner: Stream reinitialization completed');
-      zeroDimensionCountRef.current = 0; // Reset counter after reinit
+      zeroDimensionCountRef.current = 0;
       
     } catch (error) {
       console.error('❌ Scanner: Stream reinitialization failed:', error);
@@ -332,37 +303,29 @@ export function CameraScanner({
     const video = videoRef.current;
     setRecoveryAttempts(prev => prev + 1);
     
-    console.log(`📱 Scanner: Attempting camera recovery #${recoveryAttempts + 1}...`);
-    
     try {
-      // Strategy 1: Try to play the video
       if (video.paused) {
         video.play().catch(err => {
           console.warn('📱 Scanner: Recovery play failed:', err);
         });
       }
       
-      // Strategy 2: For mobile devices, try additional recovery methods
       if (deviceInfo.isMobile) {
-        // Force a currentTime update to trigger frame rendering
         if (video.readyState >= 2) {
           video.currentTime = video.currentTime + 0.001;
         }
         
-        // Ensure mobile-specific attributes are set
         video.setAttribute('playsinline', 'true');
         video.setAttribute('webkit-playsinline', 'true');
         video.muted = true;
         
-        // Try to reload the video element
         if (videoLoadAttempts < 3) {
           setVideoLoadAttempts(prev => prev + 1);
           video.load();
         }
       }
       
-      // Strategy 3: Force video refresh by toggling srcObject
-      if (recoveryAttempts % 10 === 0 && stream) { // Every 10th attempt
+      if (recoveryAttempts % 10 === 0 && stream) {
         console.log('📱 Scanner: Attempting srcObject refresh...');
         const currentSrc = video.srcObject;
         video.srcObject = null;
@@ -370,24 +333,6 @@ export function CameraScanner({
           video.srcObject = currentSrc;
           video.play().catch(console.warn);
         }, 100);
-      }
-      
-      // Strategy 4: Force video element recreation
-      if (recoveryAttempts % 20 === 0) { // Every 20th attempt
-        console.log('📱 Scanner: Attempting video element refresh...');
-        if (video.parentNode) {
-          const newVideo = video.cloneNode(true) as HTMLVideoElement;
-          newVideo.srcObject = stream;
-          newVideo.setAttribute('playsinline', 'true');
-          newVideo.setAttribute('webkit-playsinline', 'true');
-          newVideo.muted = true;
-          newVideo.autoplay = true;
-          
-          video.parentNode.replaceChild(newVideo, video);
-          (videoRef as any).current = newVideo;
-          
-          newVideo.play().catch(console.warn);
-        }
       }
       
     } catch (error) {
@@ -402,9 +347,7 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Progressive constraint fallback for mobile devices
     const constraintSets = [
-      // First try: High quality with exact facing mode
       {
         video: {
           facingMode: { exact: facingMode },
@@ -414,7 +357,6 @@ export function CameraScanner({
         },
         audio: false
       },
-      // Second try: Medium quality with preferred facing mode
       {
         video: {
           facingMode: facingMode,
@@ -424,7 +366,6 @@ export function CameraScanner({
         },
         audio: false
       },
-      // Third try: Basic constraints
       {
         video: {
           facingMode: facingMode,
@@ -433,14 +374,12 @@ export function CameraScanner({
         },
         audio: false
       },
-      // Last resort: Just facing mode
       {
         video: {
           facingMode: facingMode
         },
         audio: false
       },
-      // Absolute fallback: Any video
       {
         video: true,
         audio: false
@@ -463,7 +402,6 @@ export function CameraScanner({
         console.warn(`❌ Scanner: Constraint set ${i + 1} failed:`, err.name, err.message);
         
         if (i === constraintSets.length - 1) {
-          // All constraint sets failed
           throw err;
         }
       }
@@ -474,15 +412,7 @@ export function CameraScanner({
     }
     
     console.log('✅ Scanner: Camera permission granted');
-    console.log('📱 Scanner: Stream tracks:', mediaStream.getTracks().map(track => ({
-      kind: track.kind,
-      label: track.label,
-      enabled: track.enabled,
-      readyState: track.readyState,
-      settings: track.getSettings()
-    })));
     
-    // Update stream info
     setStreamInfo({
       tracks: mediaStream.getTracks().length,
       active: mediaStream.active,
@@ -490,34 +420,26 @@ export function CameraScanner({
     });
     
     if (videoRef.current) {
-      // Set up video element for mobile compatibility
       const video = videoRef.current;
       
-      // Essential mobile video attributes
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
       video.muted = true;
       video.autoplay = true;
       video.controls = false;
       
-      // Clear any existing source
       video.srcObject = null;
-      
-      // Set the new stream
       video.srcObject = mediaStream;
       
-      // Initial play attempt with multiple strategies
       try {
         const playPromise = video.play();
         if (playPromise !== undefined) {
           playPromise.catch(err => {
             console.warn('📱 Scanner: Initial play failed:', err);
             
-            // Mobile fallback strategies
             if (deviceInfo.isMobile) {
               console.log('📱 Scanner: Trying mobile fallback strategies...');
               
-              // Strategy 1: Force muted autoplay
               video.muted = true;
               video.autoplay = true;
               
@@ -525,7 +447,6 @@ export function CameraScanner({
                 video.play().catch(err2 => {
                   console.warn('📱 Scanner: Mobile fallback 1 failed:', err2);
                   
-                  // Strategy 2: Load and play
                   video.load();
                   setTimeout(() => {
                     video.play().catch(err3 => {
@@ -549,7 +470,6 @@ export function CameraScanner({
 
   const initializeBarcodeDetector = async () => {
     try {
-      // Try to use native BarcodeDetector first (Chrome/Edge)
       if ('BarcodeDetector' in window) {
         console.log('📱 Scanner: Using native BarcodeDetector');
         barcodeDetectorRef.current = new (window as any).BarcodeDetector({
@@ -576,14 +496,13 @@ export function CameraScanner({
       return;
     }
 
-    // Clear any existing scanning interval
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
     }
 
     scanningIntervalRef.current = setInterval(async () => {
       await scanFrame();
-    }, 100); // Faster scanning for better responsiveness
+    }, 100);
   };
 
   const scanFrame = async () => {
@@ -591,68 +510,59 @@ export function CameraScanner({
       return;
     }
     
-    // Skip scanning if video dimensions are still 0x0 or if already successful
     if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0 || scanSuccess) {
       return;
     }
     
     try {
       if (barcodeDetectorRef.current) {
-        // Use native BarcodeDetector
         const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
         
         if (barcodes.length > 0) {
           const barcode = barcodes[0];
-          console.log('📱 Scanner: Barcode detected:', barcode);
-          handleScanResult(barcode.rawValue);
+          console.log('🔥 BARCODE DETECTED:', barcode.rawValue);
+          processDetectedBarcode(barcode.rawValue);
         }
       } else {
-        // Fallback: draw to canvas and indicate scanning
         const video = videoRef.current;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         
         if (!ctx) return;
         
-        // Set canvas size to match video
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        
-        // Draw current video frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        // Visual feedback for scanning attempt
         setIsScanning(true);
         setTimeout(() => setIsScanning(false), 200);
       }
     } catch (error) {
-      // Silently continue - detection errors are common
+      // Continue scanning
     }
   };
 
-  const handleScanResult = (result: string) => {
+  const processDetectedBarcode = (result: string) => {
     if (!result || typeof result !== 'string') return;
     
     const scannedText = result.trim();
     const now = Date.now();
     
-    console.log('📱 Scanner: Processing scanned text:', scannedText);
+    console.log('🔥 PROCESSING DETECTED BARCODE:', scannedText);
     
-    // Prevent duplicate scans within 1 second for auto-complete mode
     const duplicateThreshold = autoComplete ? 1000 : 2000;
     if (scannedText === lastScan && now - lastScanTimeRef.current < duplicateThreshold) {
       console.log('📱 Scanner: Duplicate scan ignored');
       return;
     }
 
-    // Update scan tracking
     setLastScan(scannedText);
     lastScanTimeRef.current = now;
     setScanCount(prev => prev + 1);
     setIsScanning(true);
     
-    console.log('📱 Scanner: Calling result callback with:', scannedText);
-    debouncedOnResult(scannedText);
+    console.log('🔥 CALLING IMMEDIATE RESULT HANDLER:', scannedText);
+    handleScanResult(scannedText);
   };
 
   const toggleCamera = () => {
@@ -701,7 +611,6 @@ export function CameraScanner({
     setLastScan(null);
     setScanCount(0);
     
-    // Restart scanning if camera is ready
     if (cameraReady && !scanningIntervalRef.current) {
       startScanning();
     }
@@ -771,21 +680,17 @@ export function CameraScanner({
           }}
         />
         
-        {/* Hidden canvas for image processing */}
         <canvas
           ref={canvasRef}
           className="hidden"
         />
         
-        {/* Scanning overlay */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Corner brackets */}
           <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-white rounded-tl-lg opacity-80"></div>
           <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-white rounded-tr-lg opacity-80"></div>
           <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-white rounded-bl-lg opacity-80"></div>
           <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
           
-          {/* Main scanning area */}
           <div className={cn(
             "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-2 rounded-lg",
             scanSuccess ? "border-green-500 bg-green-500" : "border-red-500 bg-red-500",
@@ -800,12 +705,10 @@ export function CameraScanner({
               </span>
             </div>
             
-            {/* Scanning line animation */}
             {!scanSuccess && (
               <div className="absolute inset-x-4 top-1/2 h-0.5 bg-red-400 animate-pulse"></div>
             )}
             
-            {/* Center crosshair or checkmark */}
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6">
               {scanSuccess ? (
                 <CheckCircle className="w-6 h-6 text-green-500" />
@@ -818,7 +721,6 @@ export function CameraScanner({
             </div>
           </div>
           
-          {/* Scanning status */}
           {isScanning && !scanSuccess && (
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
               <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full animate-pulse">
@@ -828,7 +730,6 @@ export function CameraScanner({
             </div>
           )}
           
-          {/* Success status */}
           {scanSuccess && (
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
               <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full">
@@ -838,7 +739,6 @@ export function CameraScanner({
             </div>
           )}
           
-          {/* Last scan result display */}
           {lastScan && (
             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
               <div className="bg-blue-500 bg-opacity-90 text-white px-3 py-1 rounded-full text-sm">
@@ -847,7 +747,6 @@ export function CameraScanner({
             </div>
           )}
           
-          {/* Video dimensions warning */}
           {videoDimensions.width === 0 || videoDimensions.height === 0 ? (
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
               <div className="text-center">
@@ -872,7 +771,6 @@ export function CameraScanner({
         </div>
       </div>
 
-      {/* Controls */}
       <div className="flex items-center justify-between mt-4">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
@@ -918,7 +816,6 @@ export function CameraScanner({
         </div>
         
         <div className="flex gap-2">
-          {/* Restart scanning button when successful */}
           {scanSuccess && autoComplete && (
             <Button
               onClick={restartScanning}
@@ -931,7 +828,6 @@ export function CameraScanner({
             </Button>
           )}
           
-          {/* Force stream reinit button when dimensions are 0x0 */}
           {(videoDimensions.width === 0 || videoDimensions.height === 0) && (
             <Button
               onClick={forceStreamReinit}
@@ -956,7 +852,6 @@ export function CameraScanner({
         </div>
       </div>
 
-      {/* Instructions */}
       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-sm text-blue-800 text-center">
           <strong>📱 Position your QR code or barcode within the red frame</strong><br />
@@ -966,7 +861,6 @@ export function CameraScanner({
           }
         </p>
         
-        {/* Browser compatibility note */}
         <div className="mt-2 text-xs text-blue-600 text-center">
           {'BarcodeDetector' in window ? (
             <span className="text-green-600">✅ Enhanced scanning available (Chrome/Edge)</span>
@@ -994,7 +888,6 @@ export function CameraScanner({
         )}
       </div>
 
-      {/* Enhanced diagnostic info - Always visible for debugging */}
       <div className="mt-2 p-3 bg-gray-100 rounded text-xs border">
         <div className="font-medium mb-2 text-gray-800 flex items-center gap-2">
           📊 Camera Diagnostics
