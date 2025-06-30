@@ -39,6 +39,11 @@ export function CameraScanner({
   const [isScanning, setIsScanning] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   
+  // New diagnostic states
+  const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'playing' | 'paused' | 'error'>('idle');
+  const [streamInfo, setStreamInfo] = useState<{ tracks: number; active: boolean }>({ tracks: 0, active: false });
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScanTimeRef = useRef<number>(0);
@@ -82,17 +87,21 @@ export function CameraScanner({
         track.stop();
       });
       setStream(null);
+      setStreamInfo({ tracks: 0, active: false });
     }
     
     setHasPermission(null);
     setError(null);
     setCameraReady(false);
     setIsScanning(false);
+    setPlaybackStatus('idle');
+    setVideoDimensions({ width: 0, height: 0 });
   };
 
   const initializeCamera = async () => {
     setIsInitializing(true);
     setCameraReady(false);
+    setPlaybackStatus('idle');
     initAttemptRef.current += 1;
     const currentAttempt = initAttemptRef.current;
     
@@ -122,6 +131,7 @@ export function CameraScanner({
       if (currentAttempt === initAttemptRef.current) {
         setError(err instanceof Error ? err.message : 'Failed to initialize camera');
         setHasPermission(false);
+        setPlaybackStatus('error');
       }
     } finally {
       if (currentAttempt === initAttemptRef.current) {
@@ -155,9 +165,23 @@ export function CameraScanner({
       
       console.log('✅ Scanner: Camera permission granted');
       
+      // Update stream info
+      setStreamInfo({
+        tracks: mediaStream.getTracks().length,
+        active: mediaStream.active
+      });
+      
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
+        
+        try {
+          await videoRef.current.play();
+          setPlaybackStatus('playing');
+        } catch (playError) {
+          console.error('❌ Scanner: Video play failed:', playError);
+          setPlaybackStatus('error');
+          throw new Error(`Video playback failed: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
+        }
       }
       
       setStream(mediaStream);
@@ -189,6 +213,7 @@ export function CameraScanner({
       
       setError(errorMessage);
       setHasPermission(false);
+      setPlaybackStatus('error');
       onError?.(errorMessage);
       throw new Error(errorMessage);
     }
@@ -309,6 +334,20 @@ export function CameraScanner({
     window.location.reload();
   };
 
+  // Handle video metadata loaded
+  const handleVideoLoadedMetadata = () => {
+    console.log('📱 Scanner: Video metadata loaded');
+    if (videoRef.current) {
+      const dimensions = {
+        width: videoRef.current.videoWidth,
+        height: videoRef.current.videoHeight
+      };
+      setVideoDimensions(dimensions);
+      setCameraReady(true);
+      console.log('📱 Scanner: Video dimensions:', dimensions);
+    }
+  };
+
   if (!isActive) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-muted rounded-lg", className)}>
@@ -363,10 +402,7 @@ export function CameraScanner({
           playsInline
           muted
           className="w-full h-96 object-cover"
-          onLoadedMetadata={() => {
-            console.log('📱 Scanner: Video loaded');
-            setCameraReady(true);
-          }}
+          onLoadedMetadata={handleVideoLoadedMetadata}
         />
         
         {/* Hidden canvas for image processing */}
@@ -462,18 +498,30 @@ export function CameraScanner({
         </div>
       </div>
 
-      {/* Debug info (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
-          <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
-          <div>Facing: {facingMode}</div>
-          <div>Camera Ready: {cameraReady ? 'Yes' : 'No'}</div>
-          <div>Scan Count: {scanCount}</div>
-          <div>Last scan: {lastScan || 'None'}</div>
-          <div>Error: {error || 'None'}</div>
-          <div>BarcodeDetector: {'BarcodeDetector' in window ? 'Available' : 'Not Available'}</div>
+      {/* Enhanced diagnostic info - Always visible for debugging */}
+      <div className="mt-2 p-3 bg-gray-100 rounded text-xs border">
+        <div className="font-medium mb-2 text-gray-800">📊 Camera Diagnostics</div>
+        <div className="grid grid-cols-2 gap-2 text-gray-700">
+          <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
+          <div>Facing: <span className="font-mono">{facingMode}</span></div>
+          <div>Camera Ready: <span className="font-mono">{cameraReady ? 'Yes' : 'No'}</span></div>
+          <div>Playback: <span className="font-mono">{playbackStatus}</span></div>
+          <div>Video Size: <span className="font-mono">{videoDimensions.width}x{videoDimensions.height}</span></div>
+          <div>Stream: <span className="font-mono">{streamInfo.tracks} tracks, {streamInfo.active ? 'active' : 'inactive'}</span></div>
+          <div>Scan Count: <span className="font-mono">{scanCount}</span></div>
+          <div>BarcodeDetector: <span className="font-mono">{'BarcodeDetector' in window ? 'Available' : 'Not Available'}</span></div>
         </div>
-      )}
+        {lastScan && (
+          <div className="mt-2 pt-2 border-t border-gray-300">
+            <div>Last scan: <span className="font-mono text-green-700">{lastScan}</span></div>
+          </div>
+        )}
+        {error && (
+          <div className="mt-2 pt-2 border-t border-gray-300">
+            <div>Error: <span className="font-mono text-red-700">{error}</span></div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
