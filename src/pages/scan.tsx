@@ -15,13 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
-import { QrCode, RefreshCw, Camera, Keyboard, Search, CheckCircle, AlertCircle, Home, Loader2 } from 'lucide-react';
+import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode } from '@/lib/firebase/items';
 import { CameraScanner } from '@/components/camera-scanner';
@@ -39,29 +33,23 @@ export default function ScanPage() {
   const { showInstructions } = useInstructions();
   const [loading, setLoading] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
-  const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
   const [manualInput, setManualInput] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not-found'>('idle');
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const manualInputRef = useRef<HTMLInputElement>(null);
 
   const handleScanResult = async (scannedCode: string) => {
-    console.log('🔥 SCAN RESULT RECEIVED:', scannedCode);
+    console.log('Scan result received:', scannedCode);
     
     if (!selectedOperator) {
-      toast.error('⚠️ Please select an operator before scanning');
+      toast.error('Please select an operator before scanning');
       return;
     }
 
     if (!scannedCode.trim()) {
-      toast.error('❌ Invalid barcode scanned');
+      toast.error('Invalid barcode scanned');
       return;
     }
-
-    // Immediately show that we received the scan
-    toast.success(`📱 Barcode scanned: ${scannedCode}`, {
-      duration: 2000
-    });
 
     // Set the scanned code and process it
     setLastScannedCode(scannedCode.trim());
@@ -72,63 +60,33 @@ export default function ScanPage() {
   };
 
   const processScannedCode = async (scannedCode: string) => {
-    console.log('🔥 PROCESSING SCANNED CODE:', scannedCode);
-    
     setSearchStatus('searching');
     setLoading(true);
 
-    // Show immediate feedback
-    const searchToast = toast.loading(`🔍 Searching for: ${scannedCode}`, {
-      duration: Infinity
-    });
-
     try {
-      console.log('🔍 Searching for item with system code:', scannedCode);
-      
-      // Add a small delay to show the searching state
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
       const item = await getItemBySystemCode(scannedCode);
       
-      // Dismiss search toast
-      toast.dismiss(searchToast);
-      
       if (!item) {
-        console.log('❌ Item not found');
         setSearchStatus('not-found');
-        toast.error(`❌ Item not found: ${scannedCode}`, {
-          description: 'Please check the barcode and try again',
-          duration: 5000
-        });
+        toast.error(`Item not found: ${scannedCode}`);
         return;
       }
 
-      console.log('✅ Item found:', item);
       setSearchStatus('found');
-
-      // Show success toast
-      toast.success(`✅ Found: ${item.itemCode}`, {
-        description: `${item.description} (${item.weight}kg) - Status: ${item.status}`,
-        duration: 3000
-      });
+      toast.success(`Found: ${item.itemCode}`);
 
       // Close scan dialog
       setShowScanDialog(false);
 
       // Navigate to process page with item data
-      console.log('🚀 NAVIGATING TO PROCESS PAGE');
       navigate('/process-scan', { 
         state: { scannedItem: item }
       });
       
     } catch (error) {
-      console.error('❌ Error processing scan:', error);
-      toast.dismiss(searchToast);
+      console.error('Error processing scan:', error);
       setSearchStatus('not-found');
-      toast.error('❌ Failed to process scan', {
-        description: 'Please try again or contact support',
-        duration: 5000
-      });
+      toast.error('Failed to process scan');
     } finally {
       setLoading(false);
     }
@@ -138,7 +96,7 @@ export default function ScanPage() {
     e.preventDefault();
     
     if (!manualInput.trim()) {
-      toast.error('⚠️ Please enter a barcode');
+      toast.error('Please enter a barcode');
       return;
     }
 
@@ -160,7 +118,7 @@ export default function ScanPage() {
       case 'not-found':
         return <AlertCircle className="h-4 w-4 text-red-500" />;
       default:
-        return <QrCode className="h-4 w-4 text-muted-foreground" />;
+        return <Search className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -172,12 +130,12 @@ export default function ScanPage() {
     },
     {
       title: "Scan Item",
-      description: "Click 'Start Scanning' and scan or enter a barcode. The system will immediately process it and navigate to the next step.",
+      description: "Click 'Start Scanning' and scan or enter a barcode. The system will process it and navigate to the next step.",
       type: "info" as const
     },
     {
       title: "Automatic Navigation",
-      description: "After scanning, you'll be taken to the processing page where you can complete the placement or picking workflow.",
+      description: "After scanning, you'll be taken to the processing page to complete the workflow.",
       type: "success" as const
     }
   ];
@@ -185,7 +143,7 @@ export default function ScanPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Warehouse Scanner</h1>
+        <h1 className="text-3xl font-bold">Scan</h1>
         <div className="flex gap-2">
           <Button onClick={() => navigate('/')} variant="outline">
             <Home className="h-4 w-4 mr-2" />
@@ -297,89 +255,54 @@ export default function ScanPage() {
             <DialogTitle>Scan Item Barcode</DialogTitle>
           </DialogHeader>
           
-          <Tabs value={scanMode} onValueChange={(value: any) => setScanMode(value)}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="camera" className="flex items-center gap-2">
-                <Camera className="h-4 w-4" />
-                Camera Scan
-              </TabsTrigger>
-              <TabsTrigger value="manual" className="flex items-center gap-2">
-                <Keyboard className="h-4 w-4" />
-                Manual Entry
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="camera" className="space-y-4">
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="text-sm text-blue-800">
-                  <strong>📱 Camera Scanner Active</strong><br />
-                  Point your camera at a barcode. When detected, it will automatically process and navigate to the next step.
-                </div>
-              </div>
-              
-              <CameraScanner
-                onResult={handleScanResult}
-                onError={(error) => {
-                  console.error('Camera error:', error);
-                  toast.error(`❌ Camera error: ${error}`);
-                }}
-                isActive={scanMode === 'camera' && showScanDialog}
-                autoComplete={true}
-                className="w-full"
-              />
-              
-              {selectedOperator && (
-                <div className="text-xs text-center text-muted-foreground">
-                  Operator: {selectedOperator.name}
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="manual" className="space-y-4">
-              <form onSubmit={handleManualScan} className="space-y-4">
-                <div className="relative">
-                  <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    ref={manualInputRef}
-                    value={manualInput}
-                    onChange={(e) => setManualInput(e.target.value)}
-                    placeholder="Enter barcode..."
-                    className="pl-9"
-                    autoComplete="off"
-                    autoFocus
-                    disabled={loading}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={loading || !selectedOperator || !manualInput.trim()}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    'Process Barcode'
-                  )}
-                </Button>
-                {selectedOperator && (
-                  <div className="text-xs text-center text-muted-foreground">
-                    Operator: {selectedOperator.name}
-                  </div>
-                )}
-              </form>
-              
-              {/* Camera scan in manual mode */}
-              <div className="border-t pt-4">
-                <div className="text-sm text-muted-foreground mb-2 text-center">Or scan with camera:</div>
-                <CameraScanner
-                  onResult={handleScanResult}
-                  onError={(error) => toast.error(`❌ Camera error: ${error}`)}
-                  isActive={scanMode === 'manual' && showScanDialog}
-                  autoComplete={false}
-                  className="w-full"
+          <div className="space-y-6">
+            {/* Manual Input Section */}
+            <form onSubmit={handleManualScan} className="space-y-4">
+              <div className="relative">
+                <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  ref={manualInputRef}
+                  value={manualInput}
+                  onChange={(e) => setManualInput(e.target.value)}
+                  placeholder="Enter barcode or scan with camera..."
+                  className="pl-9 text-lg h-12"
+                  autoComplete="off"
+                  autoFocus
+                  disabled={loading}
                 />
               </div>
-            </TabsContent>
-          </Tabs>
+              <Button type="submit" className="w-full h-12 text-lg" disabled={loading || !selectedOperator || !manualInput.trim()}>
+                {loading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Process Barcode'
+                )}
+              </Button>
+            </form>
+            
+            {/* Camera Scanner Section */}
+            <div className="border-t pt-6">
+              <div className="text-sm text-muted-foreground mb-4 text-center">
+                Or use camera to scan:
+              </div>
+              <CameraScanner
+                onResult={handleScanResult}
+                onError={(error) => toast.error(`Camera error: ${error}`)}
+                isActive={showScanDialog}
+                autoComplete={false}
+                className="w-full"
+              />
+            </div>
+            
+            {selectedOperator && (
+              <div className="text-xs text-center text-muted-foreground border-t pt-4">
+                Operator: {selectedOperator.name}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
