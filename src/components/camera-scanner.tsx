@@ -133,6 +133,11 @@ export function CameraScanner({
       dimensionCheckIntervalRef.current = null;
     }
     
+    // Remove video event listeners
+    if (videoRef.current) {
+      videoRef.current.removeEventListener('loadeddata', handleVideoLoadedData);
+    }
+    
     if (stream) {
       stream.getTracks().forEach(track => {
         console.log('📱 Scanner: Stopping track:', track.kind, track.label);
@@ -157,6 +162,36 @@ export function CameraScanner({
     lastValidDimensionsRef.current = { width: 0, height: 0 };
     zeroDimensionCountRef.current = 0;
     lastRecoveryAttemptRef.current = 0;
+  };
+
+  const handleVideoLoadedData = () => {
+    console.log('📱 Scanner: Video loadeddata event fired - stream is ready');
+    const video = videoRef.current;
+    if (!video) return;
+
+    const currentWidth = video.videoWidth;
+    const currentHeight = video.videoHeight;
+    
+    console.log('📱 Scanner: Video dimensions from loadeddata:', currentWidth, 'x', currentHeight);
+    
+    if (currentWidth > 0 && currentHeight > 0) {
+      setVideoDimensions({ width: currentWidth, height: currentHeight });
+      lastValidDimensionsRef.current = { width: currentWidth, height: currentHeight };
+      
+      setCameraReady(true);
+      setPlaybackStatus('playing');
+      setRecoveryAttempts(0);
+      
+      console.log('✅ Scanner: Camera ready from loadeddata event - starting scanning');
+      
+      // Start scanning immediately since video is confirmed ready
+      if (!scanningIntervalRef.current && !scanSuccess) {
+        startScanning();
+      }
+      
+      // Start monitoring for any future issues
+      startContinuousMonitoring();
+    }
   };
 
   const initializeCamera = async () => {
@@ -186,7 +221,6 @@ export function CameraScanner({
       
       if (currentAttempt === initAttemptRef.current) {
         await initializeBarcodeDetector();
-        startContinuousMonitoring();
       }
     } catch (err) {
       console.error('📱 Scanner: Initialization failed:', err);
@@ -207,7 +241,7 @@ export function CameraScanner({
     setContinuousMonitoring(true);
     zeroDimensionCountRef.current = 0;
     
-    // Start continuous dimension checking that never stops
+    // Start continuous dimension checking for monitoring only
     dimensionCheckIntervalRef.current = setInterval(() => {
       checkVideoReadinessAndPlay();
     }, 200); // Check every 200ms
@@ -223,8 +257,6 @@ export function CameraScanner({
     setDimensionCheckCount(prev => prev + 1);
     setVideoDimensions({ width: currentWidth, height: currentHeight });
     
-    console.log(`📱 Scanner: Continuous check #${dimensionCheckCount + 1} - ${currentWidth}x${currentHeight}`);
-    
     // Check if dimensions are valid
     const hasValidDimensions = currentWidth > 0 && currentHeight > 0;
     
@@ -234,18 +266,6 @@ export function CameraScanner({
       
       // Update last valid dimensions
       lastValidDimensionsRef.current = { width: currentWidth, height: currentHeight };
-      
-      if (!cameraReady) {
-        console.log('✅ Scanner: Valid video dimensions detected! Camera now ready.');
-        setCameraReady(true);
-        setPlaybackStatus('playing');
-        setRecoveryAttempts(0); // Reset recovery attempts on success
-        
-        // Start scanning if not already started and not in success state
-        if (!scanningIntervalRef.current && !scanSuccess) {
-          startScanning();
-        }
-      }
       
       // Ensure video is playing
       if (video.paused) {
@@ -499,6 +519,9 @@ export function CameraScanner({
       
       // Clear any existing source
       video.srcObject = null;
+      
+      // Add loadeddata event listener BEFORE setting srcObject
+      video.addEventListener('loadeddata', handleVideoLoadedData);
       
       // Set the new stream
       video.srcObject = mediaStream;
