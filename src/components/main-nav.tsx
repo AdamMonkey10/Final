@@ -18,7 +18,8 @@ import {
   Package2,
   LogOut,
   QrCode,
-  ExternalLink
+  ExternalLink,
+  Camera
 } from 'lucide-react';
 import { logout } from '@/lib/firebase/users';
 
@@ -90,6 +91,22 @@ export function MainNav() {
           </Button>
         );
       })}
+      
+      {/* Camera Test Link */}
+      <Button
+        variant="ghost"
+        asChild
+        className={cn(
+          'justify-start text-orange-600 hover:text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:hover:text-orange-300 dark:hover:bg-orange-950',
+          location.pathname === '/camera-test' &&
+            'bg-muted font-medium text-primary'
+        )}
+      >
+        <Link to="/camera-test" className="flex items-center space-x-2">
+          <Camera className="h-4 w-4" />
+          <span>Camera Test</span>
+        </Link>
+      </Button>
       
       {/* Bladetech Main App Link */}
       <Button

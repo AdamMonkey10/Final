@@ -9,6 +9,7 @@ import Inventory from '@/pages/inventory';
 import Locations from '@/pages/locations';
 import Movements from '@/pages/movements';
 import Login from '@/pages/login';
+import CameraTest from '@/pages/camera-test';
 import { Package2 } from 'lucide-react';
 import { verifySetupUser } from '@/lib/firebase/users';
 import { useState, useEffect } from 'react';
@@ -154,6 +155,7 @@ function AppContent() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/camera-test" element={<CameraTest />} />
         <Route
           path="/*"
           element={
