@@ -29,6 +29,7 @@ export function CameraScanner({
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [retryCount, setRetryCount] = useState(0);
   const [streamReinitCount, setStreamReinitCount] = useState(0);
+  const [isScanning, setIsScanning] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -38,15 +39,26 @@ export function CameraScanner({
   const barcodeDetectorRef = useRef<any>(null);
 
   const handleScanResult = useCallback((data: string) => {
-    onResult(data);
-    setScanSuccess(true);
-    setTimeout(() => setScanSuccess(false), 2000);
+    console.log('📱 Camera captured code:', data);
     
-    if (autoComplete && scanningIntervalRef.current) {
+    // Stop scanning immediately after capturing
+    setIsScanning(false);
+    setScanSuccess(true);
+    
+    // Stop the scanning interval
+    if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
       scanningIntervalRef.current = null;
     }
-  }, [onResult, autoComplete]);
+    
+    // Call the result handler
+    onResult(data);
+    
+    // Keep success state for visual feedback
+    setTimeout(() => {
+      setScanSuccess(false);
+    }, 3000);
+  }, [onResult]);
 
   useEffect(() => {
     if (isActive) {
@@ -77,6 +89,7 @@ export function CameraScanner({
     setError(null);
     setCameraReady(false);
     setScanSuccess(false);
+    setIsScanning(false);
     setVideoDimensions({ width: 0, height: 0 });
   };
 
@@ -84,6 +97,7 @@ export function CameraScanner({
     setIsInitializing(true);
     setCameraReady(false);
     setScanSuccess(false);
+    setIsScanning(false);
     
     try {
       setError(null);
@@ -122,11 +136,13 @@ export function CameraScanner({
     
     if (hasValidDimensions && !cameraReady) {
       setCameraReady(true);
+      // Only start scanning if we haven't captured a code yet
       if (!scanningIntervalRef.current && !scanSuccess) {
         startScanning();
       }
     } else if (!hasValidDimensions && cameraReady) {
       setCameraReady(false);
+      setIsScanning(false);
       if (scanningIntervalRef.current) {
         clearInterval(scanningIntervalRef.current);
         scanningIntervalRef.current = null;
@@ -236,7 +252,10 @@ export function CameraScanner({
   };
 
   const startScanning = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || scanSuccess) return;
+
+    console.log('📱 Starting barcode scanning...');
+    setIsScanning(true);
 
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
@@ -271,7 +290,7 @@ export function CameraScanner({
   };
 
   const processDetectedBarcode = (result: string) => {
-    if (!result || typeof result !== 'string') return;
+    if (!result || typeof result !== 'string' || scanSuccess) return;
     
     const scannedText = result.trim();
     const now = Date.now();
@@ -281,6 +300,7 @@ export function CameraScanner({
       return;
     }
 
+    console.log('📱 Barcode detected:', scannedText);
     setLastScan(scannedText);
     lastScanTimeRef.current = now;
     
@@ -292,12 +312,14 @@ export function CameraScanner({
     setFacingMode(newFacingMode);
     setRetryCount(0);
     setScanSuccess(false);
+    setIsScanning(false);
   };
 
   const retryPermission = () => {
     setError(null);
     setLastScan(null);
     setScanSuccess(false);
+    setIsScanning(false);
     setRetryCount(prev => prev + 1);
     initializeCamera();
   };
@@ -324,10 +346,12 @@ export function CameraScanner({
   };
 
   const restartScanning = () => {
+    console.log('📱 Restarting scanning...');
     setScanSuccess(false);
     setLastScan(null);
+    setIsScanning(false);
     
-    if (cameraReady && !scanningIntervalRef.current) {
+    if (cameraReady) {
       startScanning();
     }
   };
@@ -399,20 +423,23 @@ export function CameraScanner({
           {/* Scanning area */}
           <div className={cn(
             "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-2 rounded-lg",
-            scanSuccess ? "border-green-500 bg-green-500" : "border-red-500 bg-red-500",
+            scanSuccess ? "border-green-500 bg-green-500" : 
+            isScanning ? "border-blue-500 bg-blue-500" : "border-red-500 bg-red-500",
             "bg-opacity-10"
           )}>
             <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
               <span className={cn(
                 "text-white text-xs font-bold px-2 py-1 rounded-full",
-                scanSuccess ? "bg-green-500 bg-opacity-90" : "bg-red-500 bg-opacity-90"
+                scanSuccess ? "bg-green-500 bg-opacity-90" : 
+                isScanning ? "bg-blue-500 bg-opacity-90" : "bg-red-500 bg-opacity-90"
               )}>
-                {scanSuccess ? "✅ Captured!" : "Scan Here"}
+                {scanSuccess ? "✅ Code Captured!" : 
+                 isScanning ? "🔍 Scanning..." : "Ready to Scan"}
               </span>
             </div>
             
-            {!scanSuccess && (
-              <div className="absolute inset-x-4 top-1/2 h-0.5 bg-red-400 animate-pulse"></div>
+            {!scanSuccess && isScanning && (
+              <div className="absolute inset-x-4 top-1/2 h-0.5 bg-blue-400 animate-pulse"></div>
             )}
             
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-4 h-4">
@@ -459,6 +486,11 @@ export function CameraScanner({
               {videoDimensions.width}x{videoDimensions.height}
             </span>
           )}
+          {scanSuccess && (
+            <span className="text-xs text-green-600 font-medium">
+              ✅ Captured: {lastScan?.substring(0, 10)}...
+            </span>
+          )}
         </div>
         
         <div className="flex gap-2">
@@ -501,7 +533,10 @@ export function CameraScanner({
       <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-xs text-blue-800 text-center">
           <strong>Position barcode within the frame</strong><br />
-          Camera will automatically populate the input field when a code is detected
+          {scanSuccess ? 
+            "✅ Code captured successfully! Click 'Scan Again' to scan another code." :
+            "Camera will automatically capture and stop scanning when a code is detected"
+          }
         </p>
       </div>
     </div>
