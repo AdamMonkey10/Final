@@ -81,23 +81,24 @@ export function CameraScanner({
     console.log('📱 Device Info:', { isMobile, userAgent, platform });
   }, []);
 
-  // IMMEDIATE callback - no debouncing for critical scan results
+  // Unified callback that works for both modes
   const handleScanResult = useCallback((data: string) => {
-    console.log('🔥 IMMEDIATE SCAN RESULT:', data);
+    console.log('🔥 SCAN RESULT RECEIVED:', data);
     
-    // Call parent callback IMMEDIATELY
+    // Always call the parent callback to populate the input field
     onResult(data);
     
     // Update local state
     setIsScanning(false);
     
+    // Show visual feedback
+    setScanSuccess(true);
+    setTimeout(() => {
+      setScanSuccess(false);
+    }, 2000);
+    
+    // In autoComplete mode, also stop scanning
     if (autoComplete) {
-      setScanSuccess(true);
-      setTimeout(() => {
-        setScanSuccess(false);
-      }, 3000);
-      
-      // Stop scanning after successful scan
       if (scanningIntervalRef.current) {
         clearInterval(scanningIntervalRef.current);
         scanningIntervalRef.current = null;
@@ -341,7 +342,7 @@ export function CameraScanner({
   };
 
   const requestCameraPermission = async () => {
-    console.log('📱 Scanner: Requesting camera permission with optimized resolution');
+    console.log('📱 Scanner: Requesting camera permission with 720x1280 resolution');
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera API not supported in this browser');
@@ -353,8 +354,8 @@ export function CameraScanner({
       {
         video: {
           facingMode: { exact: facingMode },
-          width: { ideal: 720, min: 720 },
-          height: { ideal: 1280, min: 1280 },
+          width: { exact: 720 },
+          height: { exact: 1280 },
           frameRate: { ideal: 30, min: 15 }
         },
         audio: false
@@ -585,7 +586,8 @@ export function CameraScanner({
     
     console.log('🔥 PROCESSING DETECTED BARCODE:', scannedText);
     
-    const duplicateThreshold = autoComplete ? 1000 : 2000;
+    // Prevent duplicate scans within 1 second
+    const duplicateThreshold = 1000;
     if (scannedText === lastScan && now - lastScanTimeRef.current < duplicateThreshold) {
       console.log('📱 Scanner: Duplicate scan ignored');
       return;
@@ -596,7 +598,7 @@ export function CameraScanner({
     setScanCount(prev => prev + 1);
     setIsScanning(true);
     
-    console.log('🔥 CALLING IMMEDIATE RESULT HANDLER:', scannedText);
+    console.log('🔥 CALLING RESULT HANDLER:', scannedText);
     handleScanResult(scannedText);
   };
 
@@ -668,7 +670,7 @@ export function CameraScanner({
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-sm text-muted-foreground">
-            {isInitializing ? 'Initializing camera with optimized resolution...' : 'Requesting camera permission...'}
+            {isInitializing ? 'Initializing camera with 720x1280 resolution...' : 'Requesting camera permission...'}
           </p>
           {deviceInfo.isMobile && (
             <p className="text-xs text-blue-600 mt-2">
@@ -736,7 +738,7 @@ export function CameraScanner({
                 "text-white text-sm font-bold px-3 py-1 rounded-full",
                 scanSuccess ? "bg-green-500 bg-opacity-90" : "bg-red-500 bg-opacity-90"
               )}>
-                {scanSuccess ? "✅ Scan Complete!" : "Scan Code Here"}
+                {scanSuccess ? "✅ Code Captured!" : "Scan Code Here"}
               </span>
             </div>
             
@@ -769,7 +771,7 @@ export function CameraScanner({
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
               <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full">
                 <CheckCircle className="h-4 w-4" />
-                <span className="font-bold">Scan Successful!</span>
+                <span className="font-bold">Code Captured!</span>
               </div>
             </div>
           )}
@@ -777,7 +779,7 @@ export function CameraScanner({
           {lastScan && (
             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
               <div className="bg-blue-500 bg-opacity-90 text-white px-3 py-1 rounded-full text-sm">
-                <span className="font-bold">Scanned: {lastScan}</span>
+                <span className="font-bold">Last: {lastScan}</span>
               </div>
             </div>
           )}
@@ -816,7 +818,7 @@ export function CameraScanner({
           {scanSuccess && (
             <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Success
+              Captured
             </Badge>
           )}
           {scanCount > 0 && (
@@ -828,7 +830,7 @@ export function CameraScanner({
         </div>
         
         <div className="flex gap-2">
-          {scanSuccess && autoComplete && (
+          {scanSuccess && (
             <Button
               onClick={restartScanning}
               variant="outline"
@@ -866,10 +868,10 @@ export function CameraScanner({
 
       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-sm text-blue-800 text-center">
-          <strong>📱 Optimized for 720x1280 resolution scanning</strong><br />
+          <strong>📱 Camera scanner will populate the input field when a code is detected</strong><br />
           {autoComplete ? 
-            "Scan will complete automatically when detected • Hold steady for best results" :
-            "Hold steady for best results • Ensure good lighting • Keep code flat and clean"
+            "Code will be captured automatically and populate the input field" :
+            "Code will be captured and populate the input field for manual processing"
           }
         </p>
         
