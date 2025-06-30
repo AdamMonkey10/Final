@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -42,10 +43,8 @@ export default function CameraScanner({
   const [showManualInput, setShowManualInput] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScanTimeRef = useRef<number>(0);
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
 
   // Create debounced version of onResult callback
@@ -73,6 +72,8 @@ export default function CameraScanner({
   }, [isActive, facingMode]);
 
   const cleanup = () => {
+    console.log('📱 Scanner: Cleaning up resources');
+    
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
       scanningIntervalRef.current = null;
@@ -86,48 +87,38 @@ export default function CameraScanner({
       setStream(null);
     }
     
-    setHasPermission(null);
-    setError(null);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    barcodeDetectorRef.current = null;
     setCameraReady(false);
     setIsScanning(false);
   };
 
   const initializeCamera = async () => {
     setIsInitializing(true);
-    setCameraReady(false);
-    initAttemptRef.current += 1;
-    const currentAttempt = initAttemptRef.current;
+    setError(null);
+    setHasPermission(null);
     
     try {
-      setError(null);
-      setHasPermission(null);
+      console.log('📱 Scanner: Starting camera initialization');
       
-      // Clean up any existing stream
+      // Clean up any existing resources
       cleanup();
       
-      // Wait a bit to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      if (currentAttempt !== initAttemptRef.current) {
-        console.log('📱 Scanner: Initialization cancelled');
-        return;
-      }
+      // Small delay to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       await requestCameraPermission();
       
-      if (currentAttempt === initAttemptRef.current) {
-        startScanning();
-      }
     } catch (err) {
       console.error('📱 Scanner: Initialization failed:', err);
-      if (currentAttempt === initAttemptRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to initialize camera');
-        setHasPermission(false);
-      }
+      setError(err instanceof Error ? err.message : 'Failed to initialize camera');
+      setHasPermission(false);
+      onError?.(err instanceof Error ? err.message : 'Failed to initialize camera');
     } finally {
-      if (currentAttempt === initAttemptRef.current) {
-        setIsInitializing(false);
-      }
+      setIsInitializing(false);
     }
   };
 
@@ -142,8 +133,7 @@ export default function CameraScanner({
       video: {
         facingMode: facingMode,
         width: { ideal: 1280, min: 640 },
-        height: { ideal: 720, min: 480 },
-        frameRate: { ideal: 30 }
+        height: { ideal: 720, min: 480 }
       },
       audio: false
     };
@@ -154,16 +144,59 @@ export default function CameraScanner({
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
       console.log('✅ Scanner: Camera permission granted');
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.play();
-      }
+      console.log('📱 Scanner: Stream active:', mediaStream.active);
+      console.log('📱 Scanner: Video tracks:', mediaStream.getVideoTracks().length);
       
       setStream(mediaStream);
       setHasPermission(true);
       setError(null);
-      setCameraReady(true);
+      
+      // Set up video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        
+        // Add event listeners
+        videoRef.current.onloadedmetadata = () => {
+          console.log('📱 Scanner: Video metadata loaded');
+          console.log('📱 Scanner: Video dimensions:', {
+            videoWidth: videoRef.current?.videoWidth,
+            videoHeight: videoRef.current?.videoHeight
+          });
+        };
+        
+        videoRef.current.oncanplay = () => {
+          console.log('📱 Scanner: Video can play');
+          setCameraReady(true);
+          // Start scanning after video is ready
+          setTimeout(() => {
+            startScanning();
+          }, 1000);
+        };
+        
+        videoRef.current.onerror = (e) => {
+          console.error('📱 Scanner: Video error:', e);
+          setError('Video playback failed');
+        };
+        
+        // Start playing the video
+        try {
+          await videoRef.current.play();
+          console.log('📱 Scanner: Video playing successfully');
+        } catch (playError) {
+          console.warn('📱 Scanner: Video autoplay failed (this is often normal):', playError);
+          // Try to play again after a short delay
+          setTimeout(async () => {
+            try {
+              if (videoRef.current) {
+                await videoRef.current.play();
+                console.log('📱 Scanner: Video playing after retry');
+              }
+            } catch (retryError) {
+              console.error('📱 Scanner: Video play retry failed:', retryError);
+            }
+          }, 500);
+        }
+      }
       
     } catch (err: any) {
       console.error('❌ Scanner: Camera permission failed:', err);
@@ -172,7 +205,7 @@ export default function CameraScanner({
       
       switch (err.name) {
         case 'NotAllowedError':
-          errorMessage = 'Camera permission denied. Please allow camera access and refresh.';
+          errorMessage = 'Camera permission denied. Please allow camera access and try again.';
           break;
         case 'NotFoundError':
           errorMessage = 'No camera found on this device.';
@@ -181,7 +214,20 @@ export default function CameraScanner({
           errorMessage = 'Camera is in use by another application.';
           break;
         case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported.';
+          errorMessage = 'Camera constraints not supported. Trying with basic settings.';
+          // Try with simpler constraints
+          try {
+            const basicStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            setStream(basicStream);
+            setHasPermission(true);
+            if (videoRef.current) {
+              videoRef.current.srcObject = basicStream;
+              await videoRef.current.play();
+            }
+            return;
+          } catch (basicError) {
+            errorMessage = 'Camera not compatible with this device.';
+          }
           break;
         default:
           errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
@@ -189,7 +235,6 @@ export default function CameraScanner({
       
       setError(errorMessage);
       setHasPermission(false);
-      onError?.(errorMessage);
       throw new Error(errorMessage);
     }
   };
@@ -197,8 +242,8 @@ export default function CameraScanner({
   const startScanning = async () => {
     console.log('📱 Scanner: Starting barcode scanning');
     
-    if (!videoRef.current) {
-      console.error('📱 Scanner: Video ref not available');
+    if (!videoRef.current || !cameraReady) {
+      console.log('📱 Scanner: Video not ready for scanning');
       return;
     }
 
@@ -209,18 +254,20 @@ export default function CameraScanner({
         
         barcodeDetectorRef.current = new (window as any).BarcodeDetector({
           formats: [
-            'aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix',
-            'ean_13', 'ean_8', 'itf', 'pdf417', 'qr_code', 'upc_a', 'upc_e'
+            'code_128', 'code_39', 'code_93', 'codabar', 
+            'ean_13', 'ean_8', 'itf', 'upc_a', 'upc_e',
+            'qr_code', 'data_matrix', 'pdf417', 'aztec'
           ]
         });
         
+        // Start scanning interval
         scanningIntervalRef.current = setInterval(async () => {
           await scanWithBarcodeDetector();
-        }, 300);
+        }, 200); // Scan every 200ms
         
         console.log('✅ Scanner: BarcodeDetector scanning started');
       } else {
-        console.log('📱 Scanner: BarcodeDetector not available, showing manual input option');
+        console.log('📱 Scanner: BarcodeDetector not available');
         setShowManualInput(true);
       }
       
@@ -231,7 +278,10 @@ export default function CameraScanner({
   };
 
   const scanWithBarcodeDetector = async () => {
-    if (!videoRef.current || videoRef.current.readyState !== 4 || !barcodeDetectorRef.current) {
+    if (!videoRef.current || 
+        videoRef.current.readyState !== 4 || 
+        !barcodeDetectorRef.current ||
+        videoRef.current.videoWidth === 0) {
       return;
     }
     
@@ -245,12 +295,12 @@ export default function CameraScanner({
         setIsScanning(true);
         
         // Brief pause after successful scan
-        setTimeout(() => setIsScanning(false), 1000);
+        setTimeout(() => setIsScanning(false), 1500);
       } else {
         setIsScanning(false);
       }
     } catch (error) {
-      // Silently continue - detection errors are common
+      // Silently continue - detection errors are common when no barcode is visible
       setIsScanning(false);
     }
   };
@@ -273,7 +323,6 @@ export default function CameraScanner({
     setLastScan(scannedText);
     lastScanTimeRef.current = now;
     setScanCount(prev => prev + 1);
-    setIsScanning(true);
     
     console.log('📱 Scanner: Calling result callback');
     debouncedOnResult(scannedText);
@@ -337,14 +386,15 @@ export default function CameraScanner({
           <div className="space-y-3">
             <p className="text-xs text-gray-600">Or enter barcode manually:</p>
             <form onSubmit={handleManualSubmit} className="space-y-2">
-              <input
+              <Input
                 type="text"
                 value={manualInput}
                 onChange={(e) => setManualInput(e.target.value)}
                 placeholder="Enter barcode/QR code"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="text-sm"
               />
               <Button type="submit" size="sm" className="w-full">
+                <Keyboard className="h-4 w-4 mr-2" />
                 Submit Code
               </Button>
             </form>
@@ -370,19 +420,20 @@ export default function CameraScanner({
           playsInline
           muted
           className="w-full h-96 object-cover"
-          onLoadedMetadata={() => {
-            console.log('📱 Scanner: Video loaded');
-            setCameraReady(true);
-            // Start scanning once video is ready
-            setTimeout(startScanning, 500);
+          style={{ 
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' 
           }}
         />
         
-        {/* Hidden canvas for image processing */}
-        <canvas
-          ref={canvasRef}
-          className="hidden"
-        />
+        {/* Loading overlay while camera is starting */}
+        {!cameraReady && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="text-center text-white">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+              <p className="text-sm">Starting camera...</p>
+            </div>
+          </div>
+        )}
         
         {/* Scanning overlay */}
         <div className="absolute inset-0 pointer-events-none">
@@ -415,7 +466,7 @@ export default function CameraScanner({
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
               <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full animate-pulse">
                 <Zap className="h-4 w-4" />
-                <span className="font-bold">Scanning...</span>
+                <span className="font-bold">Code Detected!</span>
               </div>
             </div>
           )}
@@ -430,14 +481,15 @@ export default function CameraScanner({
             Camera scanning may not be fully supported in this browser.
           </p>
           <form onSubmit={handleManualSubmit} className="space-y-2">
-            <input
+            <Input
               type="text"
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
               placeholder="Enter barcode or QR code manually"
-              className="w-full px-3 py-2 border border-yellow-300 rounded-md text-sm"
+              className="border-yellow-300"
             />
             <Button type="submit" size="sm" className="w-full">
+              <Keyboard className="h-4 w-4 mr-2" />
               Submit Code
             </Button>
           </form>
@@ -489,8 +541,10 @@ export default function CameraScanner({
             <span className="text-green-600">✅ Barcode detection active and ready</span>
           ) : showManualInput ? (
             <span className="text-orange-600">⚠️ Manual input mode - camera scanning limited</span>
-          ) : (
+          ) : cameraReady ? (
             <span className="text-blue-600">🔄 Initializing scanner...</span>
+          ) : (
+            <span className="text-gray-600">📹 Camera starting...</span>
           )}
         </div>
       </div>
