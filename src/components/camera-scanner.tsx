@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -35,6 +35,16 @@ export function CameraScanner({
   const [error, setError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [isHttps, setIsHttps] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState<{
+    hasCamera: boolean;
+    cameraCount: number;
+    userAgent: string;
+  }>({
+    hasCamera: false,
+    cameraCount: 0,
+    userAgent: ''
+  });
   const scannerRef = useRef<HTMLDivElement>(null);
   const lastScanTimeRef = useRef<number>(0);
 
@@ -48,6 +58,31 @@ export function CameraScanner({
   );
 
   useEffect(() => {
+    // Check if we're on HTTPS
+    setIsHttps(window.location.protocol === 'https:');
+    
+    // Get device info
+    setDeviceInfo({
+      hasCamera: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+      cameraCount: 0,
+      userAgent: navigator.userAgent
+    });
+
+    // Try to enumerate devices to get camera count
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices()
+        .then(devices => {
+          const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          setDeviceInfo(prev => ({
+            ...prev,
+            cameraCount: videoDevices.length
+          }));
+        })
+        .catch(err => {
+          console.warn('Could not enumerate devices:', err);
+        });
+    }
+
     if (isActive) {
       console.log('📱 Scanner: Component activated, requesting camera permission');
       requestCameraPermission();
@@ -58,23 +93,49 @@ export function CameraScanner({
 
   const requestCameraPermission = async () => {
     console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
+    
+    // Check if we have the necessary APIs
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const errorMsg = 'Camera API not supported in this browser. Please use a modern browser with HTTPS.';
+      console.error('❌ Scanner:', errorMsg);
+      setError(errorMsg);
+      setHasPermission(false);
+      onError?.(errorMsg);
+      return;
+    }
+
+    // Check if we're on HTTPS (required for camera access)
+    if (!isHttps && window.location.hostname !== 'localhost') {
+      const errorMsg = 'Camera access requires HTTPS. Please access the site via HTTPS or use localhost for development.';
+      console.error('❌ Scanner:', errorMsg);
+      setError(errorMsg);
+      setHasPermission(false);
+      onError?.(errorMsg);
+      return;
+    }
+
     try {
-      const constraints = { 
-        video: { 
-          facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      };
+      setError(null);
       
-      console.log('📱 Scanner: Using constraints:', constraints);
+      // Start with basic constraints
+      let constraints: MediaStreamConstraints = {
+        video: {
+          facingMode,
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 }
+        }
+      };
+
+      console.log('📱 Scanner: Attempting getUserMedia with constraints:', constraints);
+      
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       console.log('✅ Scanner: Camera permission granted');
       console.log('📱 Scanner: Stream details:', {
         active: stream.active,
         tracks: stream.getTracks().length,
-        videoTracks: stream.getVideoTracks().length
+        videoTracks: stream.getVideoTracks().length,
+        settings: stream.getVideoTracks()[0]?.getSettings()
       });
       
       setHasPermission(true);
@@ -98,22 +159,40 @@ export function CameraScanner({
       
       let errorMessage = 'Camera access failed. Please check your camera and try again.';
       
-      if (err.name === 'NotAllowedError') {
-        errorMessage = 'Camera permission denied. Please allow camera access and try again.';
-      } else if (err.name === 'NotFoundError') {
-        errorMessage = 'No camera found on this device.';
-      } else if (err.name === 'NotReadableError') {
-        errorMessage = 'Camera is already in use by another application.';
-      } else if (err.name === 'OverconstrainedError') {
-        errorMessage = 'Camera constraints not supported. Trying with basic settings.';
-        // Try again with basic constraints
-        setTimeout(() => {
-          console.log('📱 Scanner: Retrying with basic constraints');
-          requestBasicCameraPermission();
-        }, 1000);
-        return;
-      } else if (err.name === 'SecurityError') {
-        errorMessage = 'Camera access blocked by security policy.';
+      switch (err.name) {
+        case 'NotAllowedError':
+          errorMessage = 'Camera permission denied. Please allow camera access in your browser settings and refresh the page.';
+          break;
+        case 'NotFoundError':
+          errorMessage = 'No camera found on this device. Please connect a camera and try again.';
+          break;
+        case 'NotReadableError':
+          errorMessage = 'Camera is already in use by another application. Please close other camera apps and try again.';
+          break;
+        case 'OverconstrainedError':
+          errorMessage = 'Camera constraints not supported. Trying with basic settings...';
+          // Try again with basic constraints
+          setTimeout(() => {
+            console.log('📱 Scanner: Retrying with basic constraints');
+            requestBasicCameraPermission();
+          }, 1000);
+          return;
+        case 'SecurityError':
+          errorMessage = 'Camera access blocked by security policy. Please check your browser settings.';
+          break;
+        case 'AbortError':
+          errorMessage = 'Camera access was aborted. Please try again.';
+          break;
+        case 'TypeError':
+          errorMessage = 'Invalid camera constraints. Please try switching cameras.';
+          break;
+        default:
+          if (err.message?.includes('https')) {
+            errorMessage = 'Camera access requires HTTPS. Please access the site securely.';
+          } else if (err.message?.includes('permission')) {
+            errorMessage = 'Camera permission required. Please allow camera access and refresh.';
+          }
+          break;
       }
       
       setError(errorMessage);
@@ -124,7 +203,9 @@ export function CameraScanner({
   const requestBasicCameraPermission = async () => {
     try {
       console.log('📱 Scanner: Trying basic camera constraints');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true 
+      });
       
       console.log('✅ Scanner: Basic camera permission granted');
       setHasPermission(true);
@@ -133,8 +214,8 @@ export function CameraScanner({
       stream.getTracks().forEach(track => track.stop());
     } catch (err: any) {
       console.error('❌ Scanner: Basic camera permission also failed:', err);
-      setError('Camera access failed completely. Please check your device settings.');
-      onError?.('Camera access failed completely. Please check your device settings.');
+      setError('Camera access failed completely. Please check your device settings and browser permissions.');
+      onError?.('Camera access failed completely. Please check your device settings and browser permissions.');
     }
   };
 
@@ -188,7 +269,13 @@ export function CameraScanner({
     let errorMessage = 'Scanner error occurred. Please try again.';
     
     if (error?.message) {
-      errorMessage = `Scanner error: ${error.message}`;
+      if (error.message.includes('getUserMedia')) {
+        errorMessage = 'Camera access error. Please check permissions and try again.';
+      } else if (error.message.includes('https')) {
+        errorMessage = 'Camera requires HTTPS. Please use a secure connection.';
+      } else {
+        errorMessage = `Scanner error: ${error.message}`;
+      }
     } else if (typeof error === 'string') {
       errorMessage = `Scanner error: ${error}`;
     }
@@ -205,6 +292,11 @@ export function CameraScanner({
     setError(null);
     setLastScan(null);
     lastScanTimeRef.current = 0;
+    
+    // Re-request permission with new facing mode
+    setTimeout(() => {
+      requestCameraPermission();
+    }, 100);
   };
 
   const retryPermission = () => {
@@ -227,12 +319,53 @@ export function CameraScanner({
     );
   }
 
+  // Show HTTPS warning if not on secure connection
+  if (!isHttps && window.location.hostname !== 'localhost') {
+    return (
+      <div className={cn("flex items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg", className)}>
+        <div className="text-center">
+          <WifiOff className="h-12 w-12 mx-auto mb-4 text-red-500" />
+          <p className="text-sm text-red-700 mb-4 font-medium">HTTPS Required</p>
+          <p className="text-xs text-red-600 mb-4">
+            Camera access requires a secure connection. Please access this site via HTTPS.
+          </p>
+          <div className="text-xs text-red-500 space-y-1">
+            <p>Current: {window.location.protocol}//{window.location.host}</p>
+            <p>Required: https://{window.location.host}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show device compatibility info
+  if (!deviceInfo.hasCamera) {
+    return (
+      <div className={cn("flex items-center justify-center p-8 bg-yellow-50 border border-yellow-200 rounded-lg", className)}>
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
+          <p className="text-sm text-yellow-700 mb-4 font-medium">Camera API Not Supported</p>
+          <p className="text-xs text-yellow-600 mb-4">
+            Your browser doesn't support camera access. Please use a modern browser.
+          </p>
+          <div className="text-xs text-yellow-500">
+            <p>Browser: {deviceInfo.userAgent.split(' ')[0]}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (hasPermission === null) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-muted rounded-lg", className)}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-sm text-muted-foreground">Requesting camera permission...</p>
+          <div className="text-xs text-muted-foreground mt-2 space-y-1">
+            <p>Protocol: {window.location.protocol}</p>
+            <p>Cameras: {deviceInfo.cameraCount}</p>
+          </div>
         </div>
       </div>
     );
@@ -243,11 +376,27 @@ export function CameraScanner({
       <div className={cn("flex items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg", className)}>
         <div className="text-center">
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
-          <p className="text-sm text-red-700 mb-4">{error}</p>
-          <Button onClick={retryPermission} variant="outline" size="sm">
-            <RotateCcw className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
+          <p className="text-sm text-red-700 mb-4 font-medium">Camera Access Failed</p>
+          <p className="text-xs text-red-600 mb-4">{error}</p>
+          
+          <div className="space-y-2 mb-4">
+            <Button onClick={retryPermission} variant="outline" size="sm">
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Retry Camera Access
+            </Button>
+            {deviceInfo.cameraCount > 1 && (
+              <Button onClick={toggleCamera} variant="outline" size="sm">
+                <Camera className="h-4 w-4 mr-2" />
+                Try Other Camera
+              </Button>
+            )}
+          </div>
+
+          <div className="text-xs text-red-500 space-y-1">
+            <p>Protocol: {window.location.protocol}</p>
+            <p>Cameras detected: {deviceInfo.cameraCount}</p>
+            <p>Facing: {facingMode}</p>
+          </div>
         </div>
       </div>
     );
@@ -296,26 +445,32 @@ export function CameraScanner({
       <div className="flex items-center justify-between mt-4">
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+            <Wifi className="h-3 w-3 mr-1" />
+            {isHttps ? 'Secure' : 'Local'}
+          </Badge>
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
             <Camera className="h-3 w-3 mr-1" />
-            {facingMode === 'environment' ? 'Back Camera' : 'Front Camera'}
+            {facingMode === 'environment' ? 'Back' : 'Front'}
           </Badge>
           {lastScan && (
-            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.substring(0, 10)}...
+              Last: {lastScan.substring(0, 8)}...
             </Badge>
           )}
         </div>
         
-        <Button
-          onClick={toggleCamera}
-          variant="outline"
-          size="sm"
-          className="flex items-center gap-2"
-        >
-          <RotateCcw className="h-4 w-4" />
-          Flip Camera
-        </Button>
+        {deviceInfo.cameraCount > 1 && (
+          <Button
+            onClick={toggleCamera}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Switch Camera
+          </Button>
+        )}
       </div>
 
       {/* Instructions */}
@@ -323,13 +478,20 @@ export function CameraScanner({
         <p className="text-sm text-blue-700 text-center">
           Position the barcode or QR code within the frame to scan
         </p>
+        {!isHttps && window.location.hostname === 'localhost' && (
+          <p className="text-xs text-blue-600 text-center mt-1">
+            Development mode - camera access allowed on localhost
+          </p>
+        )}
       </div>
 
       {/* Debug info (only in development) */}
       {process.env.NODE_ENV === 'development' && (
         <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
           <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
+          <div>Protocol: {window.location.protocol}</div>
           <div>Facing: {facingMode}</div>
+          <div>Cameras: {deviceInfo.cameraCount}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
         </div>
