@@ -54,6 +54,7 @@ export default function ScanPage() {
   const [manualInput, setManualInput] = useState('');
   const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not-found'>('idle');
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
+  const [processingComplete, setProcessingComplete] = useState(false);
   const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -77,6 +78,8 @@ export default function ScanPage() {
   };
 
   const handleScanResult = async (scannedCode: string) => {
+    console.log('🔥 SCAN RESULT RECEIVED:', scannedCode);
+    
     if (!selectedOperator) {
       toast.error('⚠️ Please select an operator before scanning');
       return;
@@ -87,51 +90,29 @@ export default function ScanPage() {
       return;
     }
 
-    console.log('📱 Scan result received:', scannedCode);
+    // Immediately process the scanned code
     setLastScannedCode(scannedCode.trim());
-
-    // Always update manual input field with scanned result
     setManualInput(scannedCode.trim());
     
-    // Focus the manual input field to show the populated value
-    setTimeout(() => {
-      if (manualInputRef.current) {
-        manualInputRef.current.focus();
-        manualInputRef.current.select();
-      }
-    }, 100);
-    
-    // In camera mode, process immediately
-    // In manual mode, just populate the field and let user decide
-    if (scanMode === 'camera') {
-      await processScannedCode(scannedCode.trim());
-    } else {
-      // Just populate the field and show a success message
-      toast.success(`✅ Code scanned: ${scannedCode.trim()}`);
-    }
+    // Process the code immediately regardless of scan mode
+    await processScannedCode(scannedCode.trim());
   };
 
   const processScannedCode = async (scannedCode: string) => {
+    console.log('🔥 PROCESSING SCANNED CODE:', scannedCode);
+    
     setSearchStatus('searching');
     setLoading(true);
-
-    // Show search progress toast
-    const searchToast = toast.loading(`🔍 Searching for item: ${scannedCode}`, {
-      duration: Infinity
-    });
+    setProcessingComplete(false);
 
     try {
       console.log('🔍 Searching for item with system code:', scannedCode);
       const item = await getItemBySystemCode(scannedCode);
       
-      // Dismiss search toast
-      toast.dismiss(searchToast);
-      
       if (!item) {
         console.log('❌ Item not found');
         setSearchStatus('not-found');
-        toast.error(`❌ Item not found`, {
-          description: `No item found with code: ${scannedCode}`,
+        toast.error(`❌ Item not found: ${scannedCode}`, {
           duration: 5000
         });
         return;
@@ -141,68 +122,41 @@ export default function ScanPage() {
       setSearchStatus('found');
       setScannedItem(item);
 
-      // Show item found toast with details
-      toast.success(`✅ Item found: ${item.itemCode}`, {
-        description: `${item.description} (${item.weight}kg) - Status: ${item.status}`,
-        duration: 4000
+      toast.success(`✅ Found: ${item.itemCode}`, {
+        description: `${item.description} (${item.weight}kg)`,
+        duration: 3000
       });
 
-      // Automatically proceed to next step based on item status
+      // Close scan dialog immediately
+      setShowScanDialog(false);
+
+      // Process based on item status
       if (item.status === 'pending') {
-        // Item needs to be placed - show location selection
-        console.log('📦 Item is pending - proceeding to location selection');
-        
-        // Close scan dialog and show location dialog
-        setShowScanDialog(false);
-        
-        // Load locations and show dialog
+        console.log('📦 Item is pending - showing location selection');
         await loadLocations();
         setShowLocationDialog(true);
         
-        toast.info(`📦 Select location for placement`, {
-          description: `Choose where to place ${item.itemCode}`,
-          duration: 4000
-        });
-        
       } else if (item.status === 'placed') {
-        // Item can be picked - show location visualization
-        console.log('📍 Item is placed - proceeding to pick confirmation');
-        
-        setShowScanDialog(false);
-        
-        // Find the current location for visualization
+        console.log('📍 Item is placed - showing pick confirmation');
         const locations = await getLocations();
         const currentLocation = locations.find(loc => loc.code === item.location);
+        
         if (currentLocation) {
           setSelectedLocation(currentLocation);
           setShowVisualDialog(true);
-          
-          toast.success(`📍 Item ready for picking`, {
-            description: `${item.itemCode} is at location ${item.location}`,
-            duration: 4000
-          });
         } else {
-          toast.error('❌ Current location not found', {
-            description: 'Location data may be outdated',
-            duration: 4000
-          });
+          toast.error('❌ Location not found');
         }
       } else {
-        toast.warning('⚠️ Item has already been removed', {
-          description: 'This item is no longer in the warehouse',
-          duration: 4000
-        });
+        toast.warning('⚠️ Item already removed');
+        // Return to dashboard for removed items
+        setTimeout(() => navigate('/'), 2000);
       }
-    } catch (error) {
-      // Dismiss search toast
-      toast.dismiss(searchToast);
       
-      console.error('Error scanning item:', error);
+    } catch (error) {
+      console.error('❌ Error processing scan:', error);
       setSearchStatus('not-found');
-      toast.error('❌ Failed to scan item', {
-        description: 'Please try again or contact support',
-        duration: 5000
-      });
+      toast.error('❌ Failed to process scan');
     } finally {
       setLoading(false);
     }
@@ -216,27 +170,18 @@ export default function ScanPage() {
       return;
     }
 
-    setLastScannedCode(manualInput.trim());
     await processScannedCode(manualInput.trim());
   };
 
   const handleLocationSelect = async (location: Location) => {
     if (!scannedItem) return;
     
-    // Check if location can accept the item weight
+    // Check weight capacity
     const newWeight = location.currentWeight + scannedItem.weight;
     if (location.level !== '0' && newWeight > location.maxWeight) {
-      toast.error('❌ Location weight capacity exceeded', {
-        description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
-        duration: 5000
-      });
+      toast.error('❌ Weight capacity exceeded');
       return;
     }
-
-    toast.success(`✅ Location ${location.code} selected`, {
-      description: 'Confirm placement in the next step',
-      duration: 3000
-    });
 
     setSelectedLocation(location);
     setShowLocationDialog(false);
@@ -245,10 +190,6 @@ export default function ScanPage() {
 
   const handlePlaceItem = async () => {
     if (!scannedItem || !selectedLocation) return;
-
-    const placementToast = toast.loading(`📦 Placing ${scannedItem.itemCode} at ${selectedLocation.code}...`, {
-      duration: Infinity
-    });
 
     setLoading(true);
     try {
@@ -274,28 +215,17 @@ export default function ScanPage() {
         notes: `Placed at ${selectedLocation.code}`
       });
 
-      // Dismiss loading toast
-      toast.dismiss(placementToast);
-
-      toast.success(`🎉 Item placed successfully!`, {
-        description: `${scannedItem.itemCode} is now at ${selectedLocation.code}`,
-        duration: 5000
-      });
+      toast.success(`🎉 Item placed at ${selectedLocation.code}!`);
+      setProcessingComplete(true);
       
-      // Return to dashboard after successful placement
+      // Return to dashboard
       setTimeout(() => {
         navigate('/');
       }, 2000);
       
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(placementToast);
-      
       console.error('Error placing item:', error);
-      toast.error('❌ Failed to place item', {
-        description: 'Please try again or contact support',
-        duration: 5000
-      });
+      toast.error('❌ Failed to place item');
     } finally {
       setLoading(false);
     }
@@ -303,10 +233,6 @@ export default function ScanPage() {
 
   const handlePickItem = async () => {
     if (!scannedItem || !selectedLocation) return;
-
-    const pickingToast = toast.loading(`📤 Picking ${scannedItem.itemCode} from ${selectedLocation.code}...`, {
-      duration: Infinity
-    });
 
     setLoading(true);
     try {
@@ -332,28 +258,17 @@ export default function ScanPage() {
         notes: `Picked from ${selectedLocation.code}`
       });
 
-      // Dismiss loading toast
-      toast.dismiss(pickingToast);
-
-      toast.success(`🎉 Item picked successfully!`, {
-        description: `${scannedItem.itemCode} removed from ${selectedLocation.code}`,
-        duration: 5000
-      });
+      toast.success(`🎉 Item picked from ${selectedLocation.code}!`);
+      setProcessingComplete(true);
       
-      // Return to dashboard after successful picking
+      // Return to dashboard
       setTimeout(() => {
         navigate('/');
       }, 2000);
       
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(pickingToast);
-      
       console.error('Error picking item:', error);
-      toast.error('❌ Failed to pick item', {
-        description: 'Please try again or contact support',
-        duration: 5000
-      });
+      toast.error('❌ Failed to pick item');
     } finally {
       setLoading(false);
     }
@@ -368,6 +283,7 @@ export default function ScanPage() {
     setManualInput('');
     setSearchStatus('idle');
     setLastScannedCode('');
+    setProcessingComplete(false);
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -397,28 +313,6 @@ export default function ScanPage() {
     }
   };
 
-  const getNextStepMessage = () => {
-    if (!scannedItem) return null;
-    
-    if (scannedItem.status === 'pending') {
-      return (
-        <div className="flex items-center gap-2 text-blue-600">
-          <ArrowRight className="h-4 w-4" />
-          <span className="text-sm font-medium">Next: Select location to place item</span>
-        </div>
-      );
-    } else if (scannedItem.status === 'placed') {
-      return (
-        <div className="flex items-center gap-2 text-green-600">
-          <ArrowRight className="h-4 w-4" />
-          <span className="text-sm font-medium">Next: Confirm picking from {scannedItem.location}</span>
-        </div>
-      );
-    }
-    
-    return null;
-  };
-
   const instructionSteps = [
     {
       title: "Select Operator",
@@ -426,23 +320,13 @@ export default function ScanPage() {
       type: "warning" as const
     },
     {
-      title: "Choose Scan Method",
-      description: "Use camera scanning for quick barcode capture or manual entry for typing codes directly.",
+      title: "Scan Item",
+      description: "Click 'Start Scanning' and scan or enter a barcode. The system will immediately process it.",
       type: "info" as const
     },
     {
-      title: "Scan Item Barcode",
-      description: "Point your camera at the barcode or enter the system-generated code to identify the item.",
-      type: "info" as const
-    },
-    {
-      title: "Pending Items - Place",
-      description: "For pending items, select a suitable location and confirm placement by scanning the location barcode.",
-      type: "info" as const
-    },
-    {
-      title: "Placed Items - Pick",
-      description: "For placed items, the system will show their current location and allow you to pick them. After completion, you'll return to the dashboard.",
+      title: "Follow Workflow",
+      description: "For pending items, select a location. For placed items, confirm picking. You'll return to dashboard when complete.",
       type: "success" as const
     }
   ];
@@ -466,8 +350,8 @@ export default function ScanPage() {
       {/* Instructions Panel */}
       {showInstructions && (
         <InstructionPanel
-          title="Warehouse Scanner Guide"
-          description="Scan item barcodes to place pending items in locations or pick placed items from storage. Choose between camera scanning or manual entry. After completing actions, you'll return to the dashboard."
+          title="Warehouse Scanner"
+          description="Scan barcodes to place or pick items. The system will automatically process scans and guide you through the workflow."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -500,17 +384,22 @@ export default function ScanPage() {
               {getSearchStatusIcon()}
               <div className="flex-1">
                 <div className="font-medium">
-                  {searchStatus === 'searching' && `Searching for: ${lastScannedCode}`}
+                  {searchStatus === 'searching' && `Searching: ${lastScannedCode}`}
                   {searchStatus === 'found' && scannedItem && `Found: ${scannedItem.itemCode}`}
                   {searchStatus === 'not-found' && `Not found: ${lastScannedCode}`}
-                  {searchStatus === 'idle' && lastScannedCode && `Last scanned: ${lastScannedCode}`}
+                  {searchStatus === 'idle' && lastScannedCode && `Last: ${lastScannedCode}`}
                 </div>
                 {scannedItem && (
                   <div className="text-sm text-muted-foreground mt-1">
                     {scannedItem.description} • {scannedItem.weight}kg • {getItemStatusBadge(scannedItem.status)}
                   </div>
                 )}
-                {getNextStepMessage()}
+                {processingComplete && (
+                  <div className="flex items-center gap-2 text-green-600 mt-2">
+                    <CheckCircle className="h-4 w-4" />
+                    <span className="text-sm font-medium">Complete! Returning to dashboard...</span>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -524,7 +413,7 @@ export default function ScanPage() {
             Scan Item Barcode
           </CardTitle>
           <CardDescription>
-            Scan an item to place it in a location or pick it from storage. After completing the action, you'll return to the dashboard.
+            Scan or enter a barcode to process items. The system will automatically handle the workflow.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -532,16 +421,16 @@ export default function ScanPage() {
             <QrCode className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-lg font-medium mb-2">Ready to Scan</p>
             <p className="text-sm text-muted-foreground mb-6">
-              Scan an item barcode to begin placement or picking
+              Click below to start scanning barcodes
             </p>
             <Button 
               onClick={() => setShowScanDialog(true)}
               size="lg"
               className="w-full max-w-md"
-              disabled={!selectedOperator}
+              disabled={!selectedOperator || loading}
             >
               <QrCode className="h-5 w-5 mr-2" />
-              Start Scanning
+              {loading ? 'Processing...' : 'Start Scanning'}
             </Button>
           </div>
         </CardContent>
@@ -589,7 +478,7 @@ export default function ScanPage() {
                     ref={manualInputRef}
                     value={manualInput}
                     onChange={(e) => setManualInput(e.target.value)}
-                    placeholder="Enter barcode manually or scan with camera..."
+                    placeholder="Enter barcode..."
                     className="pl-9"
                     autoComplete="off"
                     autoFocus
@@ -606,9 +495,9 @@ export default function ScanPage() {
                 )}
               </form>
               
-              {/* Camera scan button in manual mode */}
+              {/* Camera scan in manual mode */}
               <div className="border-t pt-4">
-                <div className="text-sm text-muted-foreground mb-2 text-center">Or use camera to populate field:</div>
+                <div className="text-sm text-muted-foreground mb-2 text-center">Or scan with camera:</div>
                 <CameraScanner
                   onResult={handleScanResult}
                   onError={(error) => toast.error(`❌ Camera error: ${error}`)}
