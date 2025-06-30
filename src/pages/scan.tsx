@@ -64,7 +64,7 @@ export default function ScanPage() {
       setAvailableLocations(locations);
     } catch (error) {
       console.error('Error loading locations:', error);
-      toast.error('Failed to load locations');
+      toast.error('❌ Failed to load locations');
     }
   };
 
@@ -74,12 +74,12 @@ export default function ScanPage() {
 
   const handleScanResult = async (scannedCode: string) => {
     if (!selectedOperator) {
-      toast.error('Please select an operator before scanning');
+      toast.error('⚠️ Please select an operator before scanning');
       return;
     }
 
     if (!scannedCode.trim()) {
-      toast.error('Invalid barcode scanned');
+      toast.error('❌ Invalid barcode scanned');
       return;
     }
 
@@ -102,30 +102,70 @@ export default function ScanPage() {
       await processScannedCode(scannedCode.trim());
     } else {
       // Just populate the field and show a success message
-      toast.success(`Code scanned: ${scannedCode.trim()}`);
+      toast.success(`✅ Code scanned: ${scannedCode.trim()}`);
     }
   };
 
   const processScannedCode = async (scannedCode: string) => {
+    // Show initial search toast
+    const searchToast = toast.loading(`🔍 Searching for item with code: ${scannedCode}`, {
+      duration: Infinity
+    });
+
     setLoading(true);
     try {
       const item = await getItemBySystemCode(scannedCode);
       
+      // Dismiss search toast
+      toast.dismiss(searchToast);
+      
       if (!item) {
-        toast.error('Item not found');
+        toast.error(`❌ Item not found with code: ${scannedCode}`, {
+          description: 'Please check the barcode and try again',
+          duration: 5000
+        });
         return;
       }
+
+      // Show item found toast
+      toast.success(`✅ Item found: ${item.itemCode}`, {
+        description: `${item.description} (${item.weight}kg)`,
+        duration: 3000
+      });
 
       setScannedItem(item);
 
       if (item.status === 'pending') {
         // Item needs to be placed
-        toast.success(`Item found: ${item.itemCode}. Select a location to place it.`);
+        toast.info(`📦 Item is pending - select location to place`, {
+          description: `${item.itemCode} needs to be placed in warehouse`,
+          duration: 4000
+        });
+        
+        // Show finding locations toast
+        const locationToast = toast.loading('🔍 Finding suitable locations...', {
+          duration: Infinity
+        });
+        
         setShowScanDialog(false);
         setShowLocationDialog(true);
+        
+        // Dismiss location search toast after dialog opens
+        setTimeout(() => {
+          toast.dismiss(locationToast);
+          toast.success('📍 Available locations loaded', {
+            description: 'Select the best location for this item',
+            duration: 3000
+          });
+        }, 1000);
+        
       } else if (item.status === 'placed') {
         // Item can be picked
-        toast.success(`Item found: ${item.itemCode} at ${item.location}. Confirm to pick.`);
+        toast.success(`📍 Item is at location ${item.location} - confirm to pick`, {
+          description: `${item.itemCode} ready for picking`,
+          duration: 4000
+        });
+        
         setShowScanDialog(false);
         
         // Find the current location for visualization
@@ -135,14 +175,26 @@ export default function ScanPage() {
           setSelectedLocation(currentLocation);
           setShowVisualDialog(true);
         } else {
-          toast.error('Current location not found');
+          toast.error('❌ Current location not found', {
+            description: 'Location data may be outdated',
+            duration: 4000
+          });
         }
       } else {
-        toast.error('Item has already been removed');
+        toast.warning('⚠️ Item has already been removed', {
+          description: 'This item is no longer in the warehouse',
+          duration: 4000
+        });
       }
     } catch (error) {
+      // Dismiss search toast
+      toast.dismiss(searchToast);
+      
       console.error('Error scanning item:', error);
-      toast.error('Failed to scan item');
+      toast.error('❌ Failed to scan item', {
+        description: 'Please try again or contact support',
+        duration: 5000
+      });
     } finally {
       setLoading(false);
     }
@@ -152,7 +204,7 @@ export default function ScanPage() {
     e.preventDefault();
     
     if (!manualInput.trim()) {
-      toast.error('Please enter a barcode');
+      toast.error('⚠️ Please enter a barcode');
       return;
     }
 
@@ -165,9 +217,17 @@ export default function ScanPage() {
     // Check if location can accept the item weight
     const newWeight = location.currentWeight + scannedItem.weight;
     if (location.level !== '0' && newWeight > location.maxWeight) {
-      toast.error('Location weight capacity exceeded');
+      toast.error('❌ Location weight capacity exceeded', {
+        description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
+        duration: 5000
+      });
       return;
     }
+
+    toast.success(`✅ Location ${location.code} selected`, {
+      description: 'Confirm placement in the next step',
+      duration: 3000
+    });
 
     setSelectedLocation(location);
     setShowLocationDialog(false);
@@ -176,6 +236,10 @@ export default function ScanPage() {
 
   const handlePlaceItem = async () => {
     if (!scannedItem || !selectedLocation) return;
+
+    const placementToast = toast.loading(`📦 Placing ${scannedItem.itemCode} at ${selectedLocation.code}...`, {
+      duration: Infinity
+    });
 
     setLoading(true);
     try {
@@ -201,11 +265,24 @@ export default function ScanPage() {
         notes: `Placed at ${selectedLocation.code}`
       });
 
-      toast.success(`Item placed at ${selectedLocation.code}`);
+      // Dismiss loading toast
+      toast.dismiss(placementToast);
+
+      toast.success(`🎉 Item placed successfully!`, {
+        description: `${scannedItem.itemCode} is now at ${selectedLocation.code}`,
+        duration: 5000
+      });
+      
       resetState();
     } catch (error) {
+      // Dismiss loading toast
+      toast.dismiss(placementToast);
+      
       console.error('Error placing item:', error);
-      toast.error('Failed to place item');
+      toast.error('❌ Failed to place item', {
+        description: 'Please try again or contact support',
+        duration: 5000
+      });
     } finally {
       setLoading(false);
     }
@@ -213,6 +290,10 @@ export default function ScanPage() {
 
   const handlePickItem = async () => {
     if (!scannedItem || !selectedLocation) return;
+
+    const pickingToast = toast.loading(`📤 Picking ${scannedItem.itemCode} from ${selectedLocation.code}...`, {
+      duration: Infinity
+    });
 
     setLoading(true);
     try {
@@ -238,11 +319,24 @@ export default function ScanPage() {
         notes: `Picked from ${selectedLocation.code}`
       });
 
-      toast.success(`Item picked from ${selectedLocation.code}`);
+      // Dismiss loading toast
+      toast.dismiss(pickingToast);
+
+      toast.success(`🎉 Item picked successfully!`, {
+        description: `${scannedItem.itemCode} removed from ${selectedLocation.code}`,
+        duration: 5000
+      });
+      
       resetState();
     } catch (error) {
+      // Dismiss loading toast
+      toast.dismiss(pickingToast);
+      
       console.error('Error picking item:', error);
-      toast.error('Failed to pick item');
+      toast.error('❌ Failed to pick item', {
+        description: 'Please try again or contact support',
+        duration: 5000
+      });
     } finally {
       setLoading(false);
     }
@@ -385,7 +479,7 @@ export default function ScanPage() {
             <TabsContent value="camera" className="space-y-4">
               <CameraScanner
                 onResult={handleScanResult}
-                onError={(error) => toast.error(error)}
+                onError={(error) => toast.error(`❌ Camera error: ${error}`)}
                 isActive={scanMode === 'camera' && showScanDialog}
                 autoComplete={true} // Enable auto-completion for camera mode
                 className="w-full"
@@ -427,7 +521,7 @@ export default function ScanPage() {
                 <div className="text-sm text-muted-foreground mb-2 text-center">Or use camera to populate field:</div>
                 <CameraScanner
                   onResult={handleScanResult}
-                  onError={(error) => toast.error(error)}
+                  onError={(error) => toast.error(`❌ Camera error: ${error}`)}
                   isActive={scanMode === 'manual' && showScanDialog}
                   autoComplete={false} // Just populate input field, don't auto-process
                   className="w-full"
