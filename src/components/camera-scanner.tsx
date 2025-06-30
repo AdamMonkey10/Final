@@ -101,18 +101,43 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Progressive fallback strategy for mobile devices
+    // Optimized constraints for barcode scanning
     const constraintSets = [
-      // Try with specific facing mode and ideal resolution
+      // High resolution with autofocus for barcode scanning
+      { 
+        video: { 
+          facingMode: { exact: facingMode },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          focusMode: 'continuous',
+          advanced: [
+            { focusMode: 'continuous' },
+            { exposureMode: 'continuous' },
+            { whiteBalanceMode: 'continuous' }
+          ]
+        },
+        audio: false
+      },
+      // Medium-high resolution with focus
       { 
         video: { 
           facingMode: { exact: facingMode },
           width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 }
+          height: { ideal: 720, min: 480 },
+          focusMode: 'continuous'
         },
         audio: false
       },
-      // Try with preferred facing mode
+      // Standard resolution with preferred facing mode
+      { 
+        video: { 
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      },
+      // Fallback with just facing mode
       { 
         video: { 
           facingMode: facingMode,
@@ -121,18 +146,11 @@ export function CameraScanner({
         },
         audio: false
       },
-      // Try with just facing mode
-      { 
-        video: { 
-          facingMode: facingMode
-        },
-        audio: false
-      },
-      // Try with any camera
+      // Any camera with decent resolution
       { 
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 }
         },
         audio: false
       },
@@ -381,14 +399,15 @@ export function CameraScanner({
           constraints={{
             video: {
               facingMode: facingMode,
-              width: { ideal: 640 },
-              height: { ideal: 480 }
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+              focusMode: 'continuous'
             },
             audio: false
           }}
           containerStyle={{
             width: '100%',
-            height: '300px'
+            height: '400px' // Increased height for better scanning
           }}
           videoStyle={{
             width: '100%',
@@ -397,19 +416,34 @@ export function CameraScanner({
           }}
         />
         
-        {/* Scanning overlay */}
+        {/* Enhanced scanning overlay for barcode scanning */}
         <div className="absolute inset-0 pointer-events-none">
           {/* Corner brackets */}
-          <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-white"></div>
-          <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-white"></div>
-          <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-white"></div>
-          <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-white"></div>
+          <div className="absolute top-6 left-6 w-12 h-12 border-l-4 border-t-4 border-white rounded-tl-lg"></div>
+          <div className="absolute top-6 right-6 w-12 h-12 border-r-4 border-t-4 border-white rounded-tr-lg"></div>
+          <div className="absolute bottom-6 left-6 w-12 h-12 border-l-4 border-b-4 border-white rounded-bl-lg"></div>
+          <div className="absolute bottom-6 right-6 w-12 h-12 border-r-4 border-b-4 border-white rounded-br-lg"></div>
           
-          {/* Scanning line animation */}
-          <div className="absolute inset-x-4 top-1/2 h-0.5 bg-white opacity-75 animate-pulse"></div>
+          {/* Horizontal scanning line for barcodes */}
+          <div className="absolute inset-x-8 top-1/2 h-1 bg-red-500 opacity-75 animate-pulse shadow-lg"></div>
           
-          {/* Center target */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-2 border-white border-dashed rounded-lg"></div>
+          {/* Barcode scanning area */}
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-2 border-white border-dashed rounded-lg">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-white text-xs bg-black bg-opacity-50 px-2 py-1 rounded">
+                Barcode Area
+              </span>
+            </div>
+          </div>
+          
+          {/* Additional QR code area */}
+          <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-24 h-24 border-2 border-yellow-400 border-dashed rounded-lg">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-yellow-400 text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
+                QR
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -439,11 +473,23 @@ export function CameraScanner({
         </Button>
       </div>
 
-      {/* Instructions */}
-      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-        <p className="text-sm text-blue-700 text-center">
-          Position the barcode or QR code within the frame to scan
-        </p>
+      {/* Enhanced instructions for barcode scanning */}
+      <div className="mt-4 space-y-2">
+        <div className="p-3 bg-blue-50 rounded-lg">
+          <p className="text-sm text-blue-700 text-center font-medium">
+            📱 For Barcodes: Hold horizontally in the red scanning line
+          </p>
+        </div>
+        <div className="p-3 bg-yellow-50 rounded-lg">
+          <p className="text-sm text-yellow-700 text-center font-medium">
+            📱 For QR Codes: Position in the yellow square at the top
+          </p>
+        </div>
+        <div className="p-2 bg-gray-50 rounded-lg">
+          <p className="text-xs text-gray-600 text-center">
+            💡 Tip: Ensure good lighting and hold steady for 1-2 seconds
+          </p>
+        </div>
       </div>
 
       {/* Debug info (only in development) */}

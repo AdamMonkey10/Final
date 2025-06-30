@@ -26,12 +26,13 @@ export default function BasicCameraTest() {
         throw new Error('Camera API not supported in this browser');
       }
 
-      // Try with explicit video constraints and no audio
+      // Optimized constraints for barcode scanning
       const constraints = {
         video: {
           facingMode: facingMode,
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          focusMode: 'continuous'
         },
         audio: false // Explicitly set to false
       };
@@ -118,7 +119,7 @@ export default function BasicCameraTest() {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Basic Camera Test</h2>
+      <h2 className="text-xl font-bold mb-4">Basic Camera Test - Optimized for Barcode Scanning</h2>
       
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -139,25 +140,27 @@ export default function BasicCameraTest() {
               <div>Resolution: {cameraInfo.width}x{cameraInfo.height}</div>
               <div>Facing Mode: {cameraInfo.facingMode || 'unknown'}</div>
               <div>Frame Rate: {cameraInfo.frameRate || 'unknown'}</div>
+              <div>Focus Mode: {cameraInfo.focusMode || 'unknown'}</div>
             </div>
           </div>
         )}
 
-        <div className="border rounded-lg overflow-hidden bg-black">
+        <div className="border rounded-lg overflow-hidden bg-black relative">
           <QrScanner
             onDecode={handleScan}
             onError={handleError}
             constraints={{ 
               video: {
                 facingMode: facingMode,
-                width: { ideal: 640 },
-                height: { ideal: 480 }
+                width: { ideal: 1280, min: 640 },
+                height: { ideal: 720, min: 480 },
+                focusMode: 'continuous'
               },
               audio: false
             }}
             containerStyle={{ 
               width: '100%', 
-              height: '300px' 
+              height: '400px' 
             }}
             videoStyle={{ 
               width: '100%', 
@@ -165,6 +168,21 @@ export default function BasicCameraTest() {
               objectFit: 'cover' 
             }}
           />
+          
+          {/* Barcode scanning overlay */}
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Horizontal scanning line for barcodes */}
+            <div className="absolute inset-x-8 top-1/2 h-1 bg-red-500 opacity-75 animate-pulse shadow-lg"></div>
+            
+            {/* Barcode scanning area */}
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-2 border-white border-dashed rounded-lg">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-white text-xs bg-black bg-opacity-50 px-2 py-1 rounded">
+                  Barcode Area
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         {result && (
@@ -173,7 +191,7 @@ export default function BasicCameraTest() {
               <CheckCircle className="h-4 w-4 text-green-600" />
               <span className="font-medium text-green-800">Scan Result:</span>
             </div>
-            <p className="text-sm text-green-700 break-all">{result}</p>
+            <p className="text-sm text-green-700 break-all font-mono">{result}</p>
           </div>
         )}
 
@@ -196,10 +214,17 @@ export default function BasicCameraTest() {
           </Button>
         </div>
 
-        <div className="p-3 bg-blue-50 rounded-lg">
-          <p className="text-sm text-blue-700 text-center">
-            Point your camera at a QR code or barcode to test scanning
-          </p>
+        <div className="space-y-2">
+          <div className="p-3 bg-blue-50 rounded-lg">
+            <p className="text-sm text-blue-700 text-center font-medium">
+              📱 For Barcodes: Hold horizontally in the red scanning line
+            </p>
+          </div>
+          <div className="p-2 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-600 text-center">
+              💡 Tip: Use back camera, ensure good lighting, hold steady for 1-2 seconds
+            </p>
+          </div>
         </div>
       </div>
     </div>
