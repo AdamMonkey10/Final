@@ -4,6 +4,7 @@ import { MainNav } from '@/components/main-nav';
 import Dashboard from '@/pages/dashboard';
 import GoodsIn from '@/pages/goods-in';
 import Scan from '@/pages/scan';
+import ProcessScan from '@/pages/process-scan';
 import Setup from '@/pages/setup';
 import Inventory from '@/pages/inventory';
 import Locations from '@/pages/locations';
@@ -179,6 +180,7 @@ function AppContent() {
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/goods-in" element={<GoodsIn />} />
                         <Route path="/scan" element={<Scan />} />
+                        <Route path="/process-scan" element={<ProcessScan />} />
                         <Route
                           path="/setup"
                           element={
