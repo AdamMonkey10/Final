@@ -2,7 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
-import { cn } from '@/lib/utils';
+// Simple utility function to combine class names
+const cn = (...classes: (string | undefined | null | false)[]) => {
+  return classes.filter(Boolean).join(' ');
+};
 
 interface CameraScannerProps {
   onResult: (data: string) => void;
@@ -11,7 +14,7 @@ interface CameraScannerProps {
   isActive?: boolean;
 }
 
-// Debounce utility function
+// Simple debounce utility
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -23,7 +26,7 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
-export function CameraScanner({ 
+export default function CameraScanner({ 
   onResult, 
   onError, 
   className,
@@ -44,7 +47,6 @@ export function CameraScanner({
   const lastScanTimeRef = useRef<number>(0);
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
-  const barcodeDetectorRef = useRef<any>(null);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -55,6 +57,9 @@ export function CameraScanner({
     }, 500),
     [onResult]
   );
+
+  // QR Scanner instance
+  const qrScannerRef = useRef<any>(null);
 
   useEffect(() => {
     if (isActive) {
@@ -71,6 +76,14 @@ export function CameraScanner({
   }, [isActive, facingMode]);
 
   const cleanup = () => {
+    // Stop QR scanner first
+    if (qrScannerRef.current) {
+      console.log('📱 Scanner: Stopping QR scanner');
+      qrScannerRef.current.stop();
+      qrScannerRef.current.destroy();
+      qrScannerRef.current = null;
+    }
+    
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
       scanningIntervalRef.current = null;
@@ -114,7 +127,6 @@ export function CameraScanner({
       await requestCameraPermission();
       
       if (currentAttempt === initAttemptRef.current) {
-        await initializeBarcodeDetector();
         startScanning();
       }
     } catch (err) {
@@ -137,12 +149,12 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Optimized constraints for barcode scanning
+    // Simplified constraints that work better across devices
     const constraints = {
       video: {
         facingMode: facingMode,
-        width: { ideal: 1920, min: 640 },
-        height: { ideal: 1080, min: 480 },
+        width: { ideal: 1280, min: 640 },
+        height: { ideal: 720, min: 480 },
         frameRate: { ideal: 30 }
       },
       audio: false
@@ -157,7 +169,7 @@ export function CameraScanner({
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
+        videoRef.current.play();
       }
       
       setStream(mediaStream);
@@ -194,77 +206,90 @@ export function CameraScanner({
     }
   };
 
-  const initializeBarcodeDetector = async () => {
+  const startScanning = async () => {
+    console.log('📱 Scanner: Starting QR/Barcode scanning');
+    
+    if (!videoRef.current) {
+      console.error('📱 Scanner: Video ref not available');
+      return;
+    }
+
     try {
-      // Try to use native BarcodeDetector first (Chrome/Edge)
+      // Import and initialize QR scanner
+      const QrScanner = (await import('https://cdnjs.cloudflare.com/ajax/libs/qr-scanner/1.4.2/qr-scanner.min.js')).default;
+      
+      console.log('📱 Scanner: QR Scanner loaded, initializing...');
+      
+      // Create QR scanner instance
+      qrScannerRef.current = new QrScanner(
+        videoRef.current,
+        (result: any) => {
+          console.log('📱 Scanner: QR Code detected:', result);
+          handleScanResult(result.data || result);
+        },
+        {
+          onDecodeError: (error: any) => {
+            // Don't log decode errors as they're normal when no code is visible
+            setIsScanning(false);
+          },
+          highlightScanRegion: false,
+          highlightCodeOutline: false,
+          preferredCamera: facingMode,
+          maxScansPerSecond: 5
+        }
+      );
+
+      // Start scanning
+      await qrScannerRef.current.start();
+      console.log('✅ Scanner: QR scanner started successfully');
+      setIsScanning(true);
+      
+    } catch (error) {
+      console.error('📱 Scanner: Failed to initialize QR scanner:', error);
+      
+      // Fallback to BarcodeDetector if available
       if ('BarcodeDetector' in window) {
-        console.log('📱 Scanner: Using native BarcodeDetector');
-        barcodeDetectorRef.current = new (window as any).BarcodeDetector({
+        console.log('📱 Scanner: Falling back to BarcodeDetector');
+        const barcodeDetector = new (window as any).BarcodeDetector({
           formats: [
             'aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix',
             'ean_13', 'ean_8', 'itf', 'pdf417', 'qr_code', 'upc_a', 'upc_e'
           ]
         });
+        
+        scanningIntervalRef.current = setInterval(async () => {
+          await scanWithBarcodeDetector(barcodeDetector);
+        }, 200);
       } else {
-        console.log('📱 Scanner: BarcodeDetector not available, using fallback');
-        barcodeDetectorRef.current = null;
+        setError('No barcode scanning support available in this browser. Please try Chrome or Edge.');
       }
-    } catch (error) {
-      console.error('📱 Scanner: Failed to initialize BarcodeDetector:', error);
-      barcodeDetectorRef.current = null;
     }
   };
 
-  const startScanning = async () => {
-    console.log('📱 Scanner: Starting barcode scanning');
-    
-    if (!videoRef.current || !canvasRef.current) {
-      console.error('📱 Scanner: Video or canvas ref not available');
-      return;
-    }
-
-    scanningIntervalRef.current = setInterval(async () => {
-      await scanFrame();
-    }, 100); // Scan every 100ms
-  };
-
-  const scanFrame = async () => {
-    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState !== 4) {
-      return;
-    }
+  const scanWithBarcodeDetector = async (detector: any) => {
+    if (!videoRef.current || videoRef.current.readyState !== 4) return;
     
     try {
-      if (barcodeDetectorRef.current) {
-        // Use native BarcodeDetector
-        const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
-        
-        if (barcodes.length > 0) {
-          const barcode = barcodes[0];
-          console.log('📱 Scanner: Barcode detected:', barcode);
-          handleScanResult(barcode.rawValue);
-        }
-      } else {
-        // Fallback: draw to canvas and indicate scanning
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        
-        if (!ctx) return;
-        
-        // Set canvas size to match video
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        // Draw current video frame to canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Visual feedback for scanning attempt
+      const barcodes = await detector.detect(videoRef.current);
+      
+      if (barcodes.length > 0) {
+        const barcode = barcodes[0];
+        console.log('📱 Scanner: Barcode detected:', barcode);
+        handleScanResult(barcode.rawValue);
         setIsScanning(true);
-        setTimeout(() => setIsScanning(false), 200);
+      } else {
+        setIsScanning(false);
       }
     } catch (error) {
       // Silently continue - detection errors are common
+      setIsScanning(false);
     }
+  };
+
+  const scanWithCanvas = () => {
+    // This is a placeholder - without a proper QR/barcode detection library,
+    // we can't actually detect codes from canvas data
+    setIsScanning(false);
   };
 
   const handleScanResult = (result: string) => {
@@ -366,6 +391,8 @@ export function CameraScanner({
           onLoadedMetadata={() => {
             console.log('📱 Scanner: Video loaded');
             setCameraReady(true);
+            // Start scanning once video is ready
+            setTimeout(startScanning, 500);
           }}
         />
         
@@ -454,26 +481,15 @@ export function CameraScanner({
         
         {/* Browser compatibility note */}
         <div className="mt-2 text-xs text-blue-600 text-center">
-          {'BarcodeDetector' in window ? (
-            <span className="text-green-600">✅ Enhanced scanning available (Chrome/Edge)</span>
+          {qrScannerRef.current ? (
+            <span className="text-green-600">✅ QR Scanner active and ready</span>
+          ) : 'BarcodeDetector' in window ? (
+            <span className="text-orange-600">⚠️ Using fallback barcode detection</span>
           ) : (
-            <span className="text-orange-600">⚠️ Basic scanning mode (consider using Chrome for better detection)</span>
+            <span className="text-red-600">❌ Limited scanning support - please use Chrome or Edge</span>
           )}
         </div>
       </div>
-
-      {/* Debug info (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
-          <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
-          <div>Facing: {facingMode}</div>
-          <div>Camera Ready: {cameraReady ? 'Yes' : 'No'}</div>
-          <div>Scan Count: {scanCount}</div>
-          <div>Last scan: {lastScan || 'None'}</div>
-          <div>Error: {error || 'None'}</div>
-          <div>BarcodeDetector: {'BarcodeDetector' in window ? 'Available' : 'Not Available'}</div>
-        </div>
-      )}
     </div>
   );
 }
