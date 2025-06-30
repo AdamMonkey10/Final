@@ -88,7 +88,10 @@ export function CameraScanner({
   const debouncedOnResult = useCallback(
     debounce((data: string) => {
       console.log('📱 Scanner: Debounced result callback triggered with:', data);
+      
+      // Call the parent's onResult callback immediately
       onResult(data);
+      
       setIsScanning(false);
       
       if (autoComplete) {
@@ -96,7 +99,7 @@ export function CameraScanner({
         setScanSuccess(true);
         setTimeout(() => {
           setScanSuccess(false);
-        }, 2000);
+        }, 3000); // Show success for 3 seconds
         
         // Stop scanning after successful scan in auto-complete mode
         if (scanningIntervalRef.current) {
@@ -648,7 +651,7 @@ export function CameraScanner({
     setScanCount(prev => prev + 1);
     setIsScanning(true);
     
-    console.log('📱 Scanner: Calling result callback');
+    console.log('📱 Scanner: Calling result callback with:', scannedText);
     debouncedOnResult(scannedText);
   };
 
@@ -835,6 +838,15 @@ export function CameraScanner({
             </div>
           )}
           
+          {/* Last scan result display */}
+          {lastScan && (
+            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+              <div className="bg-blue-500 bg-opacity-90 text-white px-3 py-1 rounded-full text-sm">
+                <span className="font-bold">Scanned: {lastScan}</span>
+              </div>
+            </div>
+          )}
+          
           {/* Video dimensions warning */}
           {videoDimensions.width === 0 || videoDimensions.height === 0 ? (
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
@@ -900,7 +912,7 @@ export function CameraScanner({
           {lastScan && (
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.substring(0, 10)}...
+              Last: {lastScan.length > 10 ? lastScan.substring(0, 10) + '...' : lastScan}
             </Badge>
           )}
         </div>
