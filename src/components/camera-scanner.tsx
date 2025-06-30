@@ -60,17 +60,25 @@ export function CameraScanner({
     try {
       setError(null);
       
-      // Try basic constraints first
+      // Primary constraints with explicit video requirements
       const constraints = { 
         video: { 
-          facingMode
+          facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         } 
       };
       
-      console.log('📱 Scanner: Using constraints:', constraints);
+      console.log('📱 Scanner: Using primary constraints:', constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       console.log('✅ Scanner: Camera permission granted');
+      console.log('📱 Scanner: Stream details:', {
+        active: stream.active,
+        tracks: stream.getTracks().length,
+        videoTracks: stream.getVideoTracks().length
+      });
+      
       setHasPermission(true);
       setError(null);
       
@@ -80,23 +88,79 @@ export function CameraScanner({
         track.stop();
       });
     } catch (err: any) {
-      console.error('❌ Scanner: Camera permission error:', err);
+      console.error('❌ Scanner: Primary camera permission error:', {
+        error: err,
+        name: err?.name,
+        message: err?.message,
+        code: err?.code,
+        constraint: err?.constraint
+      });
+      
+      // Handle specific error types
+      if (err.name === 'OverconstrainedError') {
+        console.log('📱 Scanner: Constraints too specific, trying basic constraints');
+        await requestBasicCameraPermission();
+        return;
+      }
       
       // Try fallback with basic video constraint
+      await requestBasicCameraPermission();
+    }
+  };
+
+  const requestBasicCameraPermission = async () => {
+    try {
+      console.log('📱 Scanner: Trying basic camera constraints');
+      
+      // Basic constraints - just video with facingMode
+      const basicConstraints = { 
+        video: { 
+          facingMode 
+        } 
+      };
+      
+      console.log('📱 Scanner: Using basic constraints:', basicConstraints);
+      const stream = await navigator.mediaDevices.getUserMedia(basicConstraints);
+      
+      console.log('✅ Scanner: Basic camera permission granted');
+      setHasPermission(true);
+      setError(null);
+      
+      stream.getTracks().forEach(track => {
+        console.log('📱 Scanner: Stopping basic track:', track.kind, track.label);
+        track.stop();
+      });
+    } catch (fallbackErr: any) {
+      console.error('❌ Scanner: Basic camera permission also failed:', fallbackErr);
+      
+      // Try absolute minimum - just video: true
       try {
-        console.log('📱 Scanner: Trying fallback with basic video constraint');
+        console.log('📱 Scanner: Trying absolute minimum constraints');
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         
-        console.log('✅ Scanner: Fallback camera permission granted');
+        console.log('✅ Scanner: Minimum camera permission granted');
         setHasPermission(true);
         setError(null);
         
         stream.getTracks().forEach(track => track.stop());
-      } catch (fallbackErr: any) {
-        console.error('❌ Scanner: Fallback also failed:', fallbackErr);
+      } catch (minimalErr: any) {
+        console.error('❌ Scanner: All camera attempts failed:', minimalErr);
         setHasPermission(false);
-        setError('Camera access failed. Please allow camera access and try again.');
-        onError?.('Camera access failed. Please allow camera access and try again.');
+        
+        let errorMessage = 'Camera access failed. Please check your camera and try again.';
+        
+        if (fallbackErr.name === 'NotAllowedError') {
+          errorMessage = 'Camera permission denied. Please allow camera access and try again.';
+        } else if (fallbackErr.name === 'NotFoundError') {
+          errorMessage = 'No camera found on this device.';
+        } else if (fallbackErr.name === 'NotReadableError') {
+          errorMessage = 'Camera is already in use by another application.';
+        } else if (fallbackErr.name === 'SecurityError') {
+          errorMessage = 'Camera access blocked by security policy.';
+        }
+        
+        setError(errorMessage);
+        onError?.(errorMessage);
       }
     }
   };
@@ -135,7 +199,14 @@ export function CameraScanner({
   };
 
   const handleError = (error: any) => {
-    console.error('❌ Scanner: QR Scanner error:', error);
+    console.error('❌ Scanner: QR Scanner error:', {
+      error,
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+      type: typeof error,
+      stack: error?.stack
+    });
     
     let errorMessage = 'Scanner error occurred. Please try again.';
     
