@@ -72,6 +72,7 @@ ${data.location ? `^FO0,560^FB800,1,0,C,0^A0,36,36^FDLocation: ${data.location}^
 /**
  * Generate ZPL for location labels (103x103mm)
  * Optimized for 203 DPI printer (approximately 800x800 dots)
+ * Includes both linear barcode and QR code
  */
 export function generateLocationZPL(data: LocationLabelData): string {
   const rackTypeName = data.rackType || 'Standard';
@@ -87,11 +88,12 @@ ${BT_JPG_ZPL}
 ^FO0,210^FB800,1,0,C,0^A0N,72,72^FDWAREHOUSE LOCATION^FS
 ^FO0,290^FB800,1,0,C,0^A0,48,48^FDRow ${data.row} • Bay ${data.bay}^FS
 ^FO0,390^FB800,1,0,C,0^A0N,96,96^FD${data.code}^FS
-^FO0,510^FB800,1,0,C,0^A0,48,48^FD${levelText}^FS
-^FO0,560^FB800,1,0,C,0^A0,36,36^FDHeight: ${data.height}m^FS
-^FO45,620^A0,28,28^FD${weightText}^FS
-${currentWeightText ? `^FO45,650^A0,28,28^FD${currentWeightText}^FS` : ''}
-^FO45,${currentWeightText ? '680' : '650'}^A0,24,24^FD${rackTypeName} Rack^FS
+^FO0,490^FB800,1,0,C,0^A0,48,48^FD${levelText}^FS
+^FO0,540^FB800,1,0,C,0^A0,36,36^FDHeight: ${data.height}m^FS
+^FO45,580^A0,28,28^FD${weightText}^FS
+${currentWeightText ? `^FO45,610^A0,28,28^FD${currentWeightText}^FS` : ''}
+^FO45,${currentWeightText ? '640' : '610'}^A0,24,24^FD${rackTypeName} Rack^FS
+^FO50,680^BY2,3,50^BCN,50,Y,N,N^FDLOC,${data.code}^FS
 ^FO600,600^BQN,2,5^FDLOC,${data.code}^FS
 ^XZ
 `.trim();
