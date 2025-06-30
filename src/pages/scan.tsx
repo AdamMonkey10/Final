@@ -79,7 +79,7 @@ export default function ScanPage() {
   };
 
   const handleScanResult = async (scannedCode: string) => {
-    console.log('🔥 SCAN RESULT RECEIVED:', scannedCode);
+    console.log('🔥 SCAN RESULT RECEIVED IN SCAN PAGE:', scannedCode);
     
     if (!selectedOperator) {
       toast.error('⚠️ Please select an operator before scanning');
@@ -90,6 +90,11 @@ export default function ScanPage() {
       toast.error('❌ Invalid barcode scanned');
       return;
     }
+
+    // Immediately show that we received the scan
+    toast.success(`📱 Barcode scanned: ${scannedCode}`, {
+      duration: 2000
+    });
 
     // Set the scanned code and process it
     setLastScannedCode(scannedCode.trim());
@@ -108,8 +113,7 @@ export default function ScanPage() {
     setCurrentStep('scan');
 
     // Show immediate feedback
-    toast.loading(`🔍 Searching for: ${scannedCode}`, {
-      id: 'search-toast',
+    const searchToast = toast.loading(`🔍 Searching for: ${scannedCode}`, {
       duration: Infinity
     });
 
@@ -122,7 +126,7 @@ export default function ScanPage() {
       const item = await getItemBySystemCode(scannedCode);
       
       // Dismiss search toast
-      toast.dismiss('search-toast');
+      toast.dismiss(searchToast);
       
       if (!item) {
         console.log('❌ Item not found');
@@ -194,7 +198,7 @@ export default function ScanPage() {
       
     } catch (error) {
       console.error('❌ Error processing scan:', error);
-      toast.dismiss('search-toast');
+      toast.dismiss(searchToast);
       setSearchStatus('not-found');
       toast.error('❌ Failed to process scan', {
         description: 'Please try again or contact support',
@@ -605,13 +609,24 @@ export default function ScanPage() {
             </TabsList>
             
             <TabsContent value="camera" className="space-y-4">
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="text-sm text-blue-800">
+                  <strong>📱 Camera Scanner Active</strong><br />
+                  Point your camera at a barcode. When detected, it will automatically process.
+                </div>
+              </div>
+              
               <CameraScanner
                 onResult={handleScanResult}
-                onError={(error) => toast.error(`❌ Camera error: ${error}`)}
+                onError={(error) => {
+                  console.error('Camera error:', error);
+                  toast.error(`❌ Camera error: ${error}`);
+                }}
                 isActive={scanMode === 'camera' && showScanDialog}
                 autoComplete={true}
                 className="w-full"
               />
+              
               {selectedOperator && (
                 <div className="text-xs text-center text-muted-foreground">
                   Operator: {selectedOperator.name}
