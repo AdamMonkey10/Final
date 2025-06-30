@@ -85,11 +85,23 @@ export default function ScanPage() {
 
     console.log('📱 Scan result received:', scannedCode);
 
-    // Update manual input field with scanned result
+    // Always update manual input field with scanned result
     setManualInput(scannedCode.trim());
     
-    // Always process the scanned code immediately
-    await processScannedCode(scannedCode.trim());
+    // Focus the manual input field to show the populated value
+    if (manualInputRef.current) {
+      manualInputRef.current.focus();
+      manualInputRef.current.select(); // Select the text to highlight it
+    }
+    
+    // In camera mode, process immediately
+    // In manual mode, just populate the field and let user decide
+    if (scanMode === 'camera') {
+      await processScannedCode(scannedCode.trim());
+    } else {
+      // Just populate the field and show a success message
+      toast.success(`Code scanned: ${scannedCode.trim()}`);
+    }
   };
 
   const processScannedCode = async (scannedCode: string) => {
@@ -409,13 +421,13 @@ export default function ScanPage() {
               </form>
               
               {/* Camera scan button in manual mode */}
-              <div className="text-center">
-                <div className="text-sm text-muted-foreground mb-2">Or use camera to scan:</div>
+              <div className="border-t pt-4">
+                <div className="text-sm text-muted-foreground mb-2 text-center">Or use camera to populate field:</div>
                 <CameraScanner
                   onResult={handleScanResult}
                   onError={(error) => toast.error(error)}
                   isActive={scanMode === 'manual' && showScanDialog}
-                  autoComplete={false} // Populate input field instead
+                  autoComplete={false} // Just populate input field, don't auto-process
                   className="w-full"
                 />
               </div>
