@@ -88,14 +88,7 @@ export default function ScanPage() {
     // Update manual input field with scanned result
     setManualInput(scannedCode.trim());
     
-    // If we're in manual mode, focus the input and let user submit manually
-    if (scanMode === 'manual' && manualInputRef.current) {
-      manualInputRef.current.focus();
-      toast.success(`Barcode scanned: ${scannedCode.trim()}`);
-      return;
-    }
-
-    // For camera mode, process immediately
+    // Always process the scanned code immediately
     await processScannedCode(scannedCode.trim());
   };
 
@@ -380,27 +373,12 @@ export default function ScanPage() {
                 onResult={handleScanResult}
                 onError={(error) => toast.error(error)}
                 isActive={scanMode === 'camera' && showScanDialog}
-                autoComplete={false} // Don't auto-complete, let user see the result
+                autoComplete={true} // Enable auto-completion for camera mode
                 className="w-full"
               />
               {selectedOperator && (
                 <div className="text-xs text-center text-muted-foreground">
                   Operator: {selectedOperator.name}
-                </div>
-              )}
-              
-              {/* Show scanned result in camera mode */}
-              {manualInput && scanMode === 'camera' && (
-                <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="text-sm font-medium text-green-800 mb-1">Scanned Code:</div>
-                  <div className="font-mono text-green-700">{manualInput}</div>
-                  <Button 
-                    onClick={() => processScannedCode(manualInput)}
-                    className="w-full mt-2"
-                    disabled={loading}
-                  >
-                    {loading ? 'Processing...' : 'Process Scanned Code'}
-                  </Button>
                 </div>
               )}
             </TabsContent>
