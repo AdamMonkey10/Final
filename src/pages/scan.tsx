@@ -27,7 +27,7 @@ import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
-import CameraScanner from '@/components/camera-scanner';
+import { CameraScanner } from '@/components/camera-scanner';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { findOptimalLocation } from '@/lib/warehouse-logic';
