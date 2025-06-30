@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -20,7 +21,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard, Search, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard, Search, CheckCircle, AlertCircle, ArrowRight, Home } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
@@ -38,6 +39,7 @@ import type { Item } from '@/types/warehouse';
 import type { Location } from '@/types/warehouse';
 
 export default function ScanPage() {
+  const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
   const { showInstructions } = useInstructions();
@@ -280,7 +282,11 @@ export default function ScanPage() {
         duration: 5000
       });
       
-      resetState();
+      // Return to dashboard after successful placement
+      setTimeout(() => {
+        navigate('/');
+      }, 2000);
+      
     } catch (error) {
       // Dismiss loading toast
       toast.dismiss(placementToast);
@@ -334,7 +340,11 @@ export default function ScanPage() {
         duration: 5000
       });
       
-      resetState();
+      // Return to dashboard after successful picking
+      setTimeout(() => {
+        navigate('/');
+      }, 2000);
+      
     } catch (error) {
       // Dismiss loading toast
       toast.dismiss(pickingToast);
@@ -432,7 +442,7 @@ export default function ScanPage() {
     },
     {
       title: "Placed Items - Pick",
-      description: "For placed items, the system will show their current location and allow you to pick them.",
+      description: "For placed items, the system will show their current location and allow you to pick them. After completion, you'll return to the dashboard.",
       type: "success" as const
     }
   ];
@@ -441,17 +451,23 @@ export default function ScanPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Warehouse Scanner</h1>
-        <Button onClick={resetState} variant="outline" disabled={loading}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Reset
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => navigate('/')} variant="outline">
+            <Home className="h-4 w-4 mr-2" />
+            Dashboard
+          </Button>
+          <Button onClick={resetState} variant="outline" disabled={loading}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Reset
+          </Button>
+        </div>
       </div>
 
       {/* Instructions Panel */}
       {showInstructions && (
         <InstructionPanel
           title="Warehouse Scanner Guide"
-          description="Scan item barcodes to place pending items in locations or pick placed items from storage. Choose between camera scanning or manual entry."
+          description="Scan item barcodes to place pending items in locations or pick placed items from storage. Choose between camera scanning or manual entry. After completing actions, you'll return to the dashboard."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -508,7 +524,7 @@ export default function ScanPage() {
             Scan Item Barcode
           </CardTitle>
           <CardDescription>
-            Scan an item to place it in a location or pick it from storage
+            Scan an item to place it in a location or pick it from storage. After completing the action, you'll return to the dashboard.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -651,6 +667,15 @@ export default function ScanPage() {
                 <p className="text-sm">Weight: {scannedItem.weight}kg</p>
                 <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
                 {getItemStatusBadge(scannedItem.status)}
+              </div>
+              
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 text-blue-800">
+                  <Home className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    After completing this action, you'll return to the dashboard
+                  </span>
+                </div>
               </div>
               
               <BayVisualizer
