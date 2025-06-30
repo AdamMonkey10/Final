@@ -101,60 +101,60 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Optimized constraints for barcode scanning
+    // High-resolution constraints optimized for barcode scanning
     const constraintSets = [
-      // High resolution with autofocus for barcode scanning
+      // Ultra-high resolution for detailed barcode scanning
       { 
         video: { 
           facingMode: { exact: facingMode },
           width: { ideal: 1920, min: 1280 },
           height: { ideal: 1080, min: 720 },
+          frameRate: { ideal: 30, min: 15 },
           focusMode: 'continuous',
-          advanced: [
-            { focusMode: 'continuous' },
-            { exposureMode: 'continuous' },
-            { whiteBalanceMode: 'continuous' }
-          ]
+          exposureMode: 'continuous',
+          whiteBalanceMode: 'continuous'
         },
         audio: false
       },
-      // Medium-high resolution with focus
+      // High resolution with focus optimization
       { 
         video: { 
           facingMode: { exact: facingMode },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
+          width: { ideal: 1280, min: 1024 },
+          height: { ideal: 720, min: 576 },
+          frameRate: { ideal: 30 },
           focusMode: 'continuous'
         },
         audio: false
       },
-      // Standard resolution with preferred facing mode
+      // Standard high resolution
       { 
         video: { 
           facingMode: facingMode,
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 }
         },
         audio: false
       },
-      // Fallback with just facing mode
+      // Medium resolution fallback
       { 
         video: { 
           facingMode: facingMode,
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 1024 },
+          height: { ideal: 576 }
         },
         audio: false
       },
-      // Any camera with decent resolution
+      // Basic resolution
       { 
         video: {
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 }
+          width: { ideal: 800, min: 640 },
+          height: { ideal: 600, min: 480 }
         },
         audio: false
       },
-      // Last resort - basic video only
+      // Last resort
       { 
         video: true,
         audio: false
@@ -399,15 +399,16 @@ export function CameraScanner({
           constraints={{
             video: {
               facingMode: facingMode,
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 },
+              width: { ideal: 1920, min: 1280 },
+              height: { ideal: 1080, min: 720 },
+              frameRate: { ideal: 30 },
               focusMode: 'continuous'
             },
             audio: false
           }}
           containerStyle={{
             width: '100%',
-            height: '400px' // Increased height for better scanning
+            height: '500px' // Increased height for better scanning
           }}
           videoStyle={{
             width: '100%',
@@ -416,31 +417,39 @@ export function CameraScanner({
           }}
         />
         
-        {/* Enhanced scanning overlay for barcode scanning */}
+        {/* Enhanced scanning overlay optimized for barcodes */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Corner brackets */}
-          <div className="absolute top-6 left-6 w-12 h-12 border-l-4 border-t-4 border-white rounded-tl-lg"></div>
-          <div className="absolute top-6 right-6 w-12 h-12 border-r-4 border-t-4 border-white rounded-tr-lg"></div>
-          <div className="absolute bottom-6 left-6 w-12 h-12 border-l-4 border-b-4 border-white rounded-bl-lg"></div>
-          <div className="absolute bottom-6 right-6 w-12 h-12 border-r-4 border-b-4 border-white rounded-br-lg"></div>
+          {/* Large corner brackets */}
+          <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-white rounded-tl-lg opacity-80"></div>
+          <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-white rounded-tr-lg opacity-80"></div>
+          <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-white rounded-bl-lg opacity-80"></div>
+          <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
           
-          {/* Horizontal scanning line for barcodes */}
-          <div className="absolute inset-x-8 top-1/2 h-1 bg-red-500 opacity-75 animate-pulse shadow-lg"></div>
-          
-          {/* Barcode scanning area */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-2 border-white border-dashed rounded-lg">
+          {/* Primary barcode scanning area - much larger */}
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-4 border-red-500 rounded-lg bg-red-500 bg-opacity-10">
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white text-xs bg-black bg-opacity-50 px-2 py-1 rounded">
-                Barcode Area
+              <span className="text-white text-sm font-bold bg-red-500 bg-opacity-80 px-3 py-1 rounded">
+                BARCODE SCANNING AREA
+              </span>
+            </div>
+            {/* Animated scanning line */}
+            <div className="absolute inset-x-2 top-1/2 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg"></div>
+          </div>
+          
+          {/* Secondary QR code area */}
+          <div className="absolute top-12 left-1/2 transform -translate-x-1/2 w-32 h-32 border-3 border-yellow-400 border-dashed rounded-lg bg-yellow-400 bg-opacity-10">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-yellow-400 text-xs font-bold bg-black bg-opacity-60 px-2 py-1 rounded">
+                QR CODES
               </span>
             </div>
           </div>
           
-          {/* Additional QR code area */}
-          <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-24 h-24 border-2 border-yellow-400 border-dashed rounded-lg">
+          {/* Additional scanning guides */}
+          <div className="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-64 h-20 border-2 border-blue-400 border-dashed rounded-lg bg-blue-400 bg-opacity-10">
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-yellow-400 text-xs bg-black bg-opacity-50 px-1 py-0.5 rounded">
-                QR
+              <span className="text-blue-400 text-xs font-bold bg-black bg-opacity-60 px-2 py-1 rounded">
+                ALTERNATIVE AREA
               </span>
             </div>
           </div>
@@ -457,7 +466,7 @@ export function CameraScanner({
           {lastScan && (
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.substring(0, 10)}...
+              Last: {lastScan.substring(0, 15)}...
             </Badge>
           )}
         </div>
@@ -475,19 +484,22 @@ export function CameraScanner({
 
       {/* Enhanced instructions for barcode scanning */}
       <div className="mt-4 space-y-2">
-        <div className="p-3 bg-blue-50 rounded-lg">
-          <p className="text-sm text-blue-700 text-center font-medium">
-            📱 For Barcodes: Hold horizontally in the red scanning line
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-800 text-center font-bold">
+            📱 BARCODES: Position horizontally in the large RED scanning area
+          </p>
+          <p className="text-xs text-red-600 text-center mt-1">
+            Hold steady for 2-3 seconds • Ensure good lighting • Keep barcode flat
           </p>
         </div>
-        <div className="p-3 bg-yellow-50 rounded-lg">
-          <p className="text-sm text-yellow-700 text-center font-medium">
-            📱 For QR Codes: Position in the yellow square at the top
+        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-sm text-yellow-800 text-center font-medium">
+            📱 QR CODES: Position in the yellow square at the top
           </p>
         </div>
-        <div className="p-2 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-600 text-center">
-            💡 Tip: Ensure good lighting and hold steady for 1-2 seconds
+        <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-xs text-blue-700 text-center">
+            💡 Pro Tips: Use back camera • Avoid shadows • Keep device steady • Clean camera lens
           </p>
         </div>
       </div>

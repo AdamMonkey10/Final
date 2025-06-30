@@ -26,12 +26,13 @@ export default function BasicCameraTest() {
         throw new Error('Camera API not supported in this browser');
       }
 
-      // Optimized constraints for barcode scanning
+      // High-resolution constraints optimized for barcode scanning
       const constraints = {
         video: {
           facingMode: facingMode,
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          frameRate: { ideal: 30 },
           focusMode: 'continuous'
         },
         audio: false // Explicitly set to false
@@ -119,7 +120,7 @@ export default function BasicCameraTest() {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Basic Camera Test - Optimized for Barcode Scanning</h2>
+      <h2 className="text-xl font-bold mb-4">Basic Camera Test - High Resolution Barcode Scanning</h2>
       
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -141,6 +142,7 @@ export default function BasicCameraTest() {
               <div>Facing Mode: {cameraInfo.facingMode || 'unknown'}</div>
               <div>Frame Rate: {cameraInfo.frameRate || 'unknown'}</div>
               <div>Focus Mode: {cameraInfo.focusMode || 'unknown'}</div>
+              <div>Aspect Ratio: {cameraInfo.aspectRatio || 'unknown'}</div>
             </div>
           </div>
         )}
@@ -152,15 +154,16 @@ export default function BasicCameraTest() {
             constraints={{ 
               video: {
                 facingMode: facingMode,
-                width: { ideal: 1280, min: 640 },
-                height: { ideal: 720, min: 480 },
+                width: { ideal: 1920, min: 1280 },
+                height: { ideal: 1080, min: 720 },
+                frameRate: { ideal: 30 },
                 focusMode: 'continuous'
               },
               audio: false
             }}
             containerStyle={{ 
               width: '100%', 
-              height: '400px' 
+              height: '500px' // Increased height
             }}
             videoStyle={{ 
               width: '100%', 
@@ -169,16 +172,30 @@ export default function BasicCameraTest() {
             }}
           />
           
-          {/* Barcode scanning overlay */}
+          {/* Enhanced barcode scanning overlay */}
           <div className="absolute inset-0 pointer-events-none">
-            {/* Horizontal scanning line for barcodes */}
-            <div className="absolute inset-x-8 top-1/2 h-1 bg-red-500 opacity-75 animate-pulse shadow-lg"></div>
+            {/* Large corner brackets */}
+            <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-white rounded-tl-lg opacity-80"></div>
+            <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-white rounded-tr-lg opacity-80"></div>
+            <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-white rounded-bl-lg opacity-80"></div>
+            <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
             
-            {/* Barcode scanning area */}
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-2 border-white border-dashed rounded-lg">
+            {/* Primary barcode scanning area - much larger */}
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-4 border-red-500 rounded-lg bg-red-500 bg-opacity-10">
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-white text-xs bg-black bg-opacity-50 px-2 py-1 rounded">
-                  Barcode Area
+                <span className="text-white text-sm font-bold bg-red-500 bg-opacity-80 px-3 py-1 rounded">
+                  BARCODE SCANNING AREA
+                </span>
+              </div>
+              {/* Animated scanning line */}
+              <div className="absolute inset-x-2 top-1/2 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg"></div>
+            </div>
+            
+            {/* QR code area */}
+            <div className="absolute top-12 left-1/2 transform -translate-x-1/2 w-32 h-32 border-3 border-yellow-400 border-dashed rounded-lg bg-yellow-400 bg-opacity-10">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-yellow-400 text-xs font-bold bg-black bg-opacity-60 px-2 py-1 rounded">
+                  QR CODES
                 </span>
               </div>
             </div>
@@ -215,14 +232,22 @@ export default function BasicCameraTest() {
         </div>
 
         <div className="space-y-2">
-          <div className="p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-700 text-center font-medium">
-              📱 For Barcodes: Hold horizontally in the red scanning line
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800 text-center font-bold">
+              📱 BARCODES: Position horizontally in the large RED scanning area
+            </p>
+            <p className="text-xs text-red-600 text-center mt-1">
+              Hold steady for 2-3 seconds • Ensure good lighting • Keep barcode flat
             </p>
           </div>
-          <div className="p-2 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-600 text-center">
-              💡 Tip: Use back camera, ensure good lighting, hold steady for 1-2 seconds
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-sm text-yellow-800 text-center font-medium">
+              📱 QR CODES: Position in the yellow square at the top
+            </p>
+          </div>
+          <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-xs text-blue-700 text-center">
+              💡 Pro Tips: Use back camera • Avoid shadows • Keep device steady • Clean camera lens
             </p>
           </div>
         </div>
