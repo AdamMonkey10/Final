@@ -49,6 +49,7 @@ export function CameraScanner({
     platform: ''
   });
   const [retryCount, setRetryCount] = useState(0);
+  const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -56,6 +57,7 @@ export function CameraScanner({
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
+  const videoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Detect device info on mount
   useEffect(() => {
@@ -102,6 +104,11 @@ export function CameraScanner({
       scanningIntervalRef.current = null;
     }
     
+    if (videoLoadTimeoutRef.current) {
+      clearTimeout(videoLoadTimeoutRef.current);
+      videoLoadTimeoutRef.current = null;
+    }
+    
     if (stream) {
       stream.getTracks().forEach(track => {
         console.log('📱 Scanner: Stopping track:', track.kind, track.label);
@@ -117,6 +124,7 @@ export function CameraScanner({
     setIsScanning(false);
     setPlaybackStatus('idle');
     setVideoDimensions({ width: 0, height: 0 });
+    setVideoLoadAttempts(0);
   };
 
   const initializeCamera = async () => {
@@ -134,7 +142,7 @@ export function CameraScanner({
       cleanup();
       
       // Wait a bit to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       if (currentAttempt !== initAttemptRef.current) {
         console.log('📱 Scanner: Initialization cancelled');
@@ -168,178 +176,230 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Enhanced constraints for mobile devices
-    const baseConstraints = {
-      video: {
-        facingMode: facingMode,
-        width: { ideal: 1920, min: 320 },
-        height: { ideal: 1080, min: 240 },
-        frameRate: { ideal: 30, min: 15 }
+    // Progressive constraint fallback for mobile devices
+    const constraintSets = [
+      // First try: High quality with exact facing mode
+      {
+        video: {
+          facingMode: { exact: facingMode },
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          frameRate: { ideal: 30, min: 15 }
+        },
+        audio: false
       },
-      audio: false
-    };
-
-    // Mobile-specific constraints
-    const mobileConstraints = {
-      video: {
-        facingMode: { exact: facingMode },
-        width: { ideal: 1280, min: 320 },
-        height: { ideal: 720, min: 240 },
-        frameRate: { ideal: 24, min: 10 }
+      // Second try: Medium quality with preferred facing mode
+      {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 640, min: 320 },
+          height: { ideal: 480, min: 240 },
+          frameRate: { ideal: 24, min: 10 }
+        },
+        audio: false
       },
-      audio: false
-    };
+      // Third try: Basic constraints
+      {
+        video: {
+          facingMode: facingMode,
+          width: { min: 320 },
+          height: { min: 240 }
+        },
+        audio: false
+      },
+      // Last resort: Just facing mode
+      {
+        video: {
+          facingMode: facingMode
+        },
+        audio: false
+      },
+      // Absolute fallback: Any video
+      {
+        video: true,
+        audio: false
+      }
+    ];
 
-    const constraints = deviceInfo.isMobile ? mobileConstraints : baseConstraints;
-
-    console.log('📱 Scanner: Requesting stream with constraints:', constraints);
+    let mediaStream: MediaStream | null = null;
+    let usedConstraints = null;
     
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    for (let i = 0; i < constraintSets.length; i++) {
+      const constraints = constraintSets[i];
+      console.log(`📱 Scanner: Trying constraint set ${i + 1}:`, constraints);
       
-      console.log('✅ Scanner: Camera permission granted');
-      console.log('📱 Scanner: Stream tracks:', mediaStream.getTracks().map(track => ({
-        kind: track.kind,
-        label: track.label,
-        enabled: track.enabled,
-        readyState: track.readyState,
-        settings: track.getSettings()
-      })));
-      
-      // Update stream info
-      setStreamInfo({
-        tracks: mediaStream.getTracks().length,
-        active: mediaStream.active,
-        constraints: constraints
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        usedConstraints = constraints;
+        console.log(`✅ Scanner: Success with constraint set ${i + 1}`);
+        break;
+      } catch (err: any) {
+        console.warn(`❌ Scanner: Constraint set ${i + 1} failed:`, err.name, err.message);
         
-        // Add event listeners for better debugging
-        videoRef.current.onloadstart = () => {
-          console.log('📱 Scanner: Video load started');
-          setPlaybackStatus('loading');
-        };
-        
-        videoRef.current.onloadedmetadata = () => {
-          console.log('📱 Scanner: Video metadata loaded');
-          handleVideoLoadedMetadata();
-        };
-        
-        videoRef.current.oncanplay = () => {
-          console.log('📱 Scanner: Video can play');
-        };
-        
-        videoRef.current.onplay = () => {
-          console.log('📱 Scanner: Video playing');
-          setPlaybackStatus('playing');
-        };
-        
-        videoRef.current.onerror = (e) => {
-          console.error('📱 Scanner: Video error:', e);
-          setPlaybackStatus('error');
-        };
-        
-        try {
-          await videoRef.current.play();
-          console.log('📱 Scanner: Video play() successful');
-        } catch (playError) {
-          console.error('❌ Scanner: Video play failed:', playError);
-          setPlaybackStatus('error');
-          
-          // Try alternative approach for mobile
-          if (deviceInfo.isMobile) {
-            console.log('📱 Scanner: Trying mobile fallback...');
-            videoRef.current.muted = true;
-            videoRef.current.playsInline = true;
-            videoRef.current.autoplay = true;
-            
-            setTimeout(async () => {
-              try {
-                await videoRef.current?.play();
-                console.log('📱 Scanner: Mobile fallback successful');
-                setPlaybackStatus('playing');
-              } catch (fallbackError) {
-                console.error('❌ Scanner: Mobile fallback failed:', fallbackError);
-                throw new Error(`Video playback failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
-              }
-            }, 100);
-          } else {
-            throw new Error(`Video playback failed: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
-          }
+        if (i === constraintSets.length - 1) {
+          // All constraint sets failed
+          throw err;
         }
       }
-      
-      setStream(mediaStream);
-      setHasPermission(true);
-      setError(null);
-      
-    } catch (err: any) {
-      console.error('❌ Scanner: Camera permission failed:', err);
-      
-      let errorMessage = 'Camera access failed';
-      
-      switch (err.name) {
-        case 'NotAllowedError':
-          errorMessage = 'Camera permission denied. Please allow camera access and refresh.';
-          break;
-        case 'NotFoundError':
-          errorMessage = 'No camera found on this device.';
-          break;
-        case 'NotReadableError':
-          errorMessage = 'Camera is in use by another application.';
-          break;
-        case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported. Trying fallback...';
-          
-          // Try with relaxed constraints
-          if (retryCount < 2) {
-            setRetryCount(prev => prev + 1);
-            console.log('📱 Scanner: Trying with relaxed constraints...');
-            
-            const fallbackConstraints = {
-              video: {
-                facingMode: facingMode
-              },
-              audio: false
-            };
-            
-            try {
-              const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-              console.log('✅ Scanner: Fallback constraints worked');
-              
-              setStreamInfo({
-                tracks: fallbackStream.getTracks().length,
-                active: fallbackStream.active,
-                constraints: fallbackConstraints
-              });
-              
-              if (videoRef.current) {
-                videoRef.current.srcObject = fallbackStream;
-                await videoRef.current.play();
-              }
-              
-              setStream(fallbackStream);
-              setHasPermission(true);
-              setError(null);
-              return;
-            } catch (fallbackErr) {
-              console.error('❌ Scanner: Fallback also failed:', fallbackErr);
-              errorMessage = 'Camera constraints not supported on this device.';
-            }
-          }
-          break;
-        default:
-          errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
-      }
-      
-      setError(errorMessage);
-      setHasPermission(false);
-      setPlaybackStatus('error');
-      onError?.(errorMessage);
-      throw new Error(errorMessage);
     }
+
+    if (!mediaStream) {
+      throw new Error('Failed to get camera stream with any constraints');
+    }
+    
+    console.log('✅ Scanner: Camera permission granted');
+    console.log('📱 Scanner: Stream tracks:', mediaStream.getTracks().map(track => ({
+      kind: track.kind,
+      label: track.label,
+      enabled: track.enabled,
+      readyState: track.readyState,
+      settings: track.getSettings()
+    })));
+    
+    // Update stream info
+    setStreamInfo({
+      tracks: mediaStream.getTracks().length,
+      active: mediaStream.active,
+      constraints: usedConstraints
+    });
+    
+    if (videoRef.current) {
+      // Set up video element for mobile compatibility
+      const video = videoRef.current;
+      
+      // Essential mobile video attributes
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.muted = true;
+      video.autoplay = true;
+      video.controls = false;
+      
+      // Clear any existing source
+      video.srcObject = null;
+      
+      // Set the new stream
+      video.srcObject = mediaStream;
+      
+      // Set up comprehensive event handlers
+      const handleLoadStart = () => {
+        console.log('📱 Scanner: Video load started');
+        setPlaybackStatus('loading');
+      };
+      
+      const handleLoadedMetadata = () => {
+        console.log('📱 Scanner: Video metadata loaded');
+        setVideoLoadAttempts(prev => prev + 1);
+        
+        // Force a check of video dimensions after a short delay
+        setTimeout(() => {
+          handleVideoLoadedMetadata();
+        }, 100);
+      };
+      
+      const handleCanPlay = () => {
+        console.log('📱 Scanner: Video can play');
+        
+        // Try to play immediately when we can
+        video.play().catch(err => {
+          console.warn('📱 Scanner: Auto-play failed:', err);
+        });
+      };
+      
+      const handlePlay = () => {
+        console.log('📱 Scanner: Video playing');
+        setPlaybackStatus('playing');
+        
+        // Double-check dimensions when playing starts
+        setTimeout(() => {
+          handleVideoLoadedMetadata();
+        }, 200);
+      };
+      
+      const handleError = (e: any) => {
+        console.error('📱 Scanner: Video error:', e);
+        setPlaybackStatus('error');
+        setError('Video playback error');
+      };
+      
+      const handleResize = () => {
+        console.log('📱 Scanner: Video resized');
+        handleVideoLoadedMetadata();
+      };
+      
+      // Remove any existing listeners
+      video.removeEventListener('loadstart', handleLoadStart);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('play', handlePlay);
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('resize', handleResize);
+      
+      // Add event listeners
+      video.addEventListener('loadstart', handleLoadStart);
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('canplay', handleCanPlay);
+      video.addEventListener('play', handlePlay);
+      video.addEventListener('error', handleError);
+      video.addEventListener('resize', handleResize);
+      
+      // Set a timeout to force video dimension check
+      videoLoadTimeoutRef.current = setTimeout(() => {
+        console.log('📱 Scanner: Forcing video dimension check after timeout');
+        handleVideoLoadedMetadata();
+        
+        // If still 0x0, try to restart the video
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          console.log('📱 Scanner: Video still 0x0, attempting restart');
+          video.load();
+          
+          setTimeout(() => {
+            video.play().catch(err => {
+              console.warn('📱 Scanner: Restart play failed:', err);
+            });
+          }, 500);
+        }
+      }, 2000);
+      
+      // Initial play attempt
+      try {
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            console.warn('📱 Scanner: Initial play failed:', err);
+            
+            // Mobile fallback strategies
+            if (deviceInfo.isMobile) {
+              console.log('📱 Scanner: Trying mobile fallback strategies...');
+              
+              // Strategy 1: Force muted autoplay
+              video.muted = true;
+              video.autoplay = true;
+              
+              setTimeout(() => {
+                video.play().catch(err2 => {
+                  console.warn('📱 Scanner: Mobile fallback 1 failed:', err2);
+                  
+                  // Strategy 2: Load and play
+                  video.load();
+                  setTimeout(() => {
+                    video.play().catch(err3 => {
+                      console.error('📱 Scanner: All mobile fallbacks failed:', err3);
+                      setError('Video playback failed on mobile device');
+                    });
+                  }, 300);
+                });
+              }, 100);
+            }
+          });
+        }
+      } catch (playError) {
+        console.error('📱 Scanner: Play attempt failed:', playError);
+      }
+    }
+    
+    setStream(mediaStream);
+    setHasPermission(true);
+    setError(null);
   };
 
   const initializeBarcodeDetector = async () => {
@@ -373,11 +433,16 @@ export function CameraScanner({
 
     scanningIntervalRef.current = setInterval(async () => {
       await scanFrame();
-    }, 100); // Scan every 100ms
+    }, 150); // Slightly slower for mobile performance
   };
 
   const scanFrame = async () => {
     if (!videoRef.current || !canvasRef.current || videoRef.current.readyState !== 4) {
+      return;
+    }
+    
+    // Skip scanning if video dimensions are still 0x0
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
       return;
     }
     
@@ -439,22 +504,55 @@ export function CameraScanner({
     debouncedOnResult(scannedText);
   };
 
-  // Handle video metadata loaded
+  // Handle video metadata loaded with enhanced mobile support
   const handleVideoLoadedMetadata = () => {
     console.log('📱 Scanner: Video metadata loaded');
     if (videoRef.current) {
+      const video = videoRef.current;
       const dimensions = {
-        width: videoRef.current.videoWidth,
-        height: videoRef.current.videoHeight
+        width: video.videoWidth,
+        height: video.videoHeight
       };
-      setVideoDimensions(dimensions);
-      setCameraReady(dimensions.width > 0 && dimensions.height > 0);
-      console.log('📱 Scanner: Video dimensions:', dimensions);
       
-      if (dimensions.width === 0 || dimensions.height === 0) {
-        console.warn('📱 Scanner: Video dimensions are 0x0 - this indicates a problem');
-        setError('Video stream has invalid dimensions (0x0)');
-        setPlaybackStatus('error');
+      console.log('📱 Scanner: Video dimensions:', dimensions);
+      console.log('📱 Scanner: Video ready state:', video.readyState);
+      console.log('📱 Scanner: Video current time:', video.currentTime);
+      console.log('📱 Scanner: Video paused:', video.paused);
+      
+      setVideoDimensions(dimensions);
+      
+      if (dimensions.width > 0 && dimensions.height > 0) {
+        setCameraReady(true);
+        console.log('✅ Scanner: Camera ready with valid dimensions');
+      } else {
+        console.warn('📱 Scanner: Video dimensions are still 0x0');
+        
+        // For mobile devices, try some recovery strategies
+        if (deviceInfo.isMobile && videoLoadAttempts < 5) {
+          console.log('📱 Scanner: Attempting mobile recovery strategy...');
+          
+          setTimeout(() => {
+            // Try to trigger a refresh of the video
+            if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+              video.currentTime = video.currentTime; // Force refresh
+            }
+            
+            // Check again after a delay
+            setTimeout(() => {
+              const newDimensions = {
+                width: video.videoWidth,
+                height: video.videoHeight
+              };
+              console.log('📱 Scanner: Recovery check dimensions:', newDimensions);
+              
+              if (newDimensions.width > 0 && newDimensions.height > 0) {
+                setVideoDimensions(newDimensions);
+                setCameraReady(true);
+                console.log('✅ Scanner: Recovery successful');
+              }
+            }, 500);
+          }, 1000);
+        }
       }
     }
   };
@@ -463,7 +561,8 @@ export function CameraScanner({
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     console.log('📱 Scanner: Switching camera to', newFacingMode);
     setFacingMode(newFacingMode);
-    setRetryCount(0); // Reset retry count when switching cameras
+    setRetryCount(0);
+    setVideoLoadAttempts(0);
   };
 
   const retryPermission = () => {
@@ -471,7 +570,8 @@ export function CameraScanner({
     setError(null);
     setLastScan(null);
     setScanCount(0);
-    setRetryCount(0);
+    setRetryCount(prev => prev + 1);
+    setVideoLoadAttempts(0);
     initializeCamera();
   };
 
@@ -500,7 +600,7 @@ export function CameraScanner({
           </p>
           {deviceInfo.isMobile && (
             <p className="text-xs text-blue-600 mt-2">
-              📱 Mobile device detected
+              📱 Mobile device detected - using enhanced compatibility mode
             </p>
           )}
         </div>
@@ -517,18 +617,13 @@ export function CameraScanner({
           <div className="space-y-2">
             <Button onClick={retryPermission} variant="outline" size="sm" className="w-full">
               <RotateCcw className="h-4 w-4 mr-2" />
-              Retry Camera
+              Retry Camera (Attempt {retryCount + 1})
             </Button>
             <Button onClick={refreshPage} variant="outline" size="sm" className="w-full">
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh Page
             </Button>
           </div>
-          {retryCount > 0 && (
-            <p className="text-xs text-red-600 mt-2">
-              Retry attempt: {retryCount}
-            </p>
-          )}
         </div>
       </div>
     );
@@ -543,6 +638,9 @@ export function CameraScanner({
           playsInline
           muted
           className="w-full h-96 object-cover"
+          style={{
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none'
+          }}
         />
         
         {/* Hidden canvas for image processing */}
@@ -592,8 +690,12 @@ export function CameraScanner({
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
               <div className="text-center">
                 <AlertCircle className="h-8 w-8 mx-auto mb-2" />
-                <div className="font-bold">Camera Issue</div>
+                <div className="font-bold">Camera Loading...</div>
                 <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
+                <div className="text-xs mt-1">Load attempts: {videoLoadAttempts}</div>
+                {deviceInfo.isMobile && (
+                  <div className="text-xs mt-1">Mobile recovery in progress...</div>
+                )}
               </div>
             </div>
           ) : null}
@@ -602,7 +704,7 @@ export function CameraScanner({
 
       {/* Controls */}
       <div className="flex items-center justify-between mt-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <Camera className="h-3 w-3 mr-1" />
             {facingMode === 'environment' ? 'Back Camera' : 'Front Camera'}
@@ -653,6 +755,12 @@ export function CameraScanner({
             <span className="text-orange-600">⚠️ Basic scanning mode (consider using Chrome for better detection)</span>
           )}
         </div>
+        
+        {deviceInfo.isMobile && videoDimensions.width === 0 && (
+          <div className="mt-2 text-xs text-orange-600 text-center">
+            📱 Mobile camera initializing... This may take a few seconds on some devices.
+          </div>
+        )}
       </div>
 
       {/* Enhanced diagnostic info - Always visible for debugging */}
@@ -674,6 +782,8 @@ export function CameraScanner({
           <div>BarcodeDetector: <span className="font-mono">{'BarcodeDetector' in window ? 'Available' : 'Not Available'}</span></div>
           <div>Device: <span className="font-mono">{deviceInfo.isMobile ? 'Mobile' : 'Desktop'}</span></div>
           <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
+          <div>Load Attempts: <span className="font-mono">{videoLoadAttempts}</span></div>
+          <div>Ready State: <span className="font-mono">{videoRef.current?.readyState || 'N/A'}</span></div>
         </div>
         {streamInfo.constraints && (
           <div className="mt-2 pt-2 border-t border-gray-300">
