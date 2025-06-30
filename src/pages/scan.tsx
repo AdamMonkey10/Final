@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -49,7 +49,8 @@ export default function ScanPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
-  const [manualInput, setManualInput] = useState('');
+  const [manualInput, setManualInput] = useState(''); // State for manual input
+  const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user && !authLoading && showLocationDialog) {
@@ -239,7 +240,7 @@ export default function ScanPage() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
-    setManualInput('');
+    setManualInput(''); // Clear manual input
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -372,6 +373,7 @@ export default function ScanPage() {
                 onResult={handleScanResult}
                 onError={(error) => toast.error(error)}
                 isActive={scanMode === 'camera' && showScanDialog}
+                autoComplete={true} // Enable auto-completion for camera mode
                 className="w-full"
               />
               {selectedOperator && (
@@ -386,6 +388,7 @@ export default function ScanPage() {
                 <div className="relative">
                   <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
+                    ref={manualInputRef}
                     value={manualInput}
                     onChange={(e) => setManualInput(e.target.value)}
                     placeholder="Enter barcode manually or scan with camera..."
@@ -405,13 +408,14 @@ export default function ScanPage() {
                 )}
               </form>
               
-              {/* Camera scan in manual mode */}
+              {/* Camera scan button in manual mode */}
               <div className="text-center">
                 <div className="text-sm text-muted-foreground mb-2">Or use camera to scan:</div>
                 <CameraScanner
                   onResult={handleScanResult}
                   onError={(error) => toast.error(error)}
                   isActive={scanMode === 'manual' && showScanDialog}
+                  autoComplete={false} // Populate input field instead
                   className="w-full"
                 />
               </div>
