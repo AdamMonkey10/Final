@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, Wifi, WifiOff, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -40,10 +40,14 @@ export function CameraScanner({
     hasCamera: boolean;
     cameraCount: number;
     userAgent: string;
+    isLocalhost: boolean;
+    supportedConstraints: string[];
   }>({
     hasCamera: false,
     cameraCount: 0,
-    userAgent: ''
+    userAgent: '',
+    isLocalhost: false,
+    supportedConstraints: []
   });
   const scannerRef = useRef<HTMLDivElement>(null);
   const lastScanTimeRef = useRef<number>(0);
@@ -58,14 +62,23 @@ export function CameraScanner({
   );
 
   useEffect(() => {
-    // Check if we're on HTTPS
-    setIsHttps(window.location.protocol === 'https:');
+    // Check environment
+    const isSecure = window.location.protocol === 'https:';
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     
+    setIsHttps(isSecure);
+    
+    // Get supported constraints
+    const supportedConstraints = navigator.mediaDevices?.getSupportedConstraints ? 
+      Object.keys(navigator.mediaDevices.getSupportedConstraints()) : [];
+
     // Get device info
     setDeviceInfo({
       hasCamera: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
       cameraCount: 0,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      isLocalhost: isLocal,
+      supportedConstraints
     });
 
     // Try to enumerate devices to get camera count
@@ -73,6 +86,7 @@ export function CameraScanner({
       navigator.mediaDevices.enumerateDevices()
         .then(devices => {
           const videoDevices = devices.filter(device => device.kind === 'videoinput');
+          console.log('📱 Scanner: Found video devices:', videoDevices.length);
           setDeviceInfo(prev => ({
             ...prev,
             cameraCount: videoDevices.length
@@ -96,7 +110,7 @@ export function CameraScanner({
     
     // Check if we have the necessary APIs
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      const errorMsg = 'Camera API not supported in this browser. Please use a modern browser with HTTPS.';
+      const errorMsg = 'Camera API not supported in this browser. Please use a modern browser.';
       console.error('❌ Scanner:', errorMsg);
       setError(errorMsg);
       setHasPermission(false);
@@ -104,9 +118,10 @@ export function CameraScanner({
       return;
     }
 
-    // Check if we're on HTTPS (required for camera access)
-    if (!isHttps && window.location.hostname !== 'localhost') {
-      const errorMsg = 'Camera access requires HTTPS. Please access the site via HTTPS or use localhost for development.';
+    // Check if we're on HTTPS or localhost
+    const isLocal = deviceInfo.isLocalhost;
+    if (!isHttps && !isLocal) {
+      const errorMsg = 'Camera access requires HTTPS or localhost. Please use a secure connection.';
       console.error('❌ Scanner:', errorMsg);
       setError(errorMsg);
       setHasPermission(false);
@@ -117,18 +132,66 @@ export function CameraScanner({
     try {
       setError(null);
       
-      // Start with basic constraints
-      let constraints: MediaStreamConstraints = {
-        video: {
-          facingMode,
-          width: { ideal: 640, max: 1280 },
-          height: { ideal: 480, max: 720 }
+      // Try different constraint strategies
+      const constraintStrategies = [
+        // Strategy 1: Ideal constraints with facingMode
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 }
+          }
+        },
+        // Strategy 2: Basic constraints with facingMode
+        {
+          video: {
+            facingMode: facingMode,
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        },
+        // Strategy 3: Just facingMode
+        {
+          video: {
+            facingMode: facingMode
+          }
+        },
+        // Strategy 4: Basic video only
+        {
+          video: true
         }
-      };
+      ];
 
-      console.log('📱 Scanner: Attempting getUserMedia with constraints:', constraints);
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream | null = null;
+      let lastError: any = null;
+
+      for (let i = 0; i < constraintStrategies.length; i++) {
+        const constraints = constraintStrategies[i];
+        console.log(`📱 Scanner: Trying strategy ${i + 1}:`, constraints);
+        
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log(`✅ Scanner: Strategy ${i + 1} successful`);
+          break;
+        } catch (err) {
+          console.warn(`❌ Scanner: Strategy ${i + 1} failed:`, err);
+          lastError = err;
+          
+          // If it's a constraint error, try the next strategy
+          if (err.name === 'OverconstrainedError' || err.name === 'ConstraintNotSatisfiedError') {
+            continue;
+          }
+          
+          // For other errors, break early
+          if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
+            break;
+          }
+        }
+      }
+
+      if (!stream) {
+        throw lastError || new Error('All camera access strategies failed');
+      }
       
       console.log('✅ Scanner: Camera permission granted');
       console.log('📱 Scanner: Stream details:', {
@@ -158,64 +221,51 @@ export function CameraScanner({
       setHasPermission(false);
       
       let errorMessage = 'Camera access failed. Please check your camera and try again.';
+      let helpText = '';
       
       switch (err.name) {
         case 'NotAllowedError':
-          errorMessage = 'Camera permission denied. Please allow camera access in your browser settings and refresh the page.';
+          errorMessage = 'Camera permission denied';
+          helpText = 'Please allow camera access in your browser and refresh the page. Look for a camera icon in your address bar.';
           break;
         case 'NotFoundError':
-          errorMessage = 'No camera found on this device. Please connect a camera and try again.';
+          errorMessage = 'No camera found';
+          helpText = 'Please connect a camera to your device and try again.';
           break;
         case 'NotReadableError':
-          errorMessage = 'Camera is already in use by another application. Please close other camera apps and try again.';
+          errorMessage = 'Camera is busy';
+          helpText = 'Another application is using the camera. Please close other camera apps and try again.';
           break;
         case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported. Trying with basic settings...';
-          // Try again with basic constraints
-          setTimeout(() => {
-            console.log('📱 Scanner: Retrying with basic constraints');
-            requestBasicCameraPermission();
-          }, 1000);
-          return;
+        case 'ConstraintNotSatisfiedError':
+          errorMessage = 'Camera constraints not supported';
+          helpText = 'Your camera doesn\'t support the requested settings. Try switching cameras.';
+          break;
         case 'SecurityError':
-          errorMessage = 'Camera access blocked by security policy. Please check your browser settings.';
+          errorMessage = 'Camera access blocked';
+          helpText = 'Camera access is blocked by your browser security settings.';
           break;
         case 'AbortError':
-          errorMessage = 'Camera access was aborted. Please try again.';
+          errorMessage = 'Camera access aborted';
+          helpText = 'Camera access was cancelled. Please try again.';
           break;
         case 'TypeError':
-          errorMessage = 'Invalid camera constraints. Please try switching cameras.';
+          errorMessage = 'Invalid camera settings';
+          helpText = 'There was an issue with camera configuration. Try refreshing the page.';
           break;
         default:
           if (err.message?.includes('https')) {
-            errorMessage = 'Camera access requires HTTPS. Please access the site securely.';
+            errorMessage = 'Secure connection required';
+            helpText = 'Camera access requires HTTPS. Please access the site securely.';
           } else if (err.message?.includes('permission')) {
-            errorMessage = 'Camera permission required. Please allow camera access and refresh.';
+            errorMessage = 'Camera permission required';
+            helpText = 'Please allow camera access and refresh the page.';
           }
           break;
       }
       
-      setError(errorMessage);
-      onError?.(errorMessage);
-    }
-  };
-
-  const requestBasicCameraPermission = async () => {
-    try {
-      console.log('📱 Scanner: Trying basic camera constraints');
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true 
-      });
-      
-      console.log('✅ Scanner: Basic camera permission granted');
-      setHasPermission(true);
-      setError(null);
-      
-      stream.getTracks().forEach(track => track.stop());
-    } catch (err: any) {
-      console.error('❌ Scanner: Basic camera permission also failed:', err);
-      setError('Camera access failed completely. Please check your device settings and browser permissions.');
-      onError?.('Camera access failed completely. Please check your device settings and browser permissions.');
+      setError(`${errorMessage}. ${helpText}`);
+      onError?.(`${errorMessage}. ${helpText}`);
     }
   };
 
@@ -308,6 +358,26 @@ export function CameraScanner({
     requestCameraPermission();
   };
 
+  const openCameraSettings = () => {
+    // Guide user to camera settings
+    const userAgent = navigator.userAgent.toLowerCase();
+    let settingsUrl = '';
+    
+    if (userAgent.includes('chrome')) {
+      settingsUrl = 'chrome://settings/content/camera';
+    } else if (userAgent.includes('firefox')) {
+      settingsUrl = 'about:preferences#privacy';
+    } else if (userAgent.includes('safari')) {
+      // Safari doesn't have direct URL, show instructions
+      alert('To enable camera access in Safari:\n1. Go to Safari > Preferences\n2. Click Privacy tab\n3. Click Camera\n4. Allow this website');
+      return;
+    }
+    
+    if (settingsUrl) {
+      window.open(settingsUrl, '_blank');
+    }
+  };
+
   if (!isActive) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-muted rounded-lg", className)}>
@@ -319,8 +389,8 @@ export function CameraScanner({
     );
   }
 
-  // Show HTTPS warning if not on secure connection
-  if (!isHttps && window.location.hostname !== 'localhost') {
+  // Show HTTPS warning if not on secure connection and not localhost
+  if (!isHttps && !deviceInfo.isLocalhost) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg", className)}>
         <div className="text-center">
@@ -346,10 +416,11 @@ export function CameraScanner({
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-yellow-500" />
           <p className="text-sm text-yellow-700 mb-4 font-medium">Camera API Not Supported</p>
           <p className="text-xs text-yellow-600 mb-4">
-            Your browser doesn't support camera access. Please use a modern browser.
+            Your browser doesn't support camera access. Please use a modern browser like Chrome, Firefox, or Safari.
           </p>
           <div className="text-xs text-yellow-500">
             <p>Browser: {deviceInfo.userAgent.split(' ')[0]}</p>
+            <p>Supported constraints: {deviceInfo.supportedConstraints.length}</p>
           </div>
         </div>
       </div>
@@ -365,6 +436,7 @@ export function CameraScanner({
           <div className="text-xs text-muted-foreground mt-2 space-y-1">
             <p>Protocol: {window.location.protocol}</p>
             <p>Cameras: {deviceInfo.cameraCount}</p>
+            <p>Environment: {deviceInfo.isLocalhost ? 'Localhost' : 'Remote'}</p>
           </div>
         </div>
       </div>
@@ -377,7 +449,7 @@ export function CameraScanner({
         <div className="text-center">
           <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
           <p className="text-sm text-red-700 mb-4 font-medium">Camera Access Failed</p>
-          <p className="text-xs text-red-600 mb-4">{error}</p>
+          <p className="text-xs text-red-600 mb-4 max-w-md">{error}</p>
           
           <div className="space-y-2 mb-4">
             <Button onClick={retryPermission} variant="outline" size="sm">
@@ -387,15 +459,28 @@ export function CameraScanner({
             {deviceInfo.cameraCount > 1 && (
               <Button onClick={toggleCamera} variant="outline" size="sm">
                 <Camera className="h-4 w-4 mr-2" />
-                Try Other Camera
+                Try {facingMode === 'environment' ? 'Front' : 'Back'} Camera
               </Button>
             )}
+            <Button onClick={openCameraSettings} variant="outline" size="sm">
+              <Settings className="h-4 w-4 mr-2" />
+              Camera Settings
+            </Button>
           </div>
 
-          <div className="text-xs text-red-500 space-y-1">
+          <div className="text-xs text-red-500 space-y-1 bg-red-100 p-2 rounded">
+            <p><strong>Troubleshooting:</strong></p>
+            <p>• Check browser permissions (camera icon in address bar)</p>
+            <p>• Close other apps using the camera</p>
+            <p>• Try refreshing the page</p>
+            <p>• Ensure camera is connected and working</p>
+          </div>
+
+          <div className="text-xs text-gray-500 space-y-1 mt-2">
             <p>Protocol: {window.location.protocol}</p>
-            <p>Cameras detected: {deviceInfo.cameraCount}</p>
+            <p>Cameras: {deviceInfo.cameraCount}</p>
             <p>Facing: {facingMode}</p>
+            <p>Localhost: {deviceInfo.isLocalhost ? 'Yes' : 'No'}</p>
           </div>
         </div>
       </div>
@@ -443,17 +528,22 @@ export function CameraScanner({
 
       {/* Controls */}
       <div className="flex items-center justify-between mt-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <Wifi className="h-3 w-3 mr-1" />
-            {isHttps ? 'Secure' : 'Local'}
+            {isHttps ? 'Secure' : deviceInfo.isLocalhost ? 'Local' : 'Insecure'}
           </Badge>
           <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
             <Camera className="h-3 w-3 mr-1" />
             {facingMode === 'environment' ? 'Back' : 'Front'}
           </Badge>
-          {lastScan && (
+          {deviceInfo.cameraCount > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+              {deviceInfo.cameraCount} Camera{deviceInfo.cameraCount !== 1 ? 's' : ''}
+            </Badge>
+          )}
+          {lastScan && (
+            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300">
               <CheckCircle className="h-3 w-3 mr-1" />
               Last: {lastScan.substring(0, 8)}...
             </Badge>
@@ -468,7 +558,7 @@ export function CameraScanner({
             className="flex items-center gap-2"
           >
             <RotateCcw className="h-4 w-4" />
-            Switch Camera
+            Switch
           </Button>
         )}
       </div>
@@ -478,7 +568,7 @@ export function CameraScanner({
         <p className="text-sm text-blue-700 text-center">
           Position the barcode or QR code within the frame to scan
         </p>
-        {!isHttps && window.location.hostname === 'localhost' && (
+        {deviceInfo.isLocalhost && (
           <p className="text-xs text-blue-600 text-center mt-1">
             Development mode - camera access allowed on localhost
           </p>
@@ -490,8 +580,10 @@ export function CameraScanner({
         <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
           <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
           <div>Protocol: {window.location.protocol}</div>
+          <div>Localhost: {deviceInfo.isLocalhost ? 'Yes' : 'No'}</div>
           <div>Facing: {facingMode}</div>
           <div>Cameras: {deviceInfo.cameraCount}</div>
+          <div>Constraints: {deviceInfo.supportedConstraints.length}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
         </div>
