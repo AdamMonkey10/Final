@@ -51,6 +51,7 @@ export function CameraScanner({
   const [retryCount, setRetryCount] = useState(0);
   const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
   const [dimensionCheckCount, setDimensionCheckCount] = useState(0);
+  const [continuousMonitoring, setContinuousMonitoring] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -59,6 +60,7 @@ export function CameraScanner({
   const dimensionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
+  const lastValidDimensionsRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
 
   // Detect device info on mount
   useEffect(() => {
@@ -127,6 +129,8 @@ export function CameraScanner({
     setVideoDimensions({ width: 0, height: 0 });
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
+    setContinuousMonitoring(false);
+    lastValidDimensionsRef.current = { width: 0, height: 0 };
   };
 
   const initializeCamera = async () => {
@@ -155,7 +159,7 @@ export function CameraScanner({
       
       if (currentAttempt === initAttemptRef.current) {
         await initializeBarcodeDetector();
-        // Don't start scanning immediately - wait for dimension check to confirm readiness
+        startContinuousMonitoring();
       }
     } catch (err) {
       console.error('📱 Scanner: Initialization failed:', err);
@@ -171,6 +175,16 @@ export function CameraScanner({
     }
   };
 
+  const startContinuousMonitoring = () => {
+    console.log('📱 Scanner: Starting continuous camera monitoring...');
+    setContinuousMonitoring(true);
+    
+    // Start continuous dimension checking that never stops
+    dimensionCheckIntervalRef.current = setInterval(() => {
+      checkVideoReadinessAndPlay();
+    }, 200); // Check every 200ms
+  };
+
   const checkVideoReadinessAndPlay = () => {
     if (!videoRef.current) return;
     
@@ -181,20 +195,25 @@ export function CameraScanner({
     setDimensionCheckCount(prev => prev + 1);
     setVideoDimensions({ width: currentWidth, height: currentHeight });
     
-    console.log(`📱 Scanner: Dimension check #${dimensionCheckCount + 1} - ${currentWidth}x${currentHeight}`);
+    console.log(`📱 Scanner: Continuous check #${dimensionCheckCount + 1} - ${currentWidth}x${currentHeight}`);
     
-    if (currentWidth > 0 && currentHeight > 0) {
-      console.log('✅ Scanner: Valid video dimensions detected!');
+    // Check if dimensions are valid
+    const hasValidDimensions = currentWidth > 0 && currentHeight > 0;
+    
+    if (hasValidDimensions) {
+      // Update last valid dimensions
+      lastValidDimensionsRef.current = { width: currentWidth, height: currentHeight };
       
-      // Clear the dimension check interval
-      if (dimensionCheckIntervalRef.current) {
-        clearInterval(dimensionCheckIntervalRef.current);
-        dimensionCheckIntervalRef.current = null;
+      if (!cameraReady) {
+        console.log('✅ Scanner: Valid video dimensions detected! Camera now ready.');
+        setCameraReady(true);
+        setPlaybackStatus('playing');
+        
+        // Start scanning if not already started
+        if (!scanningIntervalRef.current) {
+          startScanning();
+        }
       }
-      
-      // Set camera ready
-      setCameraReady(true);
-      setPlaybackStatus('playing');
       
       // Ensure video is playing
       if (video.paused) {
@@ -202,39 +221,74 @@ export function CameraScanner({
           console.warn('📱 Scanner: Play attempt failed:', err);
         });
       }
-      
-      // Start scanning now that we have valid dimensions
-      startScanning();
     } else {
-      // Video dimensions still 0x0, try to encourage playback
-      console.log('📱 Scanner: Still 0x0, attempting to encourage playback...');
-      
-      try {
-        // Try to play the video
-        if (video.paused) {
-          video.play().catch(err => {
-            console.warn('📱 Scanner: Encourage play failed:', err);
-          });
-        }
-        
-        // For mobile devices, try additional strategies
-        if (deviceInfo.isMobile) {
-          // Force a currentTime update to trigger frame rendering
-          if (video.readyState >= 2) {
-            video.currentTime = video.currentTime + 0.001;
-          }
-          
-          // Ensure mobile-specific attributes are set
-          video.setAttribute('playsinline', 'true');
-          video.setAttribute('webkit-playsinline', 'true');
-          video.muted = true;
-        }
-        
-        setVideoLoadAttempts(prev => prev + 1);
+      // Dimensions are 0x0 - camera needs recovery
+      if (cameraReady) {
+        console.warn('⚠️ Scanner: Camera dimensions lost! Attempting recovery...');
+        setCameraReady(false);
         setPlaybackStatus('loading');
-      } catch (error) {
-        console.error('📱 Scanner: Error encouraging playback:', error);
+        
+        // Stop scanning while recovering
+        if (scanningIntervalRef.current) {
+          clearInterval(scanningIntervalRef.current);
+          scanningIntervalRef.current = null;
+        }
       }
+      
+      // Attempt recovery strategies
+      attemptCameraRecovery();
+    }
+  };
+
+  const attemptCameraRecovery = () => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    
+    console.log('📱 Scanner: Attempting camera recovery...');
+    
+    try {
+      // Strategy 1: Try to play the video
+      if (video.paused) {
+        video.play().catch(err => {
+          console.warn('📱 Scanner: Recovery play failed:', err);
+        });
+      }
+      
+      // Strategy 2: For mobile devices, try additional recovery methods
+      if (deviceInfo.isMobile) {
+        // Force a currentTime update to trigger frame rendering
+        if (video.readyState >= 2) {
+          video.currentTime = video.currentTime + 0.001;
+        }
+        
+        // Ensure mobile-specific attributes are set
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.muted = true;
+        
+        // Try to reload the video element
+        if (videoLoadAttempts < 3) {
+          setVideoLoadAttempts(prev => prev + 1);
+          video.load();
+        }
+      }
+      
+      // Strategy 3: If we've had valid dimensions before, try to restore them
+      if (lastValidDimensionsRef.current.width > 0 && videoLoadAttempts < 5) {
+        console.log('📱 Scanner: Attempting to restore previous valid dimensions:', lastValidDimensionsRef.current);
+        
+        // Force video refresh
+        const currentSrc = video.srcObject;
+        video.srcObject = null;
+        setTimeout(() => {
+          video.srcObject = currentSrc;
+          video.play().catch(console.warn);
+        }, 100);
+      }
+      
+    } catch (error) {
+      console.error('📱 Scanner: Error during camera recovery:', error);
     }
   };
 
@@ -348,10 +402,6 @@ export function CameraScanner({
       
       // Set the new stream
       video.srcObject = mediaStream;
-      
-      // Start the continuous dimension checking immediately after setting the stream
-      console.log('📱 Scanner: Starting continuous dimension checking...');
-      dimensionCheckIntervalRef.current = setInterval(checkVideoReadinessAndPlay, 250);
       
       // Initial play attempt
       try {
@@ -508,6 +558,7 @@ export function CameraScanner({
     setRetryCount(0);
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
+    lastValidDimensionsRef.current = { width: 0, height: 0 };
   };
 
   const retryPermission = () => {
@@ -518,6 +569,7 @@ export function CameraScanner({
     setRetryCount(prev => prev + 1);
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
+    lastValidDimensionsRef.current = { width: 0, height: 0 };
     initializeCamera();
   };
 
@@ -636,11 +688,16 @@ export function CameraScanner({
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
               <div className="text-center">
                 <AlertCircle className="h-8 w-8 mx-auto mb-2" />
-                <div className="font-bold">Camera Issue</div>
+                <div className="font-bold">Camera Recovery Mode</div>
                 <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
-                <div className="text-xs mt-1">Checks: {dimensionCheckCount}</div>
+                <div className="text-xs mt-1">Continuous checks: {dimensionCheckCount}</div>
                 {deviceInfo.isMobile && (
                   <div className="text-xs mt-1">Mobile recovery active...</div>
+                )}
+                {lastValidDimensionsRef.current.width > 0 && (
+                  <div className="text-xs mt-1">
+                    Last valid: {lastValidDimensionsRef.current.width}x{lastValidDimensionsRef.current.height}
+                  </div>
                 )}
               </div>
             </div>
@@ -659,6 +716,12 @@ export function CameraScanner({
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
               <Smartphone className="h-3 w-3 mr-1" />
               Mobile
+            </Badge>
+          )}
+          {continuousMonitoring && (
+            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+              <Monitor className="h-3 w-3 mr-1" />
+              Monitoring
             </Badge>
           )}
           {scanCount > 0 && (
@@ -702,9 +765,9 @@ export function CameraScanner({
           )}
         </div>
         
-        {videoDimensions.width === 0 && dimensionCheckIntervalRef.current && (
-          <div className="mt-2 text-xs text-orange-600 text-center">
-            📱 Continuously checking camera readiness... (Check #{dimensionCheckCount})
+        {continuousMonitoring && (
+          <div className="mt-2 text-xs text-green-600 text-center">
+            🔄 Continuous camera monitoring active (Check #{dimensionCheckCount})
           </div>
         )}
       </div>
@@ -714,6 +777,7 @@ export function CameraScanner({
         <div className="font-medium mb-2 text-gray-800 flex items-center gap-2">
           📊 Camera Diagnostics
           {deviceInfo.isMobile && <Smartphone className="h-3 w-3" />}
+          {continuousMonitoring && <Monitor className="h-3 w-3 text-green-600" />}
         </div>
         <div className="grid grid-cols-2 gap-2 text-gray-700">
           <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
@@ -730,8 +794,14 @@ export function CameraScanner({
           <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
           <div>Load Attempts: <span className="font-mono">{videoLoadAttempts}</span></div>
           <div>Ready State: <span className="font-mono">{videoRef.current?.readyState || 'N/A'}</span></div>
-          <div>Dimension Checks: <span className={cn("font-mono", dimensionCheckIntervalRef.current && "text-blue-600 font-bold")}>
-            {dimensionCheckCount} {dimensionCheckIntervalRef.current ? '(active)' : '(stopped)'}
+          <div>Monitoring: <span className={cn("font-mono", continuousMonitoring && "text-green-600 font-bold")}>
+            {continuousMonitoring ? 'ACTIVE' : 'STOPPED'}
+          </span></div>
+          <div>Dimension Checks: <span className={cn("font-mono", continuousMonitoring && "text-blue-600 font-bold")}>
+            {dimensionCheckCount} {continuousMonitoring ? '(continuous)' : '(stopped)'}
+          </span></div>
+          <div>Last Valid: <span className="font-mono text-green-700">
+            {lastValidDimensionsRef.current.width}x{lastValidDimensionsRef.current.height}
           </span></div>
         </div>
         {streamInfo.constraints && (
