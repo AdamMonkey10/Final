@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap, Smartphone, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -39,10 +39,16 @@ export function CameraScanner({
   const [isScanning, setIsScanning] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   
-  // New diagnostic states
+  // Enhanced diagnostic states
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'playing' | 'paused' | 'error'>('idle');
-  const [streamInfo, setStreamInfo] = useState<{ tracks: number; active: boolean }>({ tracks: 0, active: false });
+  const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error'>('idle');
+  const [streamInfo, setStreamInfo] = useState<{ tracks: number; active: boolean; constraints: any }>({ tracks: 0, active: false, constraints: null });
+  const [deviceInfo, setDeviceInfo] = useState<{ isMobile: boolean; userAgent: string; platform: string }>({
+    isMobile: false,
+    userAgent: '',
+    platform: ''
+  });
+  const [retryCount, setRetryCount] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,6 +56,21 @@ export function CameraScanner({
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
+
+  // Detect device info on mount
+  useEffect(() => {
+    const userAgent = navigator.userAgent;
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+    const platform = navigator.platform || 'Unknown';
+    
+    setDeviceInfo({
+      isMobile,
+      userAgent,
+      platform
+    });
+    
+    console.log('📱 Device Info:', { isMobile, userAgent, platform });
+  }, []);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -83,11 +104,11 @@ export function CameraScanner({
     
     if (stream) {
       stream.getTracks().forEach(track => {
-        console.log('📱 Scanner: Stopping track:', track.kind);
+        console.log('📱 Scanner: Stopping track:', track.kind, track.label);
         track.stop();
       });
       setStream(null);
-      setStreamInfo({ tracks: 0, active: false });
+      setStreamInfo({ tracks: 0, active: false, constraints: null });
     }
     
     setHasPermission(null);
@@ -101,7 +122,7 @@ export function CameraScanner({
   const initializeCamera = async () => {
     setIsInitializing(true);
     setCameraReady(false);
-    setPlaybackStatus('idle');
+    setPlaybackStatus('loading');
     initAttemptRef.current += 1;
     const currentAttempt = initAttemptRef.current;
     
@@ -147,16 +168,29 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Optimized constraints for barcode scanning
-    const constraints = {
+    // Enhanced constraints for mobile devices
+    const baseConstraints = {
       video: {
         facingMode: facingMode,
-        width: { ideal: 1920, min: 640 },
-        height: { ideal: 1080, min: 480 },
-        frameRate: { ideal: 30 }
+        width: { ideal: 1920, min: 320 },
+        height: { ideal: 1080, min: 240 },
+        frameRate: { ideal: 30, min: 15 }
       },
       audio: false
     };
+
+    // Mobile-specific constraints
+    const mobileConstraints = {
+      video: {
+        facingMode: { exact: facingMode },
+        width: { ideal: 1280, min: 320 },
+        height: { ideal: 720, min: 240 },
+        frameRate: { ideal: 24, min: 10 }
+      },
+      audio: false
+    };
+
+    const constraints = deviceInfo.isMobile ? mobileConstraints : baseConstraints;
 
     console.log('📱 Scanner: Requesting stream with constraints:', constraints);
     
@@ -164,30 +198,82 @@ export function CameraScanner({
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
       console.log('✅ Scanner: Camera permission granted');
+      console.log('📱 Scanner: Stream tracks:', mediaStream.getTracks().map(track => ({
+        kind: track.kind,
+        label: track.label,
+        enabled: track.enabled,
+        readyState: track.readyState,
+        settings: track.getSettings()
+      })));
       
       // Update stream info
       setStreamInfo({
         tracks: mediaStream.getTracks().length,
-        active: mediaStream.active
+        active: mediaStream.active,
+        constraints: constraints
       });
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         
+        // Add event listeners for better debugging
+        videoRef.current.onloadstart = () => {
+          console.log('📱 Scanner: Video load started');
+          setPlaybackStatus('loading');
+        };
+        
+        videoRef.current.onloadedmetadata = () => {
+          console.log('📱 Scanner: Video metadata loaded');
+          handleVideoLoadedMetadata();
+        };
+        
+        videoRef.current.oncanplay = () => {
+          console.log('📱 Scanner: Video can play');
+        };
+        
+        videoRef.current.onplay = () => {
+          console.log('📱 Scanner: Video playing');
+          setPlaybackStatus('playing');
+        };
+        
+        videoRef.current.onerror = (e) => {
+          console.error('📱 Scanner: Video error:', e);
+          setPlaybackStatus('error');
+        };
+        
         try {
           await videoRef.current.play();
-          setPlaybackStatus('playing');
+          console.log('📱 Scanner: Video play() successful');
         } catch (playError) {
           console.error('❌ Scanner: Video play failed:', playError);
           setPlaybackStatus('error');
-          throw new Error(`Video playback failed: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
+          
+          // Try alternative approach for mobile
+          if (deviceInfo.isMobile) {
+            console.log('📱 Scanner: Trying mobile fallback...');
+            videoRef.current.muted = true;
+            videoRef.current.playsInline = true;
+            videoRef.current.autoplay = true;
+            
+            setTimeout(async () => {
+              try {
+                await videoRef.current?.play();
+                console.log('📱 Scanner: Mobile fallback successful');
+                setPlaybackStatus('playing');
+              } catch (fallbackError) {
+                console.error('❌ Scanner: Mobile fallback failed:', fallbackError);
+                throw new Error(`Video playback failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
+              }
+            }, 100);
+          } else {
+            throw new Error(`Video playback failed: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
+          }
         }
       }
       
       setStream(mediaStream);
       setHasPermission(true);
       setError(null);
-      setCameraReady(true);
       
     } catch (err: any) {
       console.error('❌ Scanner: Camera permission failed:', err);
@@ -205,7 +291,44 @@ export function CameraScanner({
           errorMessage = 'Camera is in use by another application.';
           break;
         case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported.';
+          errorMessage = 'Camera constraints not supported. Trying fallback...';
+          
+          // Try with relaxed constraints
+          if (retryCount < 2) {
+            setRetryCount(prev => prev + 1);
+            console.log('📱 Scanner: Trying with relaxed constraints...');
+            
+            const fallbackConstraints = {
+              video: {
+                facingMode: facingMode
+              },
+              audio: false
+            };
+            
+            try {
+              const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+              console.log('✅ Scanner: Fallback constraints worked');
+              
+              setStreamInfo({
+                tracks: fallbackStream.getTracks().length,
+                active: fallbackStream.active,
+                constraints: fallbackConstraints
+              });
+              
+              if (videoRef.current) {
+                videoRef.current.srcObject = fallbackStream;
+                await videoRef.current.play();
+              }
+              
+              setStream(fallbackStream);
+              setHasPermission(true);
+              setError(null);
+              return;
+            } catch (fallbackErr) {
+              console.error('❌ Scanner: Fallback also failed:', fallbackErr);
+              errorMessage = 'Camera constraints not supported on this device.';
+            }
+          }
           break;
         default:
           errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
@@ -316,24 +439,6 @@ export function CameraScanner({
     debouncedOnResult(scannedText);
   };
 
-  const toggleCamera = () => {
-    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
-    console.log('📱 Scanner: Switching camera to', newFacingMode);
-    setFacingMode(newFacingMode);
-  };
-
-  const retryPermission = () => {
-    console.log('📱 Scanner: Retrying camera permission');
-    setError(null);
-    setLastScan(null);
-    setScanCount(0);
-    initializeCamera();
-  };
-
-  const refreshPage = () => {
-    window.location.reload();
-  };
-
   // Handle video metadata loaded
   const handleVideoLoadedMetadata = () => {
     console.log('📱 Scanner: Video metadata loaded');
@@ -343,9 +448,35 @@ export function CameraScanner({
         height: videoRef.current.videoHeight
       };
       setVideoDimensions(dimensions);
-      setCameraReady(true);
+      setCameraReady(dimensions.width > 0 && dimensions.height > 0);
       console.log('📱 Scanner: Video dimensions:', dimensions);
+      
+      if (dimensions.width === 0 || dimensions.height === 0) {
+        console.warn('📱 Scanner: Video dimensions are 0x0 - this indicates a problem');
+        setError('Video stream has invalid dimensions (0x0)');
+        setPlaybackStatus('error');
+      }
     }
+  };
+
+  const toggleCamera = () => {
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    console.log('📱 Scanner: Switching camera to', newFacingMode);
+    setFacingMode(newFacingMode);
+    setRetryCount(0); // Reset retry count when switching cameras
+  };
+
+  const retryPermission = () => {
+    console.log('📱 Scanner: Retrying camera permission');
+    setError(null);
+    setLastScan(null);
+    setScanCount(0);
+    setRetryCount(0);
+    initializeCamera();
+  };
+
+  const refreshPage = () => {
+    window.location.reload();
   };
 
   if (!isActive) {
@@ -367,6 +498,11 @@ export function CameraScanner({
           <p className="text-sm text-muted-foreground">
             {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
           </p>
+          {deviceInfo.isMobile && (
+            <p className="text-xs text-blue-600 mt-2">
+              📱 Mobile device detected
+            </p>
+          )}
         </div>
       </div>
     );
@@ -388,6 +524,11 @@ export function CameraScanner({
               Refresh Page
             </Button>
           </div>
+          {retryCount > 0 && (
+            <p className="text-xs text-red-600 mt-2">
+              Retry attempt: {retryCount}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -402,7 +543,6 @@ export function CameraScanner({
           playsInline
           muted
           className="w-full h-96 object-cover"
-          onLoadedMetadata={handleVideoLoadedMetadata}
         />
         
         {/* Hidden canvas for image processing */}
@@ -446,6 +586,17 @@ export function CameraScanner({
               </div>
             </div>
           )}
+          
+          {/* Video dimensions warning */}
+          {videoDimensions.width === 0 || videoDimensions.height === 0 ? (
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
+              <div className="text-center">
+                <AlertCircle className="h-8 w-8 mx-auto mb-2" />
+                <div className="font-bold">Camera Issue</div>
+                <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -456,6 +607,12 @@ export function CameraScanner({
             <Camera className="h-3 w-3 mr-1" />
             {facingMode === 'environment' ? 'Back Camera' : 'Front Camera'}
           </Badge>
+          {deviceInfo.isMobile && (
+            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+              <Smartphone className="h-3 w-3 mr-1" />
+              Mobile
+            </Badge>
+          )}
           {scanCount > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
               <Zap className="h-3 w-3 mr-1" />
@@ -500,17 +657,31 @@ export function CameraScanner({
 
       {/* Enhanced diagnostic info - Always visible for debugging */}
       <div className="mt-2 p-3 bg-gray-100 rounded text-xs border">
-        <div className="font-medium mb-2 text-gray-800">📊 Camera Diagnostics</div>
+        <div className="font-medium mb-2 text-gray-800 flex items-center gap-2">
+          📊 Camera Diagnostics
+          {deviceInfo.isMobile && <Smartphone className="h-3 w-3" />}
+        </div>
         <div className="grid grid-cols-2 gap-2 text-gray-700">
           <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
           <div>Facing: <span className="font-mono">{facingMode}</span></div>
           <div>Camera Ready: <span className="font-mono">{cameraReady ? 'Yes' : 'No'}</span></div>
           <div>Playback: <span className="font-mono">{playbackStatus}</span></div>
-          <div>Video Size: <span className="font-mono">{videoDimensions.width}x{videoDimensions.height}</span></div>
+          <div>Video Size: <span className={cn("font-mono", (videoDimensions.width === 0 || videoDimensions.height === 0) && "text-red-600 font-bold")}>
+            {videoDimensions.width}x{videoDimensions.height}
+          </span></div>
           <div>Stream: <span className="font-mono">{streamInfo.tracks} tracks, {streamInfo.active ? 'active' : 'inactive'}</span></div>
           <div>Scan Count: <span className="font-mono">{scanCount}</span></div>
           <div>BarcodeDetector: <span className="font-mono">{'BarcodeDetector' in window ? 'Available' : 'Not Available'}</span></div>
+          <div>Device: <span className="font-mono">{deviceInfo.isMobile ? 'Mobile' : 'Desktop'}</span></div>
+          <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
         </div>
+        {streamInfo.constraints && (
+          <div className="mt-2 pt-2 border-t border-gray-300">
+            <div className="text-xs">
+              <div>Constraints: <span className="font-mono text-blue-700">{JSON.stringify(streamInfo.constraints.video, null, 0)}</span></div>
+            </div>
+          </div>
+        )}
         {lastScan && (
           <div className="mt-2 pt-2 border-t border-gray-300">
             <div>Last scan: <span className="font-mono text-green-700">{lastScan}</span></div>
@@ -521,6 +692,10 @@ export function CameraScanner({
             <div>Error: <span className="font-mono text-red-700">{error}</span></div>
           </div>
         )}
+        <div className="mt-2 pt-2 border-t border-gray-300 text-xs">
+          <div>User Agent: <span className="font-mono text-gray-600">{deviceInfo.userAgent.substring(0, 50)}...</span></div>
+          <div>Platform: <span className="font-mono text-gray-600">{deviceInfo.platform}</span></div>
+        </div>
       </div>
     </div>
   );
