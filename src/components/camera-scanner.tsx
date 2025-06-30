@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -36,6 +36,8 @@ export function CameraScanner({
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [isInitializing, setIsInitializing] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [scanCount, setScanCount] = useState(0);
+  const [isScanning, setIsScanning] = useState(false);
   const lastScanTimeRef = useRef<number>(0);
   const initAttemptRef = useRef<number>(0);
 
@@ -44,7 +46,8 @@ export function CameraScanner({
     debounce((data: string) => {
       console.log('📱 Scanner: Debounced result callback triggered with:', data);
       onResult(data);
-    }, 500), // 500ms debounce delay
+      setIsScanning(false);
+    }, 300), // Reduced debounce for faster response
     [onResult]
   );
 
@@ -101,18 +104,31 @@ export function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // High-resolution constraints optimized for barcode scanning
+    // Ultra-high resolution constraints specifically optimized for barcode scanning
     const constraintSets = [
-      // Ultra-high resolution for detailed barcode scanning
+      // 4K resolution for maximum barcode detail
       { 
         video: { 
           facingMode: { exact: facingMode },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-          frameRate: { ideal: 30, min: 15 },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          frameRate: { ideal: 60, min: 30 },
           focusMode: 'continuous',
           exposureMode: 'continuous',
-          whiteBalanceMode: 'continuous'
+          whiteBalanceMode: 'continuous',
+          zoom: 1.0
+        },
+        audio: false
+      },
+      // Ultra-high resolution alternative
+      { 
+        video: { 
+          facingMode: { exact: facingMode },
+          width: { ideal: 2560, min: 1920 },
+          height: { ideal: 1440, min: 1080 },
+          frameRate: { ideal: 60, min: 30 },
+          focusMode: 'continuous',
+          exposureMode: 'continuous'
         },
         audio: false
       },
@@ -120,9 +136,9 @@ export function CameraScanner({
       { 
         video: { 
           facingMode: { exact: facingMode },
-          width: { ideal: 1280, min: 1024 },
-          height: { ideal: 720, min: 576 },
-          frameRate: { ideal: 30 },
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+          frameRate: { ideal: 60, min: 30 },
           focusMode: 'continuous'
         },
         audio: false
@@ -131,8 +147,8 @@ export function CameraScanner({
       { 
         video: { 
           facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           frameRate: { ideal: 30 }
         },
         audio: false
@@ -141,16 +157,16 @@ export function CameraScanner({
       { 
         video: { 
           facingMode: facingMode,
-          width: { ideal: 1024 },
-          height: { ideal: 576 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
         audio: false
       },
       // Basic resolution
       { 
         video: {
-          width: { ideal: 800, min: 640 },
-          height: { ideal: 600, min: 480 }
+          width: { ideal: 1024, min: 640 },
+          height: { ideal: 768, min: 480 }
         },
         audio: false
       },
@@ -252,21 +268,23 @@ export function CameraScanner({
     });
 
     if (result?.text) {
-      const scannedText = result.text;
+      const scannedText = result.text.trim();
       const now = Date.now();
       
       console.log('📱 Scanner: Processing scanned text:', scannedText);
       console.log('📱 Scanner: Last scan:', lastScan, 'Time since last:', now - lastScanTimeRef.current);
       
-      // Prevent duplicate scans within 2 seconds
-      if (scannedText === lastScan && now - lastScanTimeRef.current < 2000) {
-        console.log('📱 Scanner: Duplicate scan ignored (within 2 seconds)');
+      // Prevent duplicate scans within 1 second (reduced from 2 seconds)
+      if (scannedText === lastScan && now - lastScanTimeRef.current < 1000) {
+        console.log('📱 Scanner: Duplicate scan ignored (within 1 second)');
         return;
       }
 
-      // Update last scan tracking
+      // Update scan tracking
       setLastScan(scannedText);
       lastScanTimeRef.current = now;
+      setScanCount(prev => prev + 1);
+      setIsScanning(true);
       
       console.log('📱 Scanner: Calling debounced result callback');
       // Call debounced onResult to prevent rapid state updates
@@ -306,6 +324,7 @@ export function CameraScanner({
     setError(null);
     setLastScan(null);
     setCameraReady(false);
+    setScanCount(0);
     lastScanTimeRef.current = 0;
   };
 
@@ -315,6 +334,7 @@ export function CameraScanner({
     setHasPermission(null);
     setLastScan(null);
     setCameraReady(false);
+    setScanCount(0);
     lastScanTimeRef.current = 0;
     initializeCamera();
   };
@@ -340,7 +360,7 @@ export function CameraScanner({
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-sm text-muted-foreground">
-            {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
+            {isInitializing ? 'Initializing high-resolution camera...' : 'Requesting camera permission...'}
           </p>
         </div>
       </div>
@@ -401,14 +421,16 @@ export function CameraScanner({
               facingMode: facingMode,
               width: { ideal: 1920, min: 1280 },
               height: { ideal: 1080, min: 720 },
-              frameRate: { ideal: 30 },
-              focusMode: 'continuous'
+              frameRate: { ideal: 60, min: 30 },
+              focusMode: 'continuous',
+              exposureMode: 'continuous',
+              whiteBalanceMode: 'continuous'
             },
             audio: false
           }}
           containerStyle={{
             width: '100%',
-            height: '500px' // Increased height for better scanning
+            height: '600px' // Increased height for better scanning
           }}
           videoStyle={{
             width: '100%',
@@ -417,56 +439,80 @@ export function CameraScanner({
           }}
         />
         
-        {/* Enhanced scanning overlay optimized for barcodes */}
+        {/* Ultra-enhanced scanning overlay optimized for barcodes */}
         <div className="absolute inset-0 pointer-events-none">
           {/* Large corner brackets */}
-          <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-white rounded-tl-lg opacity-80"></div>
-          <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-white rounded-tr-lg opacity-80"></div>
-          <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-white rounded-bl-lg opacity-80"></div>
-          <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
+          <div className="absolute top-4 left-4 w-20 h-20 border-l-4 border-t-4 border-white rounded-tl-lg opacity-90 shadow-lg"></div>
+          <div className="absolute top-4 right-4 w-20 h-20 border-r-4 border-t-4 border-white rounded-tr-lg opacity-90 shadow-lg"></div>
+          <div className="absolute bottom-4 left-4 w-20 h-20 border-l-4 border-b-4 border-white rounded-bl-lg opacity-90 shadow-lg"></div>
+          <div className="absolute bottom-4 right-4 w-20 h-20 border-r-4 border-b-4 border-white rounded-br-lg opacity-90 shadow-lg"></div>
           
-          {/* Primary barcode scanning area - much larger */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-4 border-red-500 rounded-lg bg-red-500 bg-opacity-10">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-white text-sm font-bold bg-red-500 bg-opacity-80 px-3 py-1 rounded">
-                BARCODE SCANNING AREA
+          {/* Primary barcode scanning area - EXTRA LARGE */}
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-56 border-4 border-red-500 rounded-xl bg-red-500 bg-opacity-15 shadow-2xl">
+            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2">
+              <span className="text-white text-lg font-bold bg-red-500 bg-opacity-90 px-4 py-2 rounded-full shadow-lg">
+                📱 BARCODE SCANNING ZONE
               </span>
             </div>
-            {/* Animated scanning line */}
-            <div className="absolute inset-x-2 top-1/2 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg"></div>
+            {/* Multiple animated scanning lines for better detection */}
+            <div className="absolute inset-x-4 top-1/3 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg"></div>
+            <div className="absolute inset-x-4 top-1/2 h-1 bg-red-300 opacity-80 animate-pulse shadow-lg" style={{ animationDelay: '0.5s' }}></div>
+            <div className="absolute inset-x-4 top-2/3 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg" style={{ animationDelay: '1s' }}></div>
+            
+            {/* Crosshair for precise positioning */}
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8">
+              <div className="absolute top-1/2 left-0 w-full h-0.5 bg-white opacity-60"></div>
+              <div className="absolute left-1/2 top-0 w-0.5 h-full bg-white opacity-60"></div>
+            </div>
           </div>
           
           {/* Secondary QR code area */}
-          <div className="absolute top-12 left-1/2 transform -translate-x-1/2 w-32 h-32 border-3 border-yellow-400 border-dashed rounded-lg bg-yellow-400 bg-opacity-10">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-yellow-400 text-xs font-bold bg-black bg-opacity-60 px-2 py-1 rounded">
+          <div className="absolute top-16 left-1/2 transform -translate-x-1/2 w-40 h-40 border-3 border-yellow-400 border-dashed rounded-xl bg-yellow-400 bg-opacity-15 shadow-lg">
+            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
+              <span className="text-yellow-400 text-sm font-bold bg-black bg-opacity-70 px-3 py-1 rounded-full">
                 QR CODES
               </span>
             </div>
           </div>
           
           {/* Additional scanning guides */}
-          <div className="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-64 h-20 border-2 border-blue-400 border-dashed rounded-lg bg-blue-400 bg-opacity-10">
+          <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-72 h-24 border-2 border-blue-400 border-dashed rounded-lg bg-blue-400 bg-opacity-10">
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-blue-400 text-xs font-bold bg-black bg-opacity-60 px-2 py-1 rounded">
-                ALTERNATIVE AREA
+              <span className="text-blue-400 text-sm font-bold bg-black bg-opacity-60 px-3 py-1 rounded">
+                ALTERNATIVE SCAN AREA
               </span>
             </div>
           </div>
+
+          {/* Scanning status indicator */}
+          {isScanning && (
+            <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
+              <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-4 py-2 rounded-full shadow-lg animate-pulse">
+                <Zap className="h-4 w-4" />
+                <span className="font-bold">SCANNING...</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Enhanced controls */}
       <div className="flex items-center justify-between mt-4">
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <Camera className="h-3 w-3 mr-1" />
-            {facingMode === 'environment' ? 'Back Camera' : 'Front Camera'}
+            {facingMode === 'environment' ? 'Back Camera (Recommended)' : 'Front Camera'}
           </Badge>
+          {scanCount > 0 && (
+            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+              <Zap className="h-3 w-3 mr-1" />
+              {scanCount} scans
+            </Badge>
+          )}
           {lastScan && (
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.substring(0, 15)}...
+              Last: {lastScan.substring(0, 12)}...
             </Badge>
           )}
         </div>
@@ -478,28 +524,44 @@ export function CameraScanner({
           className="flex items-center gap-2"
         >
           <RotateCcw className="h-4 w-4" />
-          Flip Camera
+          Switch Camera
         </Button>
       </div>
 
-      {/* Enhanced instructions for barcode scanning */}
-      <div className="mt-4 space-y-2">
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-800 text-center font-bold">
-            📱 BARCODES: Position horizontally in the large RED scanning area
-          </p>
-          <p className="text-xs text-red-600 text-center mt-1">
-            Hold steady for 2-3 seconds • Ensure good lighting • Keep barcode flat
-          </p>
+      {/* Ultra-enhanced instructions for barcode scanning */}
+      <div className="mt-4 space-y-3">
+        <div className="p-4 bg-red-50 border-2 border-red-300 rounded-lg shadow-sm">
+          <div className="text-center">
+            <p className="text-lg font-bold text-red-800 mb-2">
+              🎯 BARCODE SCANNING INSTRUCTIONS
+            </p>
+            <p className="text-sm text-red-700 font-medium">
+              Position barcode HORIZONTALLY in the large RED zone above
+            </p>
+            <p className="text-xs text-red-600 mt-2">
+              ✓ Hold steady for 2-3 seconds ✓ Ensure good lighting ✓ Keep barcode flat and clean
+            </p>
+          </div>
         </div>
-        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-sm text-yellow-800 text-center font-medium">
-            📱 QR CODES: Position in the yellow square at the top
-          </p>
+        
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
+            <p className="text-sm text-yellow-800 text-center font-medium">
+              📱 QR CODES<br />
+              <span className="text-xs">Yellow square area</span>
+            </p>
+          </div>
+          <div className="p-3 bg-blue-50 border border-blue-300 rounded-lg">
+            <p className="text-sm text-blue-700 text-center font-medium">
+              🔄 ALTERNATIVE<br />
+              <span className="text-xs">Blue dashed area</span>
+            </p>
+          </div>
         </div>
-        <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-xs text-blue-700 text-center">
-            💡 Pro Tips: Use back camera • Avoid shadows • Keep device steady • Clean camera lens
+        
+        <div className="p-3 bg-green-50 border border-green-300 rounded-lg">
+          <p className="text-sm text-green-800 text-center">
+            💡 <strong>Pro Tips:</strong> Use back camera • Clean camera lens • Avoid shadows • Keep device steady • Try different angles if not detecting
           </p>
         </div>
       </div>
@@ -510,9 +572,11 @@ export function CameraScanner({
           <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
           <div>Facing: {facingMode}</div>
           <div>Camera Ready: {cameraReady ? 'Yes' : 'No'}</div>
+          <div>Scan Count: {scanCount}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
           <div>Initializing: {isInitializing ? 'Yes' : 'No'}</div>
+          <div>Is Scanning: {isScanning ? 'Yes' : 'No'}</div>
         </div>
       )}
     </div>
