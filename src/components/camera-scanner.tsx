@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap, Smartphone, Monitor } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap, Smartphone, Monitor, Wifi } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -41,7 +41,7 @@ export function CameraScanner({
   
   // Enhanced diagnostic states
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error'>('idle');
+  const [playbackStatus, setPlaybackStatus] = useState<'idle' | 'loading' | 'playing' | 'paused' | 'error' | 'recovering'>('idle');
   const [streamInfo, setStreamInfo] = useState<{ tracks: number; active: boolean; constraints: any }>({ tracks: 0, active: false, constraints: null });
   const [deviceInfo, setDeviceInfo] = useState<{ isMobile: boolean; userAgent: string; platform: string }>({
     isMobile: false,
@@ -52,6 +52,8 @@ export function CameraScanner({
   const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
   const [dimensionCheckCount, setDimensionCheckCount] = useState(0);
   const [continuousMonitoring, setContinuousMonitoring] = useState(false);
+  const [recoveryAttempts, setRecoveryAttempts] = useState(0);
+  const [streamReinitCount, setStreamReinitCount] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,6 +63,8 @@ export function CameraScanner({
   const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
   const lastValidDimensionsRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const zeroDimensionCountRef = useRef<number>(0);
+  const lastRecoveryAttemptRef = useRef<number>(0);
 
   // Detect device info on mount
   useEffect(() => {
@@ -130,7 +134,11 @@ export function CameraScanner({
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
     setContinuousMonitoring(false);
+    setRecoveryAttempts(0);
+    setStreamReinitCount(0);
     lastValidDimensionsRef.current = { width: 0, height: 0 };
+    zeroDimensionCountRef.current = 0;
+    lastRecoveryAttemptRef.current = 0;
   };
 
   const initializeCamera = async () => {
@@ -178,6 +186,7 @@ export function CameraScanner({
   const startContinuousMonitoring = () => {
     console.log('📱 Scanner: Starting continuous camera monitoring...');
     setContinuousMonitoring(true);
+    zeroDimensionCountRef.current = 0;
     
     // Start continuous dimension checking that never stops
     dimensionCheckIntervalRef.current = setInterval(() => {
@@ -201,6 +210,9 @@ export function CameraScanner({
     const hasValidDimensions = currentWidth > 0 && currentHeight > 0;
     
     if (hasValidDimensions) {
+      // Reset zero dimension counter
+      zeroDimensionCountRef.current = 0;
+      
       // Update last valid dimensions
       lastValidDimensionsRef.current = { width: currentWidth, height: currentHeight };
       
@@ -208,6 +220,7 @@ export function CameraScanner({
         console.log('✅ Scanner: Valid video dimensions detected! Camera now ready.');
         setCameraReady(true);
         setPlaybackStatus('playing');
+        setRecoveryAttempts(0); // Reset recovery attempts on success
         
         // Start scanning if not already started
         if (!scanningIntervalRef.current) {
@@ -222,11 +235,14 @@ export function CameraScanner({
         });
       }
     } else {
+      // Dimensions are 0x0 - increment counter
+      zeroDimensionCountRef.current++;
+      
       // Dimensions are 0x0 - camera needs recovery
       if (cameraReady) {
         console.warn('⚠️ Scanner: Camera dimensions lost! Attempting recovery...');
         setCameraReady(false);
-        setPlaybackStatus('loading');
+        setPlaybackStatus('recovering');
         
         // Stop scanning while recovering
         if (scanningIntervalRef.current) {
@@ -235,8 +251,56 @@ export function CameraScanner({
         }
       }
       
-      // Attempt recovery strategies
-      attemptCameraRecovery();
+      // Trigger aggressive recovery if we've had 0x0 for too long
+      const now = Date.now();
+      const timeSinceLastRecovery = now - lastRecoveryAttemptRef.current;
+      
+      // Attempt recovery every 5 seconds if dimensions stay at 0x0
+      if (zeroDimensionCountRef.current > 25 && timeSinceLastRecovery > 5000) { // 25 checks * 200ms = 5 seconds
+        console.log('🔄 Scanner: Triggering aggressive stream recovery after', zeroDimensionCountRef.current, 'zero dimension checks');
+        lastRecoveryAttemptRef.current = now;
+        attemptStreamReinitialize();
+      } else {
+        // Regular recovery attempts
+        attemptCameraRecovery();
+      }
+    }
+  };
+
+  const attemptStreamReinitialize = async () => {
+    console.log('🔄 Scanner: Attempting complete stream reinitialization...');
+    setStreamReinitCount(prev => prev + 1);
+    setPlaybackStatus('recovering');
+    
+    try {
+      // Stop current stream completely
+      if (stream) {
+        stream.getTracks().forEach(track => {
+          console.log('🔄 Scanner: Force stopping track:', track.kind);
+          track.stop();
+        });
+        setStream(null);
+      }
+      
+      // Clear video source
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.load();
+      }
+      
+      // Wait for cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Request new stream with fresh constraints
+      await requestCameraPermission();
+      
+      console.log('✅ Scanner: Stream reinitialization completed');
+      zeroDimensionCountRef.current = 0; // Reset counter after reinit
+      
+    } catch (error) {
+      console.error('❌ Scanner: Stream reinitialization failed:', error);
+      setError('Stream reinitialization failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setPlaybackStatus('error');
     }
   };
 
@@ -244,8 +308,9 @@ export function CameraScanner({
     if (!videoRef.current) return;
     
     const video = videoRef.current;
+    setRecoveryAttempts(prev => prev + 1);
     
-    console.log('📱 Scanner: Attempting camera recovery...');
+    console.log(`📱 Scanner: Attempting camera recovery #${recoveryAttempts + 1}...`);
     
     try {
       // Strategy 1: Try to play the video
@@ -274,17 +339,33 @@ export function CameraScanner({
         }
       }
       
-      // Strategy 3: If we've had valid dimensions before, try to restore them
-      if (lastValidDimensionsRef.current.width > 0 && videoLoadAttempts < 5) {
-        console.log('📱 Scanner: Attempting to restore previous valid dimensions:', lastValidDimensionsRef.current);
-        
-        // Force video refresh
+      // Strategy 3: Force video refresh by toggling srcObject
+      if (recoveryAttempts % 10 === 0 && stream) { // Every 10th attempt
+        console.log('📱 Scanner: Attempting srcObject refresh...');
         const currentSrc = video.srcObject;
         video.srcObject = null;
         setTimeout(() => {
           video.srcObject = currentSrc;
           video.play().catch(console.warn);
         }, 100);
+      }
+      
+      // Strategy 4: Force video element recreation
+      if (recoveryAttempts % 20 === 0) { // Every 20th attempt
+        console.log('📱 Scanner: Attempting video element refresh...');
+        if (video.parentNode) {
+          const newVideo = video.cloneNode(true) as HTMLVideoElement;
+          newVideo.srcObject = stream;
+          newVideo.setAttribute('playsinline', 'true');
+          newVideo.setAttribute('webkit-playsinline', 'true');
+          newVideo.muted = true;
+          newVideo.autoplay = true;
+          
+          video.parentNode.replaceChild(newVideo, video);
+          (videoRef as any).current = newVideo;
+          
+          newVideo.play().catch(console.warn);
+        }
       }
       
     } catch (error) {
@@ -403,7 +484,7 @@ export function CameraScanner({
       // Set the new stream
       video.srcObject = mediaStream;
       
-      // Initial play attempt
+      // Initial play attempt with multiple strategies
       try {
         const playPromise = video.play();
         if (playPromise !== undefined) {
@@ -558,7 +639,10 @@ export function CameraScanner({
     setRetryCount(0);
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
+    setRecoveryAttempts(0);
+    setStreamReinitCount(0);
     lastValidDimensionsRef.current = { width: 0, height: 0 };
+    zeroDimensionCountRef.current = 0;
   };
 
   const retryPermission = () => {
@@ -569,8 +653,16 @@ export function CameraScanner({
     setRetryCount(prev => prev + 1);
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
+    setRecoveryAttempts(0);
+    setStreamReinitCount(0);
     lastValidDimensionsRef.current = { width: 0, height: 0 };
+    zeroDimensionCountRef.current = 0;
     initializeCamera();
+  };
+
+  const forceStreamReinit = () => {
+    console.log('📱 Scanner: Manual stream reinitialization triggered');
+    attemptStreamReinitialize();
   };
 
   const refreshPage = () => {
@@ -691,6 +783,9 @@ export function CameraScanner({
                 <div className="font-bold">Camera Recovery Mode</div>
                 <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
                 <div className="text-xs mt-1">Continuous checks: {dimensionCheckCount}</div>
+                <div className="text-xs">Zero count: {zeroDimensionCountRef.current}</div>
+                <div className="text-xs">Recovery attempts: {recoveryAttempts}</div>
+                <div className="text-xs">Stream reinits: {streamReinitCount}</div>
                 {deviceInfo.isMobile && (
                   <div className="text-xs mt-1">Mobile recovery active...</div>
                 )}
@@ -724,6 +819,12 @@ export function CameraScanner({
               Monitoring
             </Badge>
           )}
+          {playbackStatus === 'recovering' && (
+            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300">
+              <Wifi className="h-3 w-3 mr-1" />
+              Recovering
+            </Badge>
+          )}
           {scanCount > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
               <Zap className="h-3 w-3 mr-1" />
@@ -738,15 +839,30 @@ export function CameraScanner({
           )}
         </div>
         
-        <Button
-          onClick={toggleCamera}
-          variant="outline"
-          size="sm"
-          className="flex items-center gap-2"
-        >
-          <RotateCcw className="h-4 w-4" />
-          Switch Camera
-        </Button>
+        <div className="flex gap-2">
+          {/* Force stream reinit button when dimensions are 0x0 */}
+          {(videoDimensions.width === 0 || videoDimensions.height === 0) && (
+            <Button
+              onClick={forceStreamReinit}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
+            >
+              <Wifi className="h-4 w-4" />
+              Force Reinit
+            </Button>
+          )}
+          
+          <Button
+            onClick={toggleCamera}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Switch Camera
+          </Button>
+        </div>
       </div>
 
       {/* Instructions */}
@@ -770,6 +886,12 @@ export function CameraScanner({
             🔄 Continuous camera monitoring active (Check #{dimensionCheckCount})
           </div>
         )}
+        
+        {zeroDimensionCountRef.current > 25 && (
+          <div className="mt-2 text-xs text-orange-600 text-center">
+            ⚠️ Extended 0x0 dimensions detected - automatic recovery will trigger soon
+          </div>
+        )}
       </div>
 
       {/* Enhanced diagnostic info - Always visible for debugging */}
@@ -778,12 +900,13 @@ export function CameraScanner({
           📊 Camera Diagnostics
           {deviceInfo.isMobile && <Smartphone className="h-3 w-3" />}
           {continuousMonitoring && <Monitor className="h-3 w-3 text-green-600" />}
+          {playbackStatus === 'recovering' && <Wifi className="h-3 w-3 text-orange-600" />}
         </div>
         <div className="grid grid-cols-2 gap-2 text-gray-700">
           <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
           <div>Facing: <span className="font-mono">{facingMode}</span></div>
           <div>Camera Ready: <span className="font-mono">{cameraReady ? 'Yes' : 'No'}</span></div>
-          <div>Playback: <span className="font-mono">{playbackStatus}</span></div>
+          <div>Playback: <span className={cn("font-mono", playbackStatus === 'recovering' && "text-orange-600 font-bold")}>{playbackStatus}</span></div>
           <div>Video Size: <span className={cn("font-mono", (videoDimensions.width === 0 || videoDimensions.height === 0) && "text-red-600 font-bold")}>
             {videoDimensions.width}x{videoDimensions.height}
           </span></div>
@@ -803,6 +926,11 @@ export function CameraScanner({
           <div>Last Valid: <span className="font-mono text-green-700">
             {lastValidDimensionsRef.current.width}x{lastValidDimensionsRef.current.height}
           </span></div>
+          <div>Zero Count: <span className={cn("font-mono", zeroDimensionCountRef.current > 25 && "text-red-600 font-bold")}>
+            {zeroDimensionCountRef.current}
+          </span></div>
+          <div>Recovery Attempts: <span className="font-mono text-orange-700">{recoveryAttempts}</span></div>
+          <div>Stream Reinits: <span className="font-mono text-purple-700">{streamReinitCount}</span></div>
         </div>
         {streamInfo.constraints && (
           <div className="mt-2 pt-2 border-t border-gray-300">
