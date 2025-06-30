@@ -50,14 +50,15 @@ export function CameraScanner({
   });
   const [retryCount, setRetryCount] = useState(0);
   const [videoLoadAttempts, setVideoLoadAttempts] = useState(0);
+  const [dimensionCheckCount, setDimensionCheckCount] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScanTimeRef = useRef<number>(0);
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const dimensionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
   const barcodeDetectorRef = useRef<any>(null);
-  const videoLoadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Detect device info on mount
   useEffect(() => {
@@ -104,9 +105,9 @@ export function CameraScanner({
       scanningIntervalRef.current = null;
     }
     
-    if (videoLoadTimeoutRef.current) {
-      clearTimeout(videoLoadTimeoutRef.current);
-      videoLoadTimeoutRef.current = null;
+    if (dimensionCheckIntervalRef.current) {
+      clearInterval(dimensionCheckIntervalRef.current);
+      dimensionCheckIntervalRef.current = null;
     }
     
     if (stream) {
@@ -125,6 +126,7 @@ export function CameraScanner({
     setPlaybackStatus('idle');
     setVideoDimensions({ width: 0, height: 0 });
     setVideoLoadAttempts(0);
+    setDimensionCheckCount(0);
   };
 
   const initializeCamera = async () => {
@@ -153,7 +155,7 @@ export function CameraScanner({
       
       if (currentAttempt === initAttemptRef.current) {
         await initializeBarcodeDetector();
-        startScanning();
+        // Don't start scanning immediately - wait for dimension check to confirm readiness
       }
     } catch (err) {
       console.error('📱 Scanner: Initialization failed:', err);
@@ -165,6 +167,73 @@ export function CameraScanner({
     } finally {
       if (currentAttempt === initAttemptRef.current) {
         setIsInitializing(false);
+      }
+    }
+  };
+
+  const checkVideoReadinessAndPlay = () => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    const currentWidth = video.videoWidth;
+    const currentHeight = video.videoHeight;
+    
+    setDimensionCheckCount(prev => prev + 1);
+    setVideoDimensions({ width: currentWidth, height: currentHeight });
+    
+    console.log(`📱 Scanner: Dimension check #${dimensionCheckCount + 1} - ${currentWidth}x${currentHeight}`);
+    
+    if (currentWidth > 0 && currentHeight > 0) {
+      console.log('✅ Scanner: Valid video dimensions detected!');
+      
+      // Clear the dimension check interval
+      if (dimensionCheckIntervalRef.current) {
+        clearInterval(dimensionCheckIntervalRef.current);
+        dimensionCheckIntervalRef.current = null;
+      }
+      
+      // Set camera ready
+      setCameraReady(true);
+      setPlaybackStatus('playing');
+      
+      // Ensure video is playing
+      if (video.paused) {
+        video.play().catch(err => {
+          console.warn('📱 Scanner: Play attempt failed:', err);
+        });
+      }
+      
+      // Start scanning now that we have valid dimensions
+      startScanning();
+    } else {
+      // Video dimensions still 0x0, try to encourage playback
+      console.log('📱 Scanner: Still 0x0, attempting to encourage playback...');
+      
+      try {
+        // Try to play the video
+        if (video.paused) {
+          video.play().catch(err => {
+            console.warn('📱 Scanner: Encourage play failed:', err);
+          });
+        }
+        
+        // For mobile devices, try additional strategies
+        if (deviceInfo.isMobile) {
+          // Force a currentTime update to trigger frame rendering
+          if (video.readyState >= 2) {
+            video.currentTime = video.currentTime + 0.001;
+          }
+          
+          // Ensure mobile-specific attributes are set
+          video.setAttribute('playsinline', 'true');
+          video.setAttribute('webkit-playsinline', 'true');
+          video.muted = true;
+        }
+        
+        setVideoLoadAttempts(prev => prev + 1);
+        setPlaybackStatus('loading');
+      } catch (error) {
+        console.error('📱 Scanner: Error encouraging playback:', error);
       }
     }
   };
@@ -280,85 +349,9 @@ export function CameraScanner({
       // Set the new stream
       video.srcObject = mediaStream;
       
-      // Set up comprehensive event handlers
-      const handleLoadStart = () => {
-        console.log('📱 Scanner: Video load started');
-        setPlaybackStatus('loading');
-      };
-      
-      const handleLoadedMetadata = () => {
-        console.log('📱 Scanner: Video metadata loaded');
-        setVideoLoadAttempts(prev => prev + 1);
-        
-        // Force a check of video dimensions after a short delay
-        setTimeout(() => {
-          handleVideoLoadedMetadata();
-        }, 100);
-      };
-      
-      const handleCanPlay = () => {
-        console.log('📱 Scanner: Video can play');
-        
-        // Try to play immediately when we can
-        video.play().catch(err => {
-          console.warn('📱 Scanner: Auto-play failed:', err);
-        });
-      };
-      
-      const handlePlay = () => {
-        console.log('📱 Scanner: Video playing');
-        setPlaybackStatus('playing');
-        
-        // Double-check dimensions when playing starts
-        setTimeout(() => {
-          handleVideoLoadedMetadata();
-        }, 200);
-      };
-      
-      const handleError = (e: any) => {
-        console.error('📱 Scanner: Video error:', e);
-        setPlaybackStatus('error');
-        setError('Video playback error');
-      };
-      
-      const handleResize = () => {
-        console.log('📱 Scanner: Video resized');
-        handleVideoLoadedMetadata();
-      };
-      
-      // Remove any existing listeners
-      video.removeEventListener('loadstart', handleLoadStart);
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      video.removeEventListener('canplay', handleCanPlay);
-      video.removeEventListener('play', handlePlay);
-      video.removeEventListener('error', handleError);
-      video.removeEventListener('resize', handleResize);
-      
-      // Add event listeners
-      video.addEventListener('loadstart', handleLoadStart);
-      video.addEventListener('loadedmetadata', handleLoadedMetadata);
-      video.addEventListener('canplay', handleCanPlay);
-      video.addEventListener('play', handlePlay);
-      video.addEventListener('error', handleError);
-      video.addEventListener('resize', handleResize);
-      
-      // Set a timeout to force video dimension check
-      videoLoadTimeoutRef.current = setTimeout(() => {
-        console.log('📱 Scanner: Forcing video dimension check after timeout');
-        handleVideoLoadedMetadata();
-        
-        // If still 0x0, try to restart the video
-        if (video.videoWidth === 0 || video.videoHeight === 0) {
-          console.log('📱 Scanner: Video still 0x0, attempting restart');
-          video.load();
-          
-          setTimeout(() => {
-            video.play().catch(err => {
-              console.warn('📱 Scanner: Restart play failed:', err);
-            });
-          }, 500);
-        }
-      }, 2000);
+      // Start the continuous dimension checking immediately after setting the stream
+      console.log('📱 Scanner: Starting continuous dimension checking...');
+      dimensionCheckIntervalRef.current = setInterval(checkVideoReadinessAndPlay, 250);
       
       // Initial play attempt
       try {
@@ -384,7 +377,6 @@ export function CameraScanner({
                   setTimeout(() => {
                     video.play().catch(err3 => {
                       console.error('📱 Scanner: All mobile fallbacks failed:', err3);
-                      setError('Video playback failed on mobile device');
                     });
                   }, 300);
                 });
@@ -429,6 +421,11 @@ export function CameraScanner({
     if (!videoRef.current || !canvasRef.current) {
       console.error('📱 Scanner: Video or canvas ref not available');
       return;
+    }
+
+    // Clear any existing scanning interval
+    if (scanningIntervalRef.current) {
+      clearInterval(scanningIntervalRef.current);
     }
 
     scanningIntervalRef.current = setInterval(async () => {
@@ -504,65 +501,13 @@ export function CameraScanner({
     debouncedOnResult(scannedText);
   };
 
-  // Handle video metadata loaded with enhanced mobile support
-  const handleVideoLoadedMetadata = () => {
-    console.log('📱 Scanner: Video metadata loaded');
-    if (videoRef.current) {
-      const video = videoRef.current;
-      const dimensions = {
-        width: video.videoWidth,
-        height: video.videoHeight
-      };
-      
-      console.log('📱 Scanner: Video dimensions:', dimensions);
-      console.log('📱 Scanner: Video ready state:', video.readyState);
-      console.log('📱 Scanner: Video current time:', video.currentTime);
-      console.log('📱 Scanner: Video paused:', video.paused);
-      
-      setVideoDimensions(dimensions);
-      
-      if (dimensions.width > 0 && dimensions.height > 0) {
-        setCameraReady(true);
-        console.log('✅ Scanner: Camera ready with valid dimensions');
-      } else {
-        console.warn('📱 Scanner: Video dimensions are still 0x0');
-        
-        // For mobile devices, try some recovery strategies
-        if (deviceInfo.isMobile && videoLoadAttempts < 5) {
-          console.log('📱 Scanner: Attempting mobile recovery strategy...');
-          
-          setTimeout(() => {
-            // Try to trigger a refresh of the video
-            if (video.readyState >= 2) { // HAVE_CURRENT_DATA
-              video.currentTime = video.currentTime; // Force refresh
-            }
-            
-            // Check again after a delay
-            setTimeout(() => {
-              const newDimensions = {
-                width: video.videoWidth,
-                height: video.videoHeight
-              };
-              console.log('📱 Scanner: Recovery check dimensions:', newDimensions);
-              
-              if (newDimensions.width > 0 && newDimensions.height > 0) {
-                setVideoDimensions(newDimensions);
-                setCameraReady(true);
-                console.log('✅ Scanner: Recovery successful');
-              }
-            }, 500);
-          }, 1000);
-        }
-      }
-    }
-  };
-
   const toggleCamera = () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     console.log('📱 Scanner: Switching camera to', newFacingMode);
     setFacingMode(newFacingMode);
     setRetryCount(0);
     setVideoLoadAttempts(0);
+    setDimensionCheckCount(0);
   };
 
   const retryPermission = () => {
@@ -572,6 +517,7 @@ export function CameraScanner({
     setScanCount(0);
     setRetryCount(prev => prev + 1);
     setVideoLoadAttempts(0);
+    setDimensionCheckCount(0);
     initializeCamera();
   };
 
@@ -690,11 +636,11 @@ export function CameraScanner({
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600 bg-opacity-90 text-white px-4 py-2 rounded-lg">
               <div className="text-center">
                 <AlertCircle className="h-8 w-8 mx-auto mb-2" />
-                <div className="font-bold">Camera Loading...</div>
+                <div className="font-bold">Camera Issue</div>
                 <div className="text-sm">Video dimensions: {videoDimensions.width}x{videoDimensions.height}</div>
-                <div className="text-xs mt-1">Load attempts: {videoLoadAttempts}</div>
+                <div className="text-xs mt-1">Checks: {dimensionCheckCount}</div>
                 {deviceInfo.isMobile && (
-                  <div className="text-xs mt-1">Mobile recovery in progress...</div>
+                  <div className="text-xs mt-1">Mobile recovery active...</div>
                 )}
               </div>
             </div>
@@ -756,9 +702,9 @@ export function CameraScanner({
           )}
         </div>
         
-        {deviceInfo.isMobile && videoDimensions.width === 0 && (
+        {videoDimensions.width === 0 && dimensionCheckIntervalRef.current && (
           <div className="mt-2 text-xs text-orange-600 text-center">
-            📱 Mobile camera initializing... This may take a few seconds on some devices.
+            📱 Continuously checking camera readiness... (Check #{dimensionCheckCount})
           </div>
         )}
       </div>
@@ -784,6 +730,9 @@ export function CameraScanner({
           <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
           <div>Load Attempts: <span className="font-mono">{videoLoadAttempts}</span></div>
           <div>Ready State: <span className="font-mono">{videoRef.current?.readyState || 'N/A'}</span></div>
+          <div>Dimension Checks: <span className={cn("font-mono", dimensionCheckIntervalRef.current && "text-blue-600 font-bold")}>
+            {dimensionCheckCount} {dimensionCheckIntervalRef.current ? '(active)' : '(stopped)'}
+          </span></div>
         </div>
         {streamInfo.constraints && (
           <div className="mt-2 pt-2 border-t border-gray-300">
