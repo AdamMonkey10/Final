@@ -57,25 +57,19 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
             WAREHOUSE LOCATION
           </div>
           
-          {/* Location Code - Large */}
-          <div className="text-2xl font-bold text-black">
-            {location.code}
-          </div>
-          
           {/* Row and Bay */}
           <div className="text-sm text-gray-700">
             Row {location.row} • Bay {location.bay}
           </div>
           
-          {/* Level */}
-          <div className="text-lg font-semibold text-gray-800">
-            {location.level === '0' ? 'Ground Level' : `Level ${location.level}`}
+          {/* Location Code - Extra Large and Prominent */}
+          <div className="text-4xl font-black text-black border-2 border-black p-4 rounded-lg bg-yellow-100">
+            {location.code}
           </div>
           
-          {/* Height */}
-          <div className="text-sm text-gray-600 flex items-center justify-center gap-1">
-            <Ruler className="h-3 w-3" />
-            Height: {height}m
+          {/* Level and Height */}
+          <div className="text-lg font-semibold text-gray-800">
+            {location.level === '0' ? 'Ground Level' : `Level ${location.level}`} • Height: {height}m
           </div>
           
           {/* Weight Info */}
@@ -92,12 +86,12 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
             </div>
           )}
           
-          {/* Barcode */}
-          <div className="py-4">
+          {/* Barcode - Larger and more prominent */}
+          <div className="py-4 bg-white border rounded">
             <Barcode 
-              value={`LOC,${location.code}`} 
-              width={2} 
-              height={60}
+              value={location.code} 
+              width={2.5} 
+              height={50}
               className="mx-auto"
             />
           </div>
@@ -126,13 +120,14 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
       
       <div className="text-xs text-center text-muted-foreground max-w-md">
         <p className="mb-2">
-          <strong>Label Details:</strong>
+          <strong>Label Features:</strong>
         </p>
         <ul className="text-left space-y-1">
-          <li>• 103x103mm ZPL label format</li>
-          <li>• Includes both barcode and QR code</li>
+          <li>• <strong>Large location code:</strong> {location.code}</li>
+          <li>• Linear barcode for scanning</li>
+          <li>• QR code for mobile devices</li>
+          <li>• 103x103mm ZPL format</li>
           <li>• Optimized for Zebra printers</li>
-          <li>• Contains location and rack information</li>
         </ul>
       </div>
     </div>
