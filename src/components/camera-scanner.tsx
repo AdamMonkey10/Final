@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import QrScanner from 'react-qr-scanner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
@@ -38,8 +37,14 @@ export function CameraScanner({
   const [cameraReady, setCameraReady] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScanTimeRef = useRef<number>(0);
+  const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
+  const barcodeDetectorRef = useRef<any>(null);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -47,21 +52,43 @@ export function CameraScanner({
       console.log('📱 Scanner: Debounced result callback triggered with:', data);
       onResult(data);
       setIsScanning(false);
-    }, 300), // Reduced debounce for faster response
+    }, 500),
     [onResult]
   );
 
   useEffect(() => {
     if (isActive) {
-      console.log('📱 Scanner: Component activated, requesting camera permission');
+      console.log('📱 Scanner: Component activated');
       initializeCamera();
     } else {
       console.log('📱 Scanner: Component deactivated');
-      setHasPermission(null);
-      setError(null);
-      setCameraReady(false);
+      cleanup();
     }
+
+    return () => {
+      cleanup();
+    };
   }, [isActive, facingMode]);
+
+  const cleanup = () => {
+    if (scanningIntervalRef.current) {
+      clearInterval(scanningIntervalRef.current);
+      scanningIntervalRef.current = null;
+    }
+    
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        console.log('📱 Scanner: Stopping track:', track.kind);
+        track.stop();
+      });
+      setStream(null);
+    }
+    
+    setHasPermission(null);
+    setError(null);
+    setCameraReady(false);
+    setIsScanning(false);
+  };
 
   const initializeCamera = async () => {
     setIsInitializing(true);
@@ -73,20 +100,27 @@ export function CameraScanner({
       setError(null);
       setHasPermission(null);
       
-      // Wait a bit to ensure previous streams are cleaned up
+      // Clean up any existing stream
+      cleanup();
+      
+      // Wait a bit to ensure cleanup is complete
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Check if this attempt is still current
       if (currentAttempt !== initAttemptRef.current) {
-        console.log('📱 Scanner: Initialization cancelled (newer attempt started)');
+        console.log('📱 Scanner: Initialization cancelled');
         return;
       }
       
       await requestCameraPermission();
+      
+      if (currentAttempt === initAttemptRef.current) {
+        await initializeBarcodeDetector();
+        startScanning();
+      }
     } catch (err) {
       console.error('📱 Scanner: Initialization failed:', err);
       if (currentAttempt === initAttemptRef.current) {
-        setError('Failed to initialize camera');
+        setError(err instanceof Error ? err.message : 'Failed to initialize camera');
         setHasPermission(false);
       }
     } finally {
@@ -97,245 +131,177 @@ export function CameraScanner({
   };
 
   const requestCameraPermission = async () => {
-    console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
+    console.log('📱 Scanner: Requesting camera permission');
     
-    // Check if getUserMedia is available
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Ultra-high resolution constraints specifically optimized for barcode scanning
-    const constraintSets = [
-      // 4K resolution for maximum barcode detail
-      { 
-        video: { 
-          facingMode: { exact: facingMode },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          frameRate: { ideal: 60, min: 30 },
-          focusMode: 'continuous',
-          exposureMode: 'continuous',
-          whiteBalanceMode: 'continuous',
-          zoom: 1.0
-        },
-        audio: false
+    // Optimized constraints for barcode scanning
+    const constraints = {
+      video: {
+        facingMode: facingMode,
+        width: { ideal: 1920, min: 640 },
+        height: { ideal: 1080, min: 480 },
+        frameRate: { ideal: 30 }
       },
-      // Ultra-high resolution alternative
-      { 
-        video: { 
-          facingMode: { exact: facingMode },
-          width: { ideal: 2560, min: 1920 },
-          height: { ideal: 1440, min: 1080 },
-          frameRate: { ideal: 60, min: 30 },
-          focusMode: 'continuous',
-          exposureMode: 'continuous'
-        },
-        audio: false
-      },
-      // High resolution with focus optimization
-      { 
-        video: { 
-          facingMode: { exact: facingMode },
-          width: { ideal: 1920, min: 1280 },
-          height: { ideal: 1080, min: 720 },
-          frameRate: { ideal: 60, min: 30 },
-          focusMode: 'continuous'
-        },
-        audio: false
-      },
-      // Standard high resolution
-      { 
-        video: { 
-          facingMode: facingMode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
-        },
-        audio: false
-      },
-      // Medium resolution fallback
-      { 
-        video: { 
-          facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      },
-      // Basic resolution
-      { 
-        video: {
-          width: { ideal: 1024, min: 640 },
-          height: { ideal: 768, min: 480 }
-        },
-        audio: false
-      },
-      // Last resort
-      { 
-        video: true,
-        audio: false
-      }
-    ];
+      audio: false
+    };
 
-    for (let i = 0; i < constraintSets.length; i++) {
-      const constraints = constraintSets[i];
-      console.log(`📱 Scanner: Trying constraint set ${i + 1}:`, constraints);
+    console.log('📱 Scanner: Requesting stream with constraints:', constraints);
+    
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        console.log('✅ Scanner: Camera permission granted with constraint set', i + 1);
-        console.log('📱 Scanner: Stream details:', {
-          active: stream.active,
-          tracks: stream.getTracks().length,
-          videoTracks: stream.getVideoTracks().length
-        });
-        
-        // Log video track settings
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-          const settings = videoTrack.getSettings();
-          console.log('📱 Scanner: Video track settings:', settings);
-        }
-        
-        setHasPermission(true);
-        setError(null);
-        setCameraReady(true);
-        
-        // Stop the stream immediately as QrScanner will handle it
-        stream.getTracks().forEach(track => {
-          console.log('📱 Scanner: Stopping track:', track.kind, track.label);
-          track.stop();
-        });
-        
-        return; // Success, exit the loop
-        
-      } catch (err: any) {
-        console.error(`❌ Scanner: Constraint set ${i + 1} failed:`, {
-          error: err,
-          name: err?.name,
-          message: err?.message,
-          code: err?.code,
-          constraint: err?.constraint
-        });
-        
-        // If this is the last constraint set, handle the error
-        if (i === constraintSets.length - 1) {
-          setHasPermission(false);
-          setCameraReady(false);
-          
-          let errorMessage = 'Camera access failed. Please check your camera permissions.';
-          
-          switch (err.name) {
-            case 'NotAllowedError':
-              errorMessage = 'Camera permission denied. Please allow camera access in your browser settings and refresh the page.';
-              break;
-            case 'NotFoundError':
-              errorMessage = 'No camera found on this device.';
-              break;
-            case 'NotReadableError':
-              errorMessage = 'Camera is already in use by another application. Please close other camera apps and try again.';
-              break;
-            case 'OverconstrainedError':
-              errorMessage = 'Camera constraints not supported. Try switching camera or refreshing the page.';
-              break;
-            case 'SecurityError':
-              errorMessage = 'Camera access blocked by security policy. Please check your browser settings.';
-              break;
-            case 'AbortError':
-              errorMessage = 'Camera access was aborted. Please try again.';
-              break;
-            case 'TypeError':
-              errorMessage = 'Invalid camera constraints. Please refresh the page and try again.';
-              break;
-            default:
-              errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
-          }
-          
-          setError(errorMessage);
-          onError?.(errorMessage);
-        }
+      console.log('✅ Scanner: Camera permission granted');
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        await videoRef.current.play();
       }
+      
+      setStream(mediaStream);
+      setHasPermission(true);
+      setError(null);
+      setCameraReady(true);
+      
+    } catch (err: any) {
+      console.error('❌ Scanner: Camera permission failed:', err);
+      
+      let errorMessage = 'Camera access failed';
+      
+      switch (err.name) {
+        case 'NotAllowedError':
+          errorMessage = 'Camera permission denied. Please allow camera access and refresh.';
+          break;
+        case 'NotFoundError':
+          errorMessage = 'No camera found on this device.';
+          break;
+        case 'NotReadableError':
+          errorMessage = 'Camera is in use by another application.';
+          break;
+        case 'OverconstrainedError':
+          errorMessage = 'Camera constraints not supported.';
+          break;
+        default:
+          errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
+      }
+      
+      setError(errorMessage);
+      setHasPermission(false);
+      onError?.(errorMessage);
+      throw new Error(errorMessage);
     }
   };
 
-  const handleScan = (result: any) => {
-    console.log('📱 Scanner: Raw scan result received:', {
-      result,
-      type: typeof result,
-      text: result?.text,
-      data: result?.data
-    });
-
-    if (result?.text) {
-      const scannedText = result.text.trim();
-      const now = Date.now();
-      
-      console.log('📱 Scanner: Processing scanned text:', scannedText);
-      console.log('📱 Scanner: Last scan:', lastScan, 'Time since last:', now - lastScanTimeRef.current);
-      
-      // Prevent duplicate scans within 1 second (reduced from 2 seconds)
-      if (scannedText === lastScan && now - lastScanTimeRef.current < 1000) {
-        console.log('📱 Scanner: Duplicate scan ignored (within 1 second)');
-        return;
+  const initializeBarcodeDetector = async () => {
+    try {
+      // Try to use native BarcodeDetector first (Chrome/Edge)
+      if ('BarcodeDetector' in window) {
+        console.log('📱 Scanner: Using native BarcodeDetector');
+        barcodeDetectorRef.current = new (window as any).BarcodeDetector({
+          formats: [
+            'aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix',
+            'ean_13', 'ean_8', 'itf', 'pdf417', 'qr_code', 'upc_a', 'upc_e'
+          ]
+        });
+      } else {
+        console.log('📱 Scanner: BarcodeDetector not available, using fallback');
+        barcodeDetectorRef.current = null;
       }
-
-      // Update scan tracking
-      setLastScan(scannedText);
-      lastScanTimeRef.current = now;
-      setScanCount(prev => prev + 1);
-      setIsScanning(true);
-      
-      console.log('📱 Scanner: Calling debounced result callback');
-      // Call debounced onResult to prevent rapid state updates
-      debouncedOnResult(scannedText);
-    } else {
-      console.log('📱 Scanner: No text found in scan result');
+    } catch (error) {
+      console.error('📱 Scanner: Failed to initialize BarcodeDetector:', error);
+      barcodeDetectorRef.current = null;
     }
   };
 
-  const handleError = (error: any) => {
-    console.error('❌ Scanner: QR Scanner error:', {
-      error,
-      name: error?.name,
-      message: error?.message,
-      code: error?.code,
-      type: typeof error,
-      stack: error?.stack
-    });
+  const startScanning = async () => {
+    console.log('📱 Scanner: Starting barcode scanning');
     
-    let errorMessage = 'Scanner error occurred. Please try again.';
-    
-    if (error?.message) {
-      errorMessage = `Scanner error: ${error.message}`;
-    } else if (typeof error === 'string') {
-      errorMessage = `Scanner error: ${error}`;
+    if (!videoRef.current || !canvasRef.current) {
+      console.error('📱 Scanner: Video or canvas ref not available');
+      return;
+    }
+
+    scanningIntervalRef.current = setInterval(async () => {
+      await scanFrame();
+    }, 100); // Scan every 100ms
+  };
+
+  const scanFrame = async () => {
+    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState !== 4) {
+      return;
     }
     
-    setError(errorMessage);
-    onError?.(errorMessage);
+    try {
+      if (barcodeDetectorRef.current) {
+        // Use native BarcodeDetector
+        const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
+        
+        if (barcodes.length > 0) {
+          const barcode = barcodes[0];
+          console.log('📱 Scanner: Barcode detected:', barcode);
+          handleScanResult(barcode.rawValue);
+        }
+      } else {
+        // Fallback: draw to canvas and indicate scanning
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) return;
+        
+        // Set canvas size to match video
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // Draw current video frame to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Visual feedback for scanning attempt
+        setIsScanning(true);
+        setTimeout(() => setIsScanning(false), 200);
+      }
+    } catch (error) {
+      // Silently continue - detection errors are common
+    }
+  };
+
+  const handleScanResult = (result: string) => {
+    if (!result || typeof result !== 'string') return;
+    
+    const scannedText = result.trim();
+    const now = Date.now();
+    
+    console.log('📱 Scanner: Processing scanned text:', scannedText);
+    
+    // Prevent duplicate scans within 2 seconds
+    if (scannedText === lastScan && now - lastScanTimeRef.current < 2000) {
+      console.log('📱 Scanner: Duplicate scan ignored');
+      return;
+    }
+
+    // Update scan tracking
+    setLastScan(scannedText);
+    lastScanTimeRef.current = now;
+    setScanCount(prev => prev + 1);
+    setIsScanning(true);
+    
+    console.log('📱 Scanner: Calling result callback');
+    debouncedOnResult(scannedText);
   };
 
   const toggleCamera = () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
-    console.log('📱 Scanner: Switching camera from', facingMode, 'to', newFacingMode);
-    
+    console.log('📱 Scanner: Switching camera to', newFacingMode);
     setFacingMode(newFacingMode);
-    setError(null);
-    setLastScan(null);
-    setCameraReady(false);
-    setScanCount(0);
-    lastScanTimeRef.current = 0;
   };
 
   const retryPermission = () => {
     console.log('📱 Scanner: Retrying camera permission');
     setError(null);
-    setHasPermission(null);
     setLastScan(null);
-    setCameraReady(false);
     setScanCount(0);
-    lastScanTimeRef.current = 0;
     initializeCamera();
   };
 
@@ -360,7 +326,7 @@ export function CameraScanner({
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-sm text-muted-foreground">
-            {isInitializing ? 'Initializing high-resolution camera...' : 'Requesting camera permission...'}
+            {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
           </p>
         </div>
       </div>
@@ -383,125 +349,76 @@ export function CameraScanner({
               Refresh Page
             </Button>
           </div>
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <p className="text-xs text-blue-700">
-              <strong>Troubleshooting:</strong><br />
-              • Allow camera permissions in browser settings<br />
-              • Close other camera apps<br />
-              • Try refreshing the page<br />
-              • Check if camera is working in other apps
-            </p>
-          </div>
         </div>
       </div>
     );
   }
-
-  if (!cameraReady) {
-    return (
-      <div className={cn("flex items-center justify-center p-8 bg-yellow-50 border border-yellow-200 rounded-lg", className)}>
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto mb-4"></div>
-          <p className="text-sm text-yellow-700">Camera is starting up...</p>
-        </div>
-      </div>
-    );
-  }
-
-  console.log('📱 Scanner: Rendering QR scanner with facingMode:', facingMode);
 
   return (
     <div className={cn("relative", className)}>
       <div className="relative bg-black rounded-lg overflow-hidden">
-        <QrScanner
-          onDecode={handleScan}
-          onError={handleError}
-          constraints={{
-            video: {
-              facingMode: facingMode,
-              width: { ideal: 1920, min: 1280 },
-              height: { ideal: 1080, min: 720 },
-              frameRate: { ideal: 60, min: 30 },
-              focusMode: 'continuous',
-              exposureMode: 'continuous',
-              whiteBalanceMode: 'continuous'
-            },
-            audio: false
-          }}
-          containerStyle={{
-            width: '100%',
-            height: '600px' // Increased height for better scanning
-          }}
-          videoStyle={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover'
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-96 object-cover"
+          onLoadedMetadata={() => {
+            console.log('📱 Scanner: Video loaded');
+            setCameraReady(true);
           }}
         />
         
-        {/* Ultra-enhanced scanning overlay optimized for barcodes */}
+        {/* Hidden canvas for image processing */}
+        <canvas
+          ref={canvasRef}
+          className="hidden"
+        />
+        
+        {/* Scanning overlay */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Large corner brackets */}
-          <div className="absolute top-4 left-4 w-20 h-20 border-l-4 border-t-4 border-white rounded-tl-lg opacity-90 shadow-lg"></div>
-          <div className="absolute top-4 right-4 w-20 h-20 border-r-4 border-t-4 border-white rounded-tr-lg opacity-90 shadow-lg"></div>
-          <div className="absolute bottom-4 left-4 w-20 h-20 border-l-4 border-b-4 border-white rounded-bl-lg opacity-90 shadow-lg"></div>
-          <div className="absolute bottom-4 right-4 w-20 h-20 border-r-4 border-b-4 border-white rounded-br-lg opacity-90 shadow-lg"></div>
+          {/* Corner brackets */}
+          <div className="absolute top-4 left-4 w-16 h-16 border-l-4 border-t-4 border-white rounded-tl-lg opacity-80"></div>
+          <div className="absolute top-4 right-4 w-16 h-16 border-r-4 border-t-4 border-white rounded-tr-lg opacity-80"></div>
+          <div className="absolute bottom-4 left-4 w-16 h-16 border-l-4 border-b-4 border-white rounded-bl-lg opacity-80"></div>
+          <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
           
-          {/* Primary barcode scanning area - EXTRA LARGE */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-56 border-4 border-red-500 rounded-xl bg-red-500 bg-opacity-15 shadow-2xl">
+          {/* Main scanning area */}
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-2 border-red-500 rounded-lg bg-red-500 bg-opacity-10">
             <div className="absolute -top-8 left-1/2 transform -translate-x-1/2">
-              <span className="text-white text-lg font-bold bg-red-500 bg-opacity-90 px-4 py-2 rounded-full shadow-lg">
-                📱 BARCODE SCANNING ZONE
+              <span className="text-white text-sm font-bold bg-red-500 bg-opacity-90 px-3 py-1 rounded-full">
+                Scan Code Here
               </span>
             </div>
-            {/* Multiple animated scanning lines for better detection */}
-            <div className="absolute inset-x-4 top-1/3 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg"></div>
-            <div className="absolute inset-x-4 top-1/2 h-1 bg-red-300 opacity-80 animate-pulse shadow-lg" style={{ animationDelay: '0.5s' }}></div>
-            <div className="absolute inset-x-4 top-2/3 h-1 bg-red-400 opacity-90 animate-pulse shadow-lg" style={{ animationDelay: '1s' }}></div>
             
-            {/* Crosshair for precise positioning */}
-            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8">
-              <div className="absolute top-1/2 left-0 w-full h-0.5 bg-white opacity-60"></div>
-              <div className="absolute left-1/2 top-0 w-0.5 h-full bg-white opacity-60"></div>
+            {/* Scanning line animation */}
+            <div className="absolute inset-x-4 top-1/2 h-0.5 bg-red-400 animate-pulse"></div>
+            
+            {/* Center crosshair */}
+            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6">
+              <div className="absolute top-1/2 left-0 w-full h-px bg-white opacity-60"></div>
+              <div className="absolute left-1/2 top-0 w-px h-full bg-white opacity-60"></div>
             </div>
           </div>
           
-          {/* Secondary QR code area */}
-          <div className="absolute top-16 left-1/2 transform -translate-x-1/2 w-40 h-40 border-3 border-yellow-400 border-dashed rounded-xl bg-yellow-400 bg-opacity-15 shadow-lg">
-            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2">
-              <span className="text-yellow-400 text-sm font-bold bg-black bg-opacity-70 px-3 py-1 rounded-full">
-                QR CODES
-              </span>
-            </div>
-          </div>
-          
-          {/* Additional scanning guides */}
-          <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-72 h-24 border-2 border-blue-400 border-dashed rounded-lg bg-blue-400 bg-opacity-10">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-blue-400 text-sm font-bold bg-black bg-opacity-60 px-3 py-1 rounded">
-                ALTERNATIVE SCAN AREA
-              </span>
-            </div>
-          </div>
-
-          {/* Scanning status indicator */}
+          {/* Scanning status */}
           {isScanning && (
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
-              <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-4 py-2 rounded-full shadow-lg animate-pulse">
+              <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full animate-pulse">
                 <Zap className="h-4 w-4" />
-                <span className="font-bold">SCANNING...</span>
+                <span className="font-bold">Scanning...</span>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Enhanced controls */}
+      {/* Controls */}
       <div className="flex items-center justify-between mt-4">
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
             <Camera className="h-3 w-3 mr-1" />
-            {facingMode === 'environment' ? 'Back Camera (Recommended)' : 'Front Camera'}
+            {facingMode === 'environment' ? 'Back Camera' : 'Front Camera'}
           </Badge>
           {scanCount > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
@@ -512,7 +429,7 @@ export function CameraScanner({
           {lastScan && (
             <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
               <CheckCircle className="h-3 w-3 mr-1" />
-              Last: {lastScan.substring(0, 12)}...
+              Last: {lastScan.substring(0, 10)}...
             </Badge>
           )}
         </div>
@@ -528,41 +445,20 @@ export function CameraScanner({
         </Button>
       </div>
 
-      {/* Ultra-enhanced instructions for barcode scanning */}
-      <div className="mt-4 space-y-3">
-        <div className="p-4 bg-red-50 border-2 border-red-300 rounded-lg shadow-sm">
-          <div className="text-center">
-            <p className="text-lg font-bold text-red-800 mb-2">
-              🎯 BARCODE SCANNING INSTRUCTIONS
-            </p>
-            <p className="text-sm text-red-700 font-medium">
-              Position barcode HORIZONTALLY in the large RED zone above
-            </p>
-            <p className="text-xs text-red-600 mt-2">
-              ✓ Hold steady for 2-3 seconds ✓ Ensure good lighting ✓ Keep barcode flat and clean
-            </p>
-          </div>
-        </div>
+      {/* Instructions */}
+      <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-sm text-blue-800 text-center">
+          <strong>📱 Position your QR code or barcode within the red frame</strong><br />
+          Hold steady for best results • Ensure good lighting • Keep code flat and clean
+        </p>
         
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg">
-            <p className="text-sm text-yellow-800 text-center font-medium">
-              📱 QR CODES<br />
-              <span className="text-xs">Yellow square area</span>
-            </p>
-          </div>
-          <div className="p-3 bg-blue-50 border border-blue-300 rounded-lg">
-            <p className="text-sm text-blue-700 text-center font-medium">
-              🔄 ALTERNATIVE<br />
-              <span className="text-xs">Blue dashed area</span>
-            </p>
-          </div>
-        </div>
-        
-        <div className="p-3 bg-green-50 border border-green-300 rounded-lg">
-          <p className="text-sm text-green-800 text-center">
-            💡 <strong>Pro Tips:</strong> Use back camera • Clean camera lens • Avoid shadows • Keep device steady • Try different angles if not detecting
-          </p>
+        {/* Browser compatibility note */}
+        <div className="mt-2 text-xs text-blue-600 text-center">
+          {'BarcodeDetector' in window ? (
+            <span className="text-green-600">✅ Enhanced scanning available (Chrome/Edge)</span>
+          ) : (
+            <span className="text-orange-600">⚠️ Basic scanning mode (consider using Chrome for better detection)</span>
+          )}
         </div>
       </div>
 
@@ -575,8 +471,7 @@ export function CameraScanner({
           <div>Scan Count: {scanCount}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
-          <div>Initializing: {isInitializing ? 'Yes' : 'No'}</div>
-          <div>Is Scanning: {isScanning ? 'Yes' : 'No'}</div>
+          <div>BarcodeDetector: {'BarcodeDetector' in window ? 'Available' : 'Not Available'}</div>
         </div>
       )}
     </div>
