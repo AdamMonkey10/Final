@@ -2,10 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Zap } from 'lucide-react';
-// Simple utility function to combine class names
-const cn = (...classes: (string | undefined | null | false)[]) => {
-  return classes.filter(Boolean).join(' ');
-};
+import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
   onResult: (data: string) => void;
@@ -41,12 +38,15 @@ export default function CameraScanner({
   const [scanCount, setScanCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [manualInput, setManualInput] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastScanTimeRef = useRef<number>(0);
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const initAttemptRef = useRef<number>(0);
+  const barcodeDetectorRef = useRef<any>(null);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -57,9 +57,6 @@ export default function CameraScanner({
     }, 500),
     [onResult]
   );
-
-  // QR Scanner instance
-  const qrScannerRef = useRef<any>(null);
 
   useEffect(() => {
     if (isActive) {
@@ -76,14 +73,6 @@ export default function CameraScanner({
   }, [isActive, facingMode]);
 
   const cleanup = () => {
-    // Stop QR scanner first
-    if (qrScannerRef.current) {
-      console.log('📱 Scanner: Stopping QR scanner');
-      qrScannerRef.current.stop();
-      qrScannerRef.current.destroy();
-      qrScannerRef.current = null;
-    }
-    
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
       scanningIntervalRef.current = null;
@@ -149,7 +138,6 @@ export default function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    // Simplified constraints that work better across devices
     const constraints = {
       video: {
         facingMode: facingMode,
@@ -207,7 +195,7 @@ export default function CameraScanner({
   };
 
   const startScanning = async () => {
-    console.log('📱 Scanner: Starting QR/Barcode scanning');
+    console.log('📱 Scanner: Starting barcode scanning');
     
     if (!videoRef.current) {
       console.error('📱 Scanner: Video ref not available');
@@ -215,42 +203,11 @@ export default function CameraScanner({
     }
 
     try {
-      // Import and initialize QR scanner
-      const QrScanner = (await import('https://cdnjs.cloudflare.com/ajax/libs/qr-scanner/1.4.2/qr-scanner.min.js')).default;
-      
-      console.log('📱 Scanner: QR Scanner loaded, initializing...');
-      
-      // Create QR scanner instance
-      qrScannerRef.current = new QrScanner(
-        videoRef.current,
-        (result: any) => {
-          console.log('📱 Scanner: QR Code detected:', result);
-          handleScanResult(result.data || result);
-        },
-        {
-          onDecodeError: (error: any) => {
-            // Don't log decode errors as they're normal when no code is visible
-            setIsScanning(false);
-          },
-          highlightScanRegion: false,
-          highlightCodeOutline: false,
-          preferredCamera: facingMode,
-          maxScansPerSecond: 5
-        }
-      );
-
-      // Start scanning
-      await qrScannerRef.current.start();
-      console.log('✅ Scanner: QR scanner started successfully');
-      setIsScanning(true);
-      
-    } catch (error) {
-      console.error('📱 Scanner: Failed to initialize QR scanner:', error);
-      
-      // Fallback to BarcodeDetector if available
+      // Check if BarcodeDetector is available (Chrome/Edge)
       if ('BarcodeDetector' in window) {
-        console.log('📱 Scanner: Falling back to BarcodeDetector');
-        const barcodeDetector = new (window as any).BarcodeDetector({
+        console.log('📱 Scanner: Using BarcodeDetector API');
+        
+        barcodeDetectorRef.current = new (window as any).BarcodeDetector({
           formats: [
             'aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix',
             'ean_13', 'ean_8', 'itf', 'pdf417', 'qr_code', 'upc_a', 'upc_e'
@@ -258,25 +215,37 @@ export default function CameraScanner({
         });
         
         scanningIntervalRef.current = setInterval(async () => {
-          await scanWithBarcodeDetector(barcodeDetector);
-        }, 200);
+          await scanWithBarcodeDetector();
+        }, 300);
+        
+        console.log('✅ Scanner: BarcodeDetector scanning started');
       } else {
-        setError('No barcode scanning support available in this browser. Please try Chrome or Edge.');
+        console.log('📱 Scanner: BarcodeDetector not available, showing manual input option');
+        setShowManualInput(true);
       }
+      
+    } catch (error) {
+      console.error('📱 Scanner: Failed to initialize barcode scanning:', error);
+      setShowManualInput(true);
     }
   };
 
-  const scanWithBarcodeDetector = async (detector: any) => {
-    if (!videoRef.current || videoRef.current.readyState !== 4) return;
+  const scanWithBarcodeDetector = async () => {
+    if (!videoRef.current || videoRef.current.readyState !== 4 || !barcodeDetectorRef.current) {
+      return;
+    }
     
     try {
-      const barcodes = await detector.detect(videoRef.current);
+      const barcodes = await barcodeDetectorRef.current.detect(videoRef.current);
       
       if (barcodes.length > 0) {
         const barcode = barcodes[0];
         console.log('📱 Scanner: Barcode detected:', barcode);
         handleScanResult(barcode.rawValue);
         setIsScanning(true);
+        
+        // Brief pause after successful scan
+        setTimeout(() => setIsScanning(false), 1000);
       } else {
         setIsScanning(false);
       }
@@ -284,12 +253,6 @@ export default function CameraScanner({
       // Silently continue - detection errors are common
       setIsScanning(false);
     }
-  };
-
-  const scanWithCanvas = () => {
-    // This is a placeholder - without a proper QR/barcode detection library,
-    // we can't actually detect codes from canvas data
-    setIsScanning(false);
   };
 
   const handleScanResult = (result: string) => {
@@ -316,6 +279,14 @@ export default function CameraScanner({
     debouncedOnResult(scannedText);
   };
 
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manualInput.trim()) {
+      handleScanResult(manualInput.trim());
+      setManualInput('');
+    }
+  };
+
   const toggleCamera = () => {
     const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
     console.log('📱 Scanner: Switching camera to', newFacingMode);
@@ -327,11 +298,8 @@ export default function CameraScanner({
     setError(null);
     setLastScan(null);
     setScanCount(0);
+    setShowManualInput(false);
     initializeCamera();
-  };
-
-  const refreshPage = () => {
-    window.location.reload();
   };
 
   if (!isActive) {
@@ -361,17 +329,31 @@ export default function CameraScanner({
   if (hasPermission === false || error) {
     return (
       <div className={cn("flex items-center justify-center p-8 bg-red-50 border border-red-200 rounded-lg", className)}>
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-red-500" />
-          <p className="text-sm text-red-700 mb-4">{error}</p>
+        <div className="text-center space-y-4">
+          <AlertCircle className="h-12 w-12 mx-auto text-red-500" />
+          <p className="text-sm text-red-700">{error}</p>
+          
+          {/* Manual input fallback */}
+          <div className="space-y-3">
+            <p className="text-xs text-gray-600">Or enter barcode manually:</p>
+            <form onSubmit={handleManualSubmit} className="space-y-2">
+              <input
+                type="text"
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder="Enter barcode/QR code"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <Button type="submit" size="sm" className="w-full">
+                Submit Code
+              </Button>
+            </form>
+          </div>
+          
           <div className="space-y-2">
             <Button onClick={retryPermission} variant="outline" size="sm" className="w-full">
               <RotateCcw className="h-4 w-4 mr-2" />
               Retry Camera
-            </Button>
-            <Button onClick={refreshPage} variant="outline" size="sm" className="w-full">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh Page
             </Button>
           </div>
         </div>
@@ -440,6 +422,28 @@ export default function CameraScanner({
         </div>
       </div>
 
+      {/* Manual input option */}
+      {showManualInput && (
+        <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-sm text-yellow-800 mb-3">
+            <strong>Manual Entry Available</strong><br />
+            Camera scanning may not be fully supported in this browser.
+          </p>
+          <form onSubmit={handleManualSubmit} className="space-y-2">
+            <input
+              type="text"
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              placeholder="Enter barcode or QR code manually"
+              className="w-full px-3 py-2 border border-yellow-300 rounded-md text-sm"
+            />
+            <Button type="submit" size="sm" className="w-full">
+              Submit Code
+            </Button>
+          </form>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="flex items-center justify-between mt-4">
         <div className="flex items-center gap-2">
@@ -481,12 +485,12 @@ export default function CameraScanner({
         
         {/* Browser compatibility note */}
         <div className="mt-2 text-xs text-blue-600 text-center">
-          {qrScannerRef.current ? (
-            <span className="text-green-600">✅ QR Scanner active and ready</span>
-          ) : 'BarcodeDetector' in window ? (
-            <span className="text-orange-600">⚠️ Using fallback barcode detection</span>
+          {barcodeDetectorRef.current ? (
+            <span className="text-green-600">✅ Barcode detection active and ready</span>
+          ) : showManualInput ? (
+            <span className="text-orange-600">⚠️ Manual input mode - camera scanning limited</span>
           ) : (
-            <span className="text-red-600">❌ Limited scanning support - please use Chrome or Edge</span>
+            <span className="text-blue-600">🔄 Initializing scanner...</span>
           )}
         </div>
       </div>
