@@ -20,7 +20,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard } from 'lucide-react';
+import { QrCode, RefreshCw, Package, MapPin, Camera, Keyboard, Search, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getItemBySystemCode, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
@@ -49,7 +49,9 @@ export default function ScanPage() {
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanMode, setScanMode] = useState<'camera' | 'manual'>('camera');
-  const [manualInput, setManualInput] = useState(''); // State for manual input
+  const [manualInput, setManualInput] = useState('');
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not-found'>('idle');
+  const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,6 +86,7 @@ export default function ScanPage() {
     }
 
     console.log('📱 Scan result received:', scannedCode);
+    setLastScannedCode(scannedCode.trim());
 
     // Always update manual input field with scanned result
     setManualInput(scannedCode.trim());
@@ -92,7 +95,7 @@ export default function ScanPage() {
     setTimeout(() => {
       if (manualInputRef.current) {
         manualInputRef.current.focus();
-        manualInputRef.current.select(); // Select the text to highlight it
+        manualInputRef.current.select();
       }
     }, 100);
     
@@ -107,38 +110,45 @@ export default function ScanPage() {
   };
 
   const processScannedCode = async (scannedCode: string) => {
-    // Show initial search toast
-    const searchToast = toast.loading(`🔍 Searching for item with code: ${scannedCode}`, {
+    setSearchStatus('searching');
+    setLoading(true);
+
+    // Show search progress toast
+    const searchToast = toast.loading(`🔍 Searching for item: ${scannedCode}`, {
       duration: Infinity
     });
 
-    setLoading(true);
     try {
+      console.log('🔍 Searching for item with system code:', scannedCode);
       const item = await getItemBySystemCode(scannedCode);
       
       // Dismiss search toast
       toast.dismiss(searchToast);
       
       if (!item) {
-        toast.error(`❌ Item not found with code: ${scannedCode}`, {
-          description: 'Please check the barcode and try again',
+        console.log('❌ Item not found');
+        setSearchStatus('not-found');
+        toast.error(`❌ Item not found`, {
+          description: `No item found with code: ${scannedCode}`,
           duration: 5000
         });
         return;
       }
 
-      // Show item found toast
-      toast.success(`✅ Item found: ${item.itemCode}`, {
-        description: `${item.description} (${item.weight}kg)`,
-        duration: 3000
-      });
-
+      console.log('✅ Item found:', item);
+      setSearchStatus('found');
       setScannedItem(item);
+
+      // Show item found toast with details
+      toast.success(`✅ Item found: ${item.itemCode}`, {
+        description: `${item.description} (${item.weight}kg) - Status: ${item.status}`,
+        duration: 4000
+      });
 
       if (item.status === 'pending') {
         // Item needs to be placed
-        toast.info(`📦 Item is pending - select location to place`, {
-          description: `${item.itemCode} needs to be placed in warehouse`,
+        toast.info(`📦 Item is pending placement`, {
+          description: `Select a location to place ${item.itemCode}`,
           duration: 4000
         });
         
@@ -161,8 +171,8 @@ export default function ScanPage() {
         
       } else if (item.status === 'placed') {
         // Item can be picked
-        toast.success(`📍 Item is at location ${item.location} - confirm to pick`, {
-          description: `${item.itemCode} ready for picking`,
+        toast.success(`📍 Item is at location ${item.location}`, {
+          description: `Ready to pick ${item.itemCode}`,
           duration: 4000
         });
         
@@ -191,6 +201,7 @@ export default function ScanPage() {
       toast.dismiss(searchToast);
       
       console.error('Error scanning item:', error);
+      setSearchStatus('not-found');
       toast.error('❌ Failed to scan item', {
         description: 'Please try again or contact support',
         duration: 5000
@@ -208,6 +219,7 @@ export default function ScanPage() {
       return;
     }
 
+    setLastScannedCode(manualInput.trim());
     await processScannedCode(manualInput.trim());
   };
 
@@ -348,7 +360,9 @@ export default function ScanPage() {
     setShowLocationDialog(false);
     setShowVisualDialog(false);
     setShowScanDialog(false);
-    setManualInput(''); // Clear manual input
+    setManualInput('');
+    setSearchStatus('idle');
+    setLastScannedCode('');
   };
 
   const getItemStatusBadge = (status: string) => {
@@ -363,6 +377,19 @@ export default function ScanPage() {
         {status.charAt(0).toUpperCase() + status.slice(1)}
       </span>
     );
+  };
+
+  const getSearchStatusIcon = () => {
+    switch (searchStatus) {
+      case 'searching':
+        return <Search className="h-4 w-4 animate-spin text-blue-500" />;
+      case 'found':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'not-found':
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return <QrCode className="h-4 w-4 text-muted-foreground" />;
+    }
   };
 
   const instructionSteps = [
@@ -427,6 +454,35 @@ export default function ScanPage() {
         </Card>
       )}
 
+      {/* Search Status Card */}
+      {(lastScannedCode || searchStatus !== 'idle') && (
+        <Card className={`border-2 ${
+          searchStatus === 'found' ? 'border-green-200 bg-green-50' :
+          searchStatus === 'not-found' ? 'border-red-200 bg-red-50' :
+          searchStatus === 'searching' ? 'border-blue-200 bg-blue-50' :
+          'border-gray-200'
+        }`}>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              {getSearchStatusIcon()}
+              <div className="flex-1">
+                <div className="font-medium">
+                  {searchStatus === 'searching' && `Searching for: ${lastScannedCode}`}
+                  {searchStatus === 'found' && scannedItem && `Found: ${scannedItem.itemCode}`}
+                  {searchStatus === 'not-found' && `Not found: ${lastScannedCode}`}
+                  {searchStatus === 'idle' && lastScannedCode && `Last scanned: ${lastScannedCode}`}
+                </div>
+                {scannedItem && (
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {scannedItem.description} • {scannedItem.weight}kg • {getItemStatusBadge(scannedItem.status)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -481,7 +537,7 @@ export default function ScanPage() {
                 onResult={handleScanResult}
                 onError={(error) => toast.error(`❌ Camera error: ${error}`)}
                 isActive={scanMode === 'camera' && showScanDialog}
-                autoComplete={true} // Enable auto-completion for camera mode
+                autoComplete={true}
                 className="w-full"
               />
               {selectedOperator && (
@@ -523,7 +579,7 @@ export default function ScanPage() {
                   onResult={handleScanResult}
                   onError={(error) => toast.error(`❌ Camera error: ${error}`)}
                   isActive={scanMode === 'manual' && showScanDialog}
-                  autoComplete={false} // Just populate input field, don't auto-process
+                  autoComplete={false}
                   className="w-full"
                 />
               </div>
