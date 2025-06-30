@@ -9,6 +9,7 @@ interface CameraScannerProps {
   onError?: (error: string) => void;
   className?: string;
   isActive?: boolean;
+  autoComplete?: boolean; // New prop to control auto-completion
 }
 
 // Debounce utility function
@@ -27,7 +28,8 @@ export function CameraScanner({
   onResult, 
   onError, 
   className,
-  isActive = true 
+  isActive = true,
+  autoComplete = true // Default to auto-complete behavior
 }: CameraScannerProps) {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export function CameraScanner({
   const [scanCount, setScanCount] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [scanSuccess, setScanSuccess] = useState(false);
   
   // Enhanced diagnostic states
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -87,8 +90,22 @@ export function CameraScanner({
       console.log('📱 Scanner: Debounced result callback triggered with:', data);
       onResult(data);
       setIsScanning(false);
-    }, 500),
-    [onResult]
+      
+      if (autoComplete) {
+        // Show success state briefly
+        setScanSuccess(true);
+        setTimeout(() => {
+          setScanSuccess(false);
+        }, 2000);
+        
+        // Stop scanning after successful scan in auto-complete mode
+        if (scanningIntervalRef.current) {
+          clearInterval(scanningIntervalRef.current);
+          scanningIntervalRef.current = null;
+        }
+      }
+    }, 300), // Reduced debounce time for faster response
+    [onResult, autoComplete]
   );
 
   useEffect(() => {
@@ -129,6 +146,7 @@ export function CameraScanner({
     setError(null);
     setCameraReady(false);
     setIsScanning(false);
+    setScanSuccess(false);
     setPlaybackStatus('idle');
     setVideoDimensions({ width: 0, height: 0 });
     setVideoLoadAttempts(0);
@@ -144,6 +162,7 @@ export function CameraScanner({
   const initializeCamera = async () => {
     setIsInitializing(true);
     setCameraReady(false);
+    setScanSuccess(false);
     setPlaybackStatus('loading');
     initAttemptRef.current += 1;
     const currentAttempt = initAttemptRef.current;
@@ -222,8 +241,8 @@ export function CameraScanner({
         setPlaybackStatus('playing');
         setRecoveryAttempts(0); // Reset recovery attempts on success
         
-        // Start scanning if not already started
-        if (!scanningIntervalRef.current) {
+        // Start scanning if not already started and not in success state
+        if (!scanningIntervalRef.current && !scanSuccess) {
           startScanning();
         }
       }
@@ -561,7 +580,7 @@ export function CameraScanner({
 
     scanningIntervalRef.current = setInterval(async () => {
       await scanFrame();
-    }, 150); // Slightly slower for mobile performance
+    }, 100); // Faster scanning for better responsiveness
   };
 
   const scanFrame = async () => {
@@ -569,8 +588,8 @@ export function CameraScanner({
       return;
     }
     
-    // Skip scanning if video dimensions are still 0x0
-    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+    // Skip scanning if video dimensions are still 0x0 or if already successful
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0 || scanSuccess) {
       return;
     }
     
@@ -616,8 +635,9 @@ export function CameraScanner({
     
     console.log('📱 Scanner: Processing scanned text:', scannedText);
     
-    // Prevent duplicate scans within 2 seconds
-    if (scannedText === lastScan && now - lastScanTimeRef.current < 2000) {
+    // Prevent duplicate scans within 1 second for auto-complete mode
+    const duplicateThreshold = autoComplete ? 1000 : 2000;
+    if (scannedText === lastScan && now - lastScanTimeRef.current < duplicateThreshold) {
       console.log('📱 Scanner: Duplicate scan ignored');
       return;
     }
@@ -641,6 +661,7 @@ export function CameraScanner({
     setDimensionCheckCount(0);
     setRecoveryAttempts(0);
     setStreamReinitCount(0);
+    setScanSuccess(false);
     lastValidDimensionsRef.current = { width: 0, height: 0 };
     zeroDimensionCountRef.current = 0;
   };
@@ -650,6 +671,7 @@ export function CameraScanner({
     setError(null);
     setLastScan(null);
     setScanCount(0);
+    setScanSuccess(false);
     setRetryCount(prev => prev + 1);
     setVideoLoadAttempts(0);
     setDimensionCheckCount(0);
@@ -662,11 +684,24 @@ export function CameraScanner({
 
   const forceStreamReinit = () => {
     console.log('📱 Scanner: Manual stream reinitialization triggered');
+    setScanSuccess(false);
     attemptStreamReinitialize();
   };
 
   const refreshPage = () => {
     window.location.reload();
+  };
+
+  const restartScanning = () => {
+    console.log('📱 Scanner: Restarting scanning after success');
+    setScanSuccess(false);
+    setLastScan(null);
+    setScanCount(0);
+    
+    // Restart scanning if camera is ready
+    if (cameraReady && !scanningIntervalRef.current) {
+      startScanning();
+    }
   };
 
   if (!isActive) {
@@ -748,29 +783,54 @@ export function CameraScanner({
           <div className="absolute bottom-4 right-4 w-16 h-16 border-r-4 border-b-4 border-white rounded-br-lg opacity-80"></div>
           
           {/* Main scanning area */}
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-2 border-red-500 rounded-lg bg-red-500 bg-opacity-10">
+          <div className={cn(
+            "absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-48 border-2 rounded-lg",
+            scanSuccess ? "border-green-500 bg-green-500" : "border-red-500 bg-red-500",
+            "bg-opacity-10"
+          )}>
             <div className="absolute -top-8 left-1/2 transform -translate-x-1/2">
-              <span className="text-white text-sm font-bold bg-red-500 bg-opacity-90 px-3 py-1 rounded-full">
-                Scan Code Here
+              <span className={cn(
+                "text-white text-sm font-bold px-3 py-1 rounded-full",
+                scanSuccess ? "bg-green-500 bg-opacity-90" : "bg-red-500 bg-opacity-90"
+              )}>
+                {scanSuccess ? "✅ Scan Complete!" : "Scan Code Here"}
               </span>
             </div>
             
             {/* Scanning line animation */}
-            <div className="absolute inset-x-4 top-1/2 h-0.5 bg-red-400 animate-pulse"></div>
+            {!scanSuccess && (
+              <div className="absolute inset-x-4 top-1/2 h-0.5 bg-red-400 animate-pulse"></div>
+            )}
             
-            {/* Center crosshair */}
+            {/* Center crosshair or checkmark */}
             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-6 h-6">
-              <div className="absolute top-1/2 left-0 w-full h-px bg-white opacity-60"></div>
-              <div className="absolute left-1/2 top-0 w-px h-full bg-white opacity-60"></div>
+              {scanSuccess ? (
+                <CheckCircle className="w-6 h-6 text-green-500" />
+              ) : (
+                <>
+                  <div className="absolute top-1/2 left-0 w-full h-px bg-white opacity-60"></div>
+                  <div className="absolute left-1/2 top-0 w-px h-full bg-white opacity-60"></div>
+                </>
+              )}
             </div>
           </div>
           
           {/* Scanning status */}
-          {isScanning && (
+          {isScanning && !scanSuccess && (
             <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
               <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full animate-pulse">
                 <Zap className="h-4 w-4" />
                 <span className="font-bold">Scanning...</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Success status */}
+          {scanSuccess && (
+            <div className="absolute top-8 left-1/2 transform -translate-x-1/2">
+              <div className="flex items-center gap-2 bg-green-500 bg-opacity-90 text-white px-3 py-1 rounded-full">
+                <CheckCircle className="h-4 w-4" />
+                <span className="font-bold">Scan Successful!</span>
               </div>
             </div>
           )}
@@ -825,6 +885,12 @@ export function CameraScanner({
               Recovering
             </Badge>
           )}
+          {scanSuccess && (
+            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Success
+            </Badge>
+          )}
           {scanCount > 0 && (
             <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
               <Zap className="h-3 w-3 mr-1" />
@@ -840,6 +906,19 @@ export function CameraScanner({
         </div>
         
         <div className="flex gap-2">
+          {/* Restart scanning button when successful */}
+          {scanSuccess && autoComplete && (
+            <Button
+              onClick={restartScanning}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 text-green-600 border-green-300 hover:bg-green-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Scan Again
+            </Button>
+          )}
+          
           {/* Force stream reinit button when dimensions are 0x0 */}
           {(videoDimensions.width === 0 || videoDimensions.height === 0) && (
             <Button
@@ -869,7 +948,10 @@ export function CameraScanner({
       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
         <p className="text-sm text-blue-800 text-center">
           <strong>📱 Position your QR code or barcode within the red frame</strong><br />
-          Hold steady for best results • Ensure good lighting • Keep code flat and clean
+          {autoComplete ? 
+            "Scan will complete automatically when detected • Hold steady for best results" :
+            "Hold steady for best results • Ensure good lighting • Keep code flat and clean"
+          }
         </p>
         
         {/* Browser compatibility note */}
@@ -887,6 +969,12 @@ export function CameraScanner({
           </div>
         )}
         
+        {scanSuccess && autoComplete && (
+          <div className="mt-2 text-xs text-green-600 text-center">
+            ✅ Scan completed successfully! Click "Scan Again" to scan another code.
+          </div>
+        )}
+        
         {zeroDimensionCountRef.current > 25 && (
           <div className="mt-2 text-xs text-orange-600 text-center">
             ⚠️ Extended 0x0 dimensions detected - automatic recovery will trigger soon
@@ -901,6 +989,7 @@ export function CameraScanner({
           {deviceInfo.isMobile && <Smartphone className="h-3 w-3" />}
           {continuousMonitoring && <Monitor className="h-3 w-3 text-green-600" />}
           {playbackStatus === 'recovering' && <Wifi className="h-3 w-3 text-orange-600" />}
+          {scanSuccess && <CheckCircle className="h-3 w-3 text-green-600" />}
         </div>
         <div className="grid grid-cols-2 gap-2 text-gray-700">
           <div>Permission: <span className="font-mono">{hasPermission ? 'Granted' : 'Denied'}</span></div>
@@ -912,6 +1001,8 @@ export function CameraScanner({
           </span></div>
           <div>Stream: <span className="font-mono">{streamInfo.tracks} tracks, {streamInfo.active ? 'active' : 'inactive'}</span></div>
           <div>Scan Count: <span className="font-mono">{scanCount}</span></div>
+          <div>Scan Success: <span className={cn("font-mono", scanSuccess && "text-green-600 font-bold")}>{scanSuccess ? 'YES' : 'NO'}</span></div>
+          <div>Auto Complete: <span className="font-mono">{autoComplete ? 'ON' : 'OFF'}</span></div>
           <div>BarcodeDetector: <span className="font-mono">{'BarcodeDetector' in window ? 'Available' : 'Not Available'}</span></div>
           <div>Device: <span className="font-mono">{deviceInfo.isMobile ? 'Mobile' : 'Desktop'}</span></div>
           <div>Retry Count: <span className="font-mono">{retryCount}</span></div>
