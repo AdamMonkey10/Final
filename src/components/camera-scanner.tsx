@@ -35,6 +35,7 @@ export function CameraScanner({
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [isInitializing, setIsInitializing] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const lastScanTimeRef = useRef<number>(0);
   const initAttemptRef = useRef<number>(0);
 
@@ -55,11 +56,13 @@ export function CameraScanner({
       console.log('📱 Scanner: Component deactivated');
       setHasPermission(null);
       setError(null);
+      setCameraReady(false);
     }
   }, [isActive, facingMode]);
 
   const initializeCamera = async () => {
     setIsInitializing(true);
+    setCameraReady(false);
     initAttemptRef.current += 1;
     const currentAttempt = initAttemptRef.current;
     
@@ -68,7 +71,7 @@ export function CameraScanner({
       setHasPermission(null);
       
       // Wait a bit to ensure previous streams are cleaned up
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       // Check if this attempt is still current
       if (currentAttempt !== initAttemptRef.current) {
@@ -93,15 +96,21 @@ export function CameraScanner({
   const requestCameraPermission = async () => {
     console.log('📱 Scanner: Requesting camera permission with facingMode:', facingMode);
     
+    // Check if getUserMedia is available
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera API not supported in this browser');
+    }
+    
     // Progressive fallback strategy for mobile devices
     const constraintSets = [
       // Try with specific facing mode and ideal resolution
       { 
         video: { 
           facingMode: { exact: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 }
+        },
+        audio: false
       },
       // Try with preferred facing mode
       { 
@@ -109,17 +118,28 @@ export function CameraScanner({
           facingMode: facingMode,
           width: { ideal: 640 },
           height: { ideal: 480 }
-        } 
+        },
+        audio: false
       },
       // Try with just facing mode
       { 
         video: { 
           facingMode: facingMode
-        } 
+        },
+        audio: false
       },
       // Try with any camera
       { 
-        video: true 
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      },
+      // Last resort - basic video only
+      { 
+        video: true,
+        audio: false
       }
     ];
 
@@ -146,6 +166,7 @@ export function CameraScanner({
         
         setHasPermission(true);
         setError(null);
+        setCameraReady(true);
         
         // Stop the stream immediately as QrScanner will handle it
         stream.getTracks().forEach(track => {
@@ -167,6 +188,7 @@ export function CameraScanner({
         // If this is the last constraint set, handle the error
         if (i === constraintSets.length - 1) {
           setHasPermission(false);
+          setCameraReady(false);
           
           let errorMessage = 'Camera access failed. Please check your camera permissions.';
           
@@ -188,6 +210,9 @@ export function CameraScanner({
               break;
             case 'AbortError':
               errorMessage = 'Camera access was aborted. Please try again.';
+              break;
+            case 'TypeError':
+              errorMessage = 'Invalid camera constraints. Please refresh the page and try again.';
               break;
             default:
               errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
@@ -262,6 +287,7 @@ export function CameraScanner({
     setFacingMode(newFacingMode);
     setError(null);
     setLastScan(null);
+    setCameraReady(false);
     lastScanTimeRef.current = 0;
   };
 
@@ -270,6 +296,7 @@ export function CameraScanner({
     setError(null);
     setHasPermission(null);
     setLastScan(null);
+    setCameraReady(false);
     lastScanTimeRef.current = 0;
     initializeCamera();
   };
@@ -332,6 +359,17 @@ export function CameraScanner({
     );
   }
 
+  if (!cameraReady) {
+    return (
+      <div className={cn("flex items-center justify-center p-8 bg-yellow-50 border border-yellow-200 rounded-lg", className)}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500 mx-auto mb-4"></div>
+          <p className="text-sm text-yellow-700">Camera is starting up...</p>
+        </div>
+      </div>
+    );
+  }
+
   console.log('📱 Scanner: Rendering QR scanner with facingMode:', facingMode);
 
   return (
@@ -341,8 +379,12 @@ export function CameraScanner({
           onDecode={handleScan}
           onError={handleError}
           constraints={{
-            facingMode,
-            aspectRatio: 1
+            video: {
+              facingMode: facingMode,
+              width: { ideal: 640 },
+              height: { ideal: 480 }
+            },
+            audio: false
           }}
           containerStyle={{
             width: '100%',
@@ -409,6 +451,7 @@ export function CameraScanner({
         <div className="mt-2 p-2 bg-gray-100 rounded text-xs">
           <div>Permission: {hasPermission ? 'Granted' : 'Denied'}</div>
           <div>Facing: {facingMode}</div>
+          <div>Camera Ready: {cameraReady ? 'Yes' : 'No'}</div>
           <div>Last scan: {lastScan || 'None'}</div>
           <div>Error: {error || 'None'}</div>
           <div>Initializing: {isInitializing ? 'Yes' : 'No'}</div>
