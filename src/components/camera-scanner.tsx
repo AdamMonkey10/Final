@@ -41,11 +41,13 @@ export default function CameraScanner({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [manualInput, setManualInput] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastScanTimeRef = useRef<number>(0);
   const scanningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const barcodeDetectorRef = useRef<any>(null);
+  const initTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Create debounced version of onResult callback
   const debouncedOnResult = useCallback(
@@ -74,6 +76,11 @@ export default function CameraScanner({
   const cleanup = () => {
     console.log('📱 Scanner: Cleaning up resources');
     
+    if (initTimeoutRef.current) {
+      clearTimeout(initTimeoutRef.current);
+      initTimeoutRef.current = null;
+    }
+    
     if (scanningIntervalRef.current) {
       clearInterval(scanningIntervalRef.current);
       scanningIntervalRef.current = null;
@@ -89,17 +96,31 @@ export default function CameraScanner({
     
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.onloadedmetadata = null;
+      videoRef.current.oncanplay = null;
+      videoRef.current.onplay = null;
+      videoRef.current.onerror = null;
     }
     
     barcodeDetectorRef.current = null;
     setCameraReady(false);
     setIsScanning(false);
+    setVideoLoaded(false);
   };
 
   const initializeCamera = async () => {
     setIsInitializing(true);
     setError(null);
     setHasPermission(null);
+    setVideoLoaded(false);
+    
+    // Set a timeout to prevent infinite loading
+    initTimeoutRef.current = setTimeout(() => {
+      console.log('📱 Scanner: Initialization timeout - falling back to manual input');
+      setIsInitializing(false);
+      setShowManualInput(true);
+      setError('Camera initialization timed out. Please use manual input or refresh the page.');
+    }, 10000); // 10 second timeout
     
     try {
       console.log('📱 Scanner: Starting camera initialization');
@@ -108,7 +129,7 @@ export default function CameraScanner({
       cleanup();
       
       // Small delay to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       await requestCameraPermission();
       
@@ -116,8 +137,13 @@ export default function CameraScanner({
       console.error('📱 Scanner: Initialization failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to initialize camera');
       setHasPermission(false);
+      setShowManualInput(true);
       onError?.(err instanceof Error ? err.message : 'Failed to initialize camera');
     } finally {
+      if (initTimeoutRef.current) {
+        clearTimeout(initTimeoutRef.current);
+        initTimeoutRef.current = null;
+      }
       setIsInitializing(false);
     }
   };
@@ -129,121 +155,142 @@ export default function CameraScanner({
       throw new Error('Camera API not supported in this browser');
     }
     
-    const constraints = {
-      video: {
-        facingMode: facingMode,
-        width: { ideal: 1280, min: 640 },
-        height: { ideal: 720, min: 480 }
+    // Try multiple constraint configurations
+    const constraintOptions = [
+      // First try: Ideal settings
+      {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 }
+        },
+        audio: false
       },
-      audio: false
-    };
+      // Second try: Basic settings
+      {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      },
+      // Third try: Minimal settings
+      {
+        video: {
+          facingMode: facingMode
+        },
+        audio: false
+      },
+      // Last resort: Any video
+      {
+        video: true,
+        audio: false
+      }
+    ];
 
-    console.log('📱 Scanner: Requesting stream with constraints:', constraints);
+    let mediaStream: MediaStream | null = null;
+    let lastError: Error | null = null;
+
+    for (const constraints of constraintOptions) {
+      try {
+        console.log('📱 Scanner: Trying constraints:', constraints);
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('✅ Scanner: Camera permission granted with constraints');
+        break;
+      } catch (err: any) {
+        console.warn('📱 Scanner: Constraints failed:', err);
+        lastError = err;
+        continue;
+      }
+    }
+
+    if (!mediaStream) {
+      throw lastError || new Error('Failed to get camera stream');
+    }
     
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log('📱 Scanner: Stream active:', mediaStream.active);
+    console.log('📱 Scanner: Video tracks:', mediaStream.getVideoTracks().length);
+    
+    setStream(mediaStream);
+    setHasPermission(true);
+    setError(null);
+    
+    // Set up video element
+    if (videoRef.current) {
+      videoRef.current.srcObject = mediaStream;
       
-      console.log('✅ Scanner: Camera permission granted');
-      console.log('📱 Scanner: Stream active:', mediaStream.active);
-      console.log('📱 Scanner: Video tracks:', mediaStream.getVideoTracks().length);
+      // Add event listeners with better error handling
+      videoRef.current.onloadedmetadata = () => {
+        console.log('📱 Scanner: Video metadata loaded');
+        console.log('📱 Scanner: Video dimensions:', {
+          videoWidth: videoRef.current?.videoWidth,
+          videoHeight: videoRef.current?.videoHeight
+        });
+        setVideoLoaded(true);
+      };
       
-      setStream(mediaStream);
-      setHasPermission(true);
-      setError(null);
+      videoRef.current.oncanplay = () => {
+        console.log('📱 Scanner: Video can play');
+        setCameraReady(true);
+        // Start scanning after video is ready
+        setTimeout(() => {
+          startScanning();
+        }, 500);
+      };
+
+      videoRef.current.onplay = () => {
+        console.log('📱 Scanner: Video is playing');
+      };
       
-      // Set up video element
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+      videoRef.current.onerror = (e) => {
+        console.error('📱 Scanner: Video error:', e);
+        setError('Video playback failed');
+        setShowManualInput(true);
+      };
+      
+      // Start playing the video with multiple attempts
+      let playAttempts = 0;
+      const tryPlay = async () => {
+        if (!videoRef.current || playAttempts >= 3) {
+          if (playAttempts >= 3) {
+            console.error('📱 Scanner: Failed to play video after 3 attempts');
+            setShowManualInput(true);
+          }
+          return;
+        }
         
-        // Add event listeners
-        videoRef.current.onloadedmetadata = () => {
-          console.log('📱 Scanner: Video metadata loaded');
-          console.log('📱 Scanner: Video dimensions:', {
-            videoWidth: videoRef.current?.videoWidth,
-            videoHeight: videoRef.current?.videoHeight
-          });
-        };
-        
-        videoRef.current.oncanplay = () => {
-          console.log('📱 Scanner: Video can play');
-          setCameraReady(true);
-          // Start scanning after video is ready
-          setTimeout(() => {
-            startScanning();
-          }, 1000);
-        };
-        
-        videoRef.current.onerror = (e) => {
-          console.error('📱 Scanner: Video error:', e);
-          setError('Video playback failed');
-        };
-        
-        // Start playing the video
         try {
+          playAttempts++;
+          console.log(`📱 Scanner: Play attempt ${playAttempts}`);
           await videoRef.current.play();
           console.log('📱 Scanner: Video playing successfully');
         } catch (playError) {
-          console.warn('📱 Scanner: Video autoplay failed (this is often normal):', playError);
-          // Try to play again after a short delay
-          setTimeout(async () => {
-            try {
-              if (videoRef.current) {
-                await videoRef.current.play();
-                console.log('📱 Scanner: Video playing after retry');
-              }
-            } catch (retryError) {
-              console.error('📱 Scanner: Video play retry failed:', retryError);
-            }
-          }, 500);
-        }
-      }
-      
-    } catch (err: any) {
-      console.error('❌ Scanner: Camera permission failed:', err);
-      
-      let errorMessage = 'Camera access failed';
-      
-      switch (err.name) {
-        case 'NotAllowedError':
-          errorMessage = 'Camera permission denied. Please allow camera access and try again.';
-          break;
-        case 'NotFoundError':
-          errorMessage = 'No camera found on this device.';
-          break;
-        case 'NotReadableError':
-          errorMessage = 'Camera is in use by another application.';
-          break;
-        case 'OverconstrainedError':
-          errorMessage = 'Camera constraints not supported. Trying with basic settings.';
-          // Try with simpler constraints
-          try {
-            const basicStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            setStream(basicStream);
-            setHasPermission(true);
-            if (videoRef.current) {
-              videoRef.current.srcObject = basicStream;
-              await videoRef.current.play();
-            }
-            return;
-          } catch (basicError) {
-            errorMessage = 'Camera not compatible with this device.';
+          console.warn(`📱 Scanner: Video play attempt ${playAttempts} failed:`, playError);
+          if (playAttempts < 3) {
+            // Try again after a delay
+            setTimeout(tryPlay, 1000);
+          } else {
+            console.error('📱 Scanner: All play attempts failed');
+            setShowManualInput(true);
           }
-          break;
-        default:
-          errorMessage = `Camera error: ${err.message || 'Unknown error'}`;
-      }
+        }
+      };
       
-      setError(errorMessage);
-      setHasPermission(false);
-      throw new Error(errorMessage);
+      // Start the first play attempt
+      tryPlay();
     }
   };
 
   const startScanning = async () => {
     console.log('📱 Scanner: Starting barcode scanning');
     
-    if (!videoRef.current || !cameraReady) {
-      console.log('📱 Scanner: Video not ready for scanning');
+    if (!videoRef.current || !cameraReady || !videoLoaded) {
+      console.log('📱 Scanner: Video not ready for scanning', {
+        videoRef: !!videoRef.current,
+        cameraReady,
+        videoLoaded
+      });
       return;
     }
 
@@ -252,22 +299,27 @@ export default function CameraScanner({
       if ('BarcodeDetector' in window) {
         console.log('📱 Scanner: Using BarcodeDetector API');
         
-        barcodeDetectorRef.current = new (window as any).BarcodeDetector({
-          formats: [
-            'code_128', 'code_39', 'code_93', 'codabar', 
-            'ean_13', 'ean_8', 'itf', 'upc_a', 'upc_e',
-            'qr_code', 'data_matrix', 'pdf417', 'aztec'
-          ]
-        });
-        
-        // Start scanning interval
-        scanningIntervalRef.current = setInterval(async () => {
-          await scanWithBarcodeDetector();
-        }, 200); // Scan every 200ms
-        
-        console.log('✅ Scanner: BarcodeDetector scanning started');
+        try {
+          barcodeDetectorRef.current = new (window as any).BarcodeDetector({
+            formats: [
+              'code_128', 'code_39', 'code_93', 'codabar', 
+              'ean_13', 'ean_8', 'itf', 'upc_a', 'upc_e',
+              'qr_code', 'data_matrix', 'pdf417', 'aztec'
+            ]
+          });
+          
+          // Start scanning interval
+          scanningIntervalRef.current = setInterval(async () => {
+            await scanWithBarcodeDetector();
+          }, 300); // Scan every 300ms
+          
+          console.log('✅ Scanner: BarcodeDetector scanning started');
+        } catch (detectorError) {
+          console.error('📱 Scanner: BarcodeDetector creation failed:', detectorError);
+          setShowManualInput(true);
+        }
       } else {
-        console.log('📱 Scanner: BarcodeDetector not available');
+        console.log('📱 Scanner: BarcodeDetector not available, showing manual input');
         setShowManualInput(true);
       }
       
@@ -281,7 +333,8 @@ export default function CameraScanner({
     if (!videoRef.current || 
         videoRef.current.readyState !== 4 || 
         !barcodeDetectorRef.current ||
-        videoRef.current.videoWidth === 0) {
+        videoRef.current.videoWidth === 0 ||
+        videoRef.current.videoHeight === 0) {
       return;
     }
     
@@ -370,6 +423,9 @@ export default function CameraScanner({
           <p className="text-sm text-muted-foreground">
             {isInitializing ? 'Initializing camera...' : 'Requesting camera permission...'}
           </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            This may take a few seconds. Manual input will be available if camera fails.
+          </p>
         </div>
       </div>
     );
@@ -384,7 +440,7 @@ export default function CameraScanner({
           
           {/* Manual input fallback */}
           <div className="space-y-3">
-            <p className="text-xs text-gray-600">Or enter barcode manually:</p>
+            <p className="text-xs text-gray-600">Enter barcode manually:</p>
             <form onSubmit={handleManualSubmit} className="space-y-2">
               <Input
                 type="text"
@@ -392,6 +448,7 @@ export default function CameraScanner({
                 onChange={(e) => setManualInput(e.target.value)}
                 placeholder="Enter barcode/QR code"
                 className="text-sm"
+                autoFocus
               />
               <Button type="submit" size="sm" className="w-full">
                 <Keyboard className="h-4 w-4 mr-2" />
@@ -426,11 +483,13 @@ export default function CameraScanner({
         />
         
         {/* Loading overlay while camera is starting */}
-        {!cameraReady && (
+        {(!cameraReady || !videoLoaded) && (
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="text-center text-white">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
-              <p className="text-sm">Starting camera...</p>
+              <p className="text-sm">
+                {!videoLoaded ? 'Loading video...' : 'Starting camera...'}
+              </p>
             </div>
           </div>
         )}
@@ -522,6 +581,7 @@ export default function CameraScanner({
           variant="outline"
           size="sm"
           className="flex items-center gap-2"
+          disabled={!cameraReady}
         >
           <RotateCcw className="h-4 w-4" />
           Switch Camera
@@ -541,7 +601,7 @@ export default function CameraScanner({
             <span className="text-green-600">✅ Barcode detection active and ready</span>
           ) : showManualInput ? (
             <span className="text-orange-600">⚠️ Manual input mode - camera scanning limited</span>
-          ) : cameraReady ? (
+          ) : cameraReady && videoLoaded ? (
             <span className="text-blue-600">🔄 Initializing scanner...</span>
           ) : (
             <span className="text-gray-600">📹 Camera starting...</span>
