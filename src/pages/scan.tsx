@@ -373,7 +373,6 @@ export default function ScanPage() {
                 onResult={handleScanResult}
                 onError={(error) => toast.error(error)}
                 isActive={scanMode === 'camera' && showScanDialog}
-                autoComplete={true} // Enable auto-completion for camera mode
                 className="w-full"
               />
               {selectedOperator && (
@@ -415,7 +414,6 @@ export default function ScanPage() {
                   onResult={handleScanResult}
                   onError={(error) => toast.error(error)}
                   isActive={scanMode === 'manual' && showScanDialog}
-                  autoComplete={false} // Populate input field instead
                   className="w-full"
                 />
               </div>
