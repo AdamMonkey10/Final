@@ -89,10 +89,12 @@ export default function ScanPage() {
     setManualInput(scannedCode.trim());
     
     // Focus the manual input field to show the populated value
-    if (manualInputRef.current) {
-      manualInputRef.current.focus();
-      manualInputRef.current.select(); // Select the text to highlight it
-    }
+    setTimeout(() => {
+      if (manualInputRef.current) {
+        manualInputRef.current.focus();
+        manualInputRef.current.select(); // Select the text to highlight it
+      }
+    }, 100);
     
     // In camera mode, process immediately
     // In manual mode, just populate the field and let user decide
