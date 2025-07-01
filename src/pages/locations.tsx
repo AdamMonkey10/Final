@@ -21,6 +21,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -35,10 +41,11 @@ import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
 import { generateBulkLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
-import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler } from 'lucide-react';
+import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler, List, Grid3X3 } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { LocationBarcodePrint } from '@/components/location-barcode-print';
+import { WarehouseLayout } from '@/components/warehouse-layout';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
@@ -65,6 +72,7 @@ export default function LocationsPage() {
   const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
   const [selectedLocationsForPrint, setSelectedLocationsForPrint] = useState<Location[]>([]);
   const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'graphic'>('list');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -210,28 +218,23 @@ export default function LocationsPage() {
 
   const instructionSteps = [
     {
+      title: "View Modes",
+      description: "Switch between List View (table format) and Graphic View (visual warehouse layout) using the tabs.",
+      type: "info" as const
+    },
+    {
       title: "Search and Filter",
       description: "Use the search bar and filter dropdown to find specific locations by code, row, bay, level, or rack type.",
-      type: "info" as const
+      type: "tip" as const
     },
     {
       title: "Location Status",
       description: "View weight status indicators: Empty (green), In Use (blue), Heavy (yellow), or Full (red).",
-      type: "tip" as const
+      type: "info" as const
     },
     {
       title: "Print Barcodes",
       description: "Print individual location barcodes or bulk print all/filtered locations directly to your Zebra printer.",
-      type: "info" as const
-    },
-    {
-      title: "View Location Details",
-      description: "Click 'View Location' to see the bay visualizer and get detailed location information.",
-      type: "info" as const
-    },
-    {
-      title: "Item Barcodes",
-      description: "For locations with stored items, you can also print the item's barcode for easy identification.",
       type: "success" as const
     }
   ];
@@ -255,7 +258,7 @@ export default function LocationsPage() {
       {showInstructions && (
         <InstructionPanel
           title="Location Management"
-          description="View and manage all warehouse locations. Print barcodes, check status, and view detailed location information."
+          description="View and manage all warehouse locations. Switch between list and graphic views, print barcodes, and check location status."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -266,7 +269,7 @@ export default function LocationsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Grid2X2 className="h-5 w-5" />
-            Location List
+            Location Management
           </CardTitle>
           <CardDescription>
             View and manage storage locations with height and rack type information. Print ZPL barcodes directly to your Zebra printer.
@@ -305,112 +308,157 @@ export default function LocationsPage() {
             )}
           </div>
 
-          {loading && locations.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              Loading locations...
-            </div>
-          ) : filteredLocations.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {locations.length === 0 ? (
-                <div>
-                  <Grid2X2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium mb-2">No locations found</p>
-                  <p className="text-sm">Create locations in the Setup page to get started.</p>
+          <Tabs value={viewMode} onValueChange={(value: 'list' | 'graphic') => setViewMode(value)}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="list" className="flex items-center gap-2">
+                <List className="h-4 w-4" />
+                List View
+              </TabsTrigger>
+              <TabsTrigger value="graphic" className="flex items-center gap-2">
+                <Grid3X3 className="h-4 w-4" />
+                Graphic View
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="list" className="mt-6">
+              {loading && locations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading locations...
+                </div>
+              ) : filteredLocations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  {locations.length === 0 ? (
+                    <div>
+                      <Grid2X2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">No locations found</p>
+                      <p className="text-sm">Create locations in the Setup page to get started.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">No locations match your search</p>
+                      <p className="text-sm">Try adjusting your search terms or filter.</p>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div>
-                  <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium mb-2">No locations match your search</p>
-                  <p className="text-sm">Try adjusting your search terms or filter.</p>
+                <div className="border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Code</TableHead>
+                        <TableHead>Row</TableHead>
+                        <TableHead>Bay</TableHead>
+                        <TableHead>Level</TableHead>
+                        <TableHead>Height</TableHead>
+                        <TableHead>Rack Type</TableHead>
+                        <TableHead>Weight Status</TableHead>
+                        <TableHead>Max Weight</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredLocations.map((location) => (
+                        <TableRow key={location.id}>
+                          <TableCell className="font-medium">{location.code}</TableCell>
+                          <TableCell>{location.row}</TableCell>
+                          <TableCell>{location.bay}</TableCell>
+                          <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Ruler className="h-3 w-3 text-muted-foreground" />
+                              {getLocationHeight(location)}m
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant="outline" 
+                              className={getWeightStatusColor(location.currentWeight, location.maxWeight)}
+                            >
+                              {getWeightStatusText(location.currentWeight, location.maxWeight)}
+                              {location.currentWeight > 0 && ` (${location.currentWeight}kg)`}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
+                          </TableCell>
+                          <TableCell className="text-right space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleLocationSelect(location)}
+                            >
+                              View Location
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedLocation(location);
+                                setShowLocationBarcodeDialog(true);
+                              }}
+                            >
+                              <QrCode className="h-4 w-4 mr-2" />
+                              Print Barcode
+                            </Button>
+                            {location.storedItem && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedLocation(location);
+                                  setShowBarcodeDialog(true);
+                                }}
+                              >
+                                <QrCode className="h-4 w-4 mr-2" />
+                                Item Barcode
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Row</TableHead>
-                    <TableHead>Bay</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Height</TableHead>
-                    <TableHead>Rack Type</TableHead>
-                    <TableHead>Weight Status</TableHead>
-                    <TableHead>Max Weight</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredLocations.map((location) => (
-                    <TableRow key={location.id}>
-                      <TableCell className="font-medium">{location.code}</TableCell>
-                      <TableCell>{location.row}</TableCell>
-                      <TableCell>{location.bay}</TableCell>
-                      <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Ruler className="h-3 w-3 text-muted-foreground" />
-                          {getLocationHeight(location)}m
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant="outline" 
-                          className={getWeightStatusColor(location.currentWeight, location.maxWeight)}
-                        >
-                          {getWeightStatusText(location.currentWeight, location.maxWeight)}
-                          {location.currentWeight > 0 && ` (${location.currentWeight}kg)`}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
-                      </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleLocationSelect(location)}
-                        >
-                          View Location
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedLocation(location);
-                            setShowLocationBarcodeDialog(true);
-                          }}
-                        >
-                          <QrCode className="h-4 w-4 mr-2" />
-                          Print Barcode
-                        </Button>
-                        {location.storedItem && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedLocation(location);
-                              setShowBarcodeDialog(true);
-                            }}
-                          >
-                            <QrCode className="h-4 w-4 mr-2" />
-                            Item Barcode
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+            </TabsContent>
+
+            <TabsContent value="graphic" className="mt-6">
+              {loading && locations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  Loading warehouse layout...
+                </div>
+              ) : filteredLocations.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  {locations.length === 0 ? (
+                    <div>
+                      <Grid3X3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">No locations to display</p>
+                      <p className="text-sm">Create locations in the Setup page to see the warehouse layout.</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium mb-2">No locations match your search</p>
+                      <p className="text-sm">Try adjusting your search terms or filter to see locations in the graphic view.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <WarehouseLayout
+                  locations={filteredLocations}
+                  onLocationSelect={handleLocationSelect}
+                />
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
