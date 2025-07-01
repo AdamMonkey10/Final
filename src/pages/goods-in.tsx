@@ -24,25 +24,25 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { addItem } from '@/lib/firebase/items';
+import { addItem, updateItem } from '@/lib/firebase/items';
 import { getCategories } from '@/lib/firebase/categories';
-import { getDepartments } from '@/lib/firebase/departments';
+import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/locations';
+import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
 import { Barcode } from '@/components/barcode';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, ArrowLeft } from 'lucide-react';
+import { BayVisualizer } from '@/components/bay-visualizer';
+import { CameraScanner } from '@/components/camera-scanner';
+import { findOptimalLocation } from '@/lib/warehouse-logic';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
 import type { Category } from '@/lib/firebase/categories';
-
-interface Department {
-  id: string;
-  name: string;
-}
+import type { Location } from '@/types/warehouse';
 
 export default function GoodsInPage() {
   const navigate = useNavigate();
@@ -55,16 +55,17 @@ export default function GoodsInPage() {
     description: '',
     weight: '',
     category: '',
-    department: '',
     coilNumber: '',
     coilLength: '',
     quantity: '1'
   });
   
   const [categories, setCategories] = useState<Category[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
   const [showLabelDialog, setShowLabelDialog] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
     id: string;
     systemCode: string;
@@ -72,13 +73,14 @@ export default function GoodsInPage() {
     description: string;
     weight: number;
   } | null>(null);
+  const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'scan' | 'complete'>('form');
 
   useEffect(() => {
     if (user && !authLoading) {
       loadCategories();
-      loadDepartments();
+      loadLocations();
     }
   }, [user, authLoading]);
 
@@ -92,13 +94,13 @@ export default function GoodsInPage() {
     }
   };
 
-  const loadDepartments = async () => {
+  const loadLocations = async () => {
     try {
-      const fetchedDepartments = await getDepartments();
-      setDepartments(fetchedDepartments);
+      const fetchedLocations = await getLocations();
+      setLocations(fetchedLocations);
     } catch (error) {
-      console.error('Error loading departments:', error);
-      toast.error('Failed to load departments');
+      console.error('Error loading locations:', error);
+      toast.error('Failed to load locations');
     }
   };
 
@@ -201,13 +203,23 @@ export default function GoodsInPage() {
       const zpl = generateItemZPL(labelData);
       await sendZPL(zpl);
       
-      toast.success('Label sent to printer successfully!');
-      setCurrentStep('complete');
+      toast.success('Label printed successfully!');
       
-      // Auto-close dialog after successful print
-      setTimeout(() => {
-        handleComplete();
-      }, 2000);
+      // Move to location selection step
+      setCurrentStep('location');
+      setShowLabelDialog(false);
+      
+      // Find optimal location
+      const availableLocations = locations.filter(loc => loc.available && loc.verified);
+      const optimal = findOptimalLocation(availableLocations, createdItem.weight);
+      
+      if (optimal) {
+        setSuggestedLocation(optimal);
+        setShowLocationDialog(true);
+        toast.info(`Suggested location: ${optimal.code}`);
+      } else {
+        toast.error('No suitable locations available');
+      }
       
     } catch (error) {
       console.error('Print error:', error);
@@ -218,15 +230,95 @@ export default function GoodsInPage() {
   };
 
   const handleSkipLabel = () => {
+    // Move to location selection step without printing
+    setCurrentStep('location');
+    setShowLabelDialog(false);
+    
+    // Find optimal location
+    const availableLocations = locations.filter(loc => loc.available && loc.verified);
+    const optimal = findOptimalLocation(availableLocations, createdItem!.weight);
+    
+    if (optimal) {
+      setSuggestedLocation(optimal);
+      setShowLocationDialog(true);
+      toast.info(`Suggested location: ${optimal.code}`);
+    } else {
+      toast.error('No suitable locations available');
+    }
+  };
+
+  const handleApproveLocation = () => {
+    if (!suggestedLocation) return;
+    
+    setCurrentStep('scan');
+    setShowLocationDialog(false);
+    setShowScanLocationDialog(true);
+    
+    toast.info(`Please scan location barcode: ${suggestedLocation.code}`);
+  };
+
+  const handleLocationScan = async (scannedCode: string) => {
+    if (!suggestedLocation || !createdItem) return;
+    
+    // Verify the scanned location matches the suggested location
+    if (scannedCode !== suggestedLocation.code) {
+      toast.error(`Wrong location scanned. Expected: ${suggestedLocation.code}, Got: ${scannedCode}`);
+      return;
+    }
+    
+    setLoading(true);
     setCurrentStep('complete');
-    setTimeout(() => {
-      handleComplete();
-    }, 1500);
+    
+    try {
+      // Update location weight
+      await updateLocation(suggestedLocation.id, {
+        currentWeight: suggestedLocation.currentWeight + createdItem.weight
+      });
+
+      // Update item status and location
+      await updateItem(createdItem.id, {
+        status: 'placed',
+        location: suggestedLocation.code,
+        locationVerified: true
+      });
+
+      // Record movement
+      await addMovement({
+        itemId: createdItem.id,
+        type: 'IN',
+        weight: createdItem.weight,
+        operator: getOperatorName(),
+        reference: createdItem.itemCode,
+        notes: `Placed at ${suggestedLocation.code} via goods-in process`
+      });
+
+      toast.success('🎉 Item successfully placed in stock!', {
+        description: `${createdItem.itemCode} is now at ${suggestedLocation.code}`,
+        duration: 5000
+      });
+      
+      setShowScanLocationDialog(false);
+      
+      // Auto-complete after delay
+      setTimeout(() => {
+        handleComplete();
+      }, 3000);
+      
+    } catch (error) {
+      console.error('Error placing item:', error);
+      toast.error('Failed to place item in stock');
+      setCurrentStep('scan');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleComplete = () => {
     setShowLabelDialog(false);
+    setShowLocationDialog(false);
+    setShowScanLocationDialog(false);
     setCreatedItem(null);
+    setSuggestedLocation(null);
     setCurrentStep('form');
     
     // Reset form
@@ -235,14 +327,13 @@ export default function GoodsInPage() {
       description: '',
       weight: '',
       category: '',
-      department: '',
       coilNumber: '',
       coilLength: '',
       quantity: '1'
     });
     
     toast.success('Goods-in process completed!', {
-      description: 'Item is ready for placement in warehouse',
+      description: 'Ready to process another item',
       duration: 3000
     });
   };
@@ -254,7 +345,9 @@ export default function GoodsInPage() {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
       { key: 'label', label: 'Print Label', icon: Printer },
-      { key: 'complete', label: 'Complete', icon: CheckCircle }
+      { key: 'location', label: 'Location', icon: MapPin },
+      { key: 'scan', label: 'Scan Location', icon: Scan },
+      { key: 'complete', label: 'In Stock', icon: CheckCircle }
     ];
 
     return (
@@ -298,12 +391,17 @@ export default function GoodsInPage() {
     },
     {
       title: "Print Label",
-      description: "After creating the item, print a barcode label for easy identification and scanning.",
+      description: "Print a barcode label for the item. This label will be used for scanning and identification.",
       type: "info" as const
     },
     {
-      title: "Ready for Placement",
-      description: "The item is now ready to be scanned and placed in a warehouse location.",
+      title: "Location Assignment",
+      description: "The system will suggest an optimal location based on weight and availability.",
+      type: "info" as const
+    },
+    {
+      title: "Scan Location",
+      description: "Scan the location barcode to confirm placement and put the item into stock.",
       type: "success" as const
     }
   ];
@@ -331,7 +429,7 @@ export default function GoodsInPage() {
       {showInstructions && (
         <InstructionPanel
           title="Goods In Process"
-          description="Create new items entering the warehouse. Fill in details, print labels, and prepare items for placement."
+          description="Create new items entering the warehouse. Fill in details, print labels, assign locations, and put items into stock."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -421,26 +519,6 @@ export default function GoodsInPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <Select
-                  value={formData.department}
-                  onValueChange={(value) => setFormData({ ...formData, department: value })}
-                  disabled={loading}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((department) => (
-                      <SelectItem key={department.id} value={department.id}>
-                        {department.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="quantity">Quantity</Label>
                 <Input
                   id="quantity"
@@ -492,7 +570,7 @@ export default function GoodsInPage() {
               className="w-full h-12 text-lg"
               disabled={loading || !selectedOperator}
             >
-              {loading ? 'Creating Item...' : 'Create Item & Print Label'}
+              {loading ? 'Creating Item...' : 'Create Item'}
             </Button>
           </form>
         </CardContent>
@@ -504,7 +582,7 @@ export default function GoodsInPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Printer className="h-5 w-5" />
-              {currentStep === 'label' ? 'Print Item Label' : 'Item Created Successfully!'}
+              Print Item Label
             </DialogTitle>
           </DialogHeader>
           
@@ -525,84 +603,169 @@ export default function GoodsInPage() {
                 </div>
               </div>
 
-              {currentStep === 'label' && (
-                <>
-                  {/* Label Preview */}
-                  <div className="border rounded-lg p-6 bg-white">
-                    <div className="text-center space-y-4">
-                      <div className="text-lg font-bold">{createdItem.itemCode}</div>
-                      <div className="text-sm text-muted-foreground">{createdItem.description}</div>
-                      <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
-                      <div className="text-sm">Weight: {createdItem.weight}kg</div>
-                      
-                      {/* Barcode Preview */}
-                      <div className="py-4">
-                        <Barcode 
-                          value={createdItem.systemCode} 
-                          width={2} 
-                          height={60}
-                          className="mx-auto"
-                        />
-                      </div>
-                      
-                      <div className="text-xs text-muted-foreground">
-                        <div>Date: {new Date().toLocaleDateString()}</div>
-                        <div>Operator: {getOperatorName()}</div>
-                      </div>
-                    </div>
+              {/* Label Preview */}
+              <div className="border rounded-lg p-6 bg-white">
+                <div className="text-center space-y-4">
+                  <div className="text-lg font-bold">{createdItem.itemCode}</div>
+                  <div className="text-sm text-muted-foreground">{createdItem.description}</div>
+                  <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
+                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
+                  
+                  {/* Barcode Preview */}
+                  <div className="py-4">
+                    <Barcode 
+                      value={createdItem.systemCode} 
+                      width={2} 
+                      height={60}
+                      className="mx-auto"
+                    />
                   </div>
-
-                  {/* Print Actions */}
-                  <div className="flex gap-3">
-                    <Button 
-                      onClick={handlePrintLabel}
-                      className="flex-1 h-12"
-                      disabled={printing}
-                    >
-                      <Printer className="h-5 w-5 mr-2" />
-                      {printing ? 'Printing...' : 'Print Label'}
-                    </Button>
-                    <Button 
-                      onClick={handleSkipLabel}
-                      variant="outline"
-                      className="h-12"
-                      disabled={printing}
-                    >
-                      Skip Label
-                    </Button>
-                  </div>
-
-                  <div className="text-xs text-center text-muted-foreground">
-                    <p>The label will be sent directly to your configured Zebra printer.</p>
-                    <p>You can also print labels later from the inventory or scan pages.</p>
-                  </div>
-                </>
-              )}
-
-              {currentStep === 'complete' && (
-                <div className="text-center py-6">
-                  <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
-                  <h3 className="text-lg font-medium text-green-800 mb-2">
-                    Goods-In Complete!
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Item is ready for placement in warehouse
-                  </p>
-                  <div className="flex gap-2 justify-center">
-                    <Button onClick={() => navigate('/scan')} variant="outline">
-                      <QrCode className="h-4 w-4 mr-2" />
-                      Scan & Place Item
-                    </Button>
-                    <Button onClick={handleComplete}>
-                      Create Another Item
-                    </Button>
+                  
+                  <div className="text-xs text-muted-foreground">
+                    <div>Date: {new Date().toLocaleDateString()}</div>
+                    <div>Operator: {getOperatorName()}</div>
                   </div>
                 </div>
-              )}
+              </div>
+
+              {/* Print Actions */}
+              <div className="flex gap-3">
+                <Button 
+                  onClick={handlePrintLabel}
+                  className="flex-1 h-12"
+                  disabled={printing}
+                >
+                  <Printer className="h-5 w-5 mr-2" />
+                  {printing ? 'Printing...' : 'Print Label & Continue'}
+                </Button>
+                <Button 
+                  onClick={handleSkipLabel}
+                  variant="outline"
+                  className="h-12"
+                  disabled={printing}
+                >
+                  Skip Label
+                </Button>
+              </div>
+
+              <div className="text-xs text-center text-muted-foreground">
+                <p>After printing, you'll select a location and scan to put the item into stock.</p>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Location Assignment Dialog */}
+      <Dialog open={showLocationDialog} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Suggested Location
+            </DialogTitle>
+          </DialogHeader>
+          
+          {suggestedLocation && createdItem && (
+            <div className="space-y-6">
+              {/* Item Summary */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="space-y-2 text-sm">
+                  <div><strong>Item:</strong> {createdItem.itemCode}</div>
+                  <div><strong>Weight:</strong> {createdItem.weight}kg</div>
+                  <div><strong>Operator:</strong> {getOperatorName()}</div>
+                </div>
+              </div>
+
+              {/* Location Visualizer */}
+              <BayVisualizer
+                location={suggestedLocation}
+                onConfirm={handleApproveLocation}
+                mode="place"
+              />
+
+              <div className="text-xs text-center text-muted-foreground">
+                <p>This location has been automatically selected based on weight capacity and accessibility.</p>
+                <p>Click "Scan to Place" to proceed to location scanning.</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Scan Location Dialog */}
+      <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Scan className="h-5 w-5" />
+              Scan Location Barcode
+            </DialogTitle>
+          </DialogHeader>
+          
+          {suggestedLocation && createdItem && (
+            <div className="space-y-6">
+              {/* Instructions */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center gap-2 text-yellow-800 mb-2">
+                  <QrCode className="h-5 w-5" />
+                  <span className="font-medium">Scan Required Location</span>
+                </div>
+                <div className="text-sm text-yellow-700">
+                  Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>
+                </div>
+              </div>
+
+              {/* Camera Scanner */}
+              <CameraScanner
+                onResult={handleLocationScan}
+                onError={(error) => toast.error(`Scanner error: ${error}`)}
+                isActive={showScanLocationDialog}
+                autoComplete={true}
+                className="w-full"
+              />
+
+              <div className="text-xs text-center text-muted-foreground">
+                <p>Scan the location barcode to confirm placement and put the item into stock.</p>
+                <p>Expected location: <strong>{suggestedLocation.code}</strong></p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Completion Dialog */}
+      {currentStep === 'complete' && (
+        <Dialog open={true} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                Item In Stock!
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="text-center py-6">
+              <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
+              <h3 className="text-lg font-medium text-green-800 mb-2">
+                Successfully Added to Stock!
+              </h3>
+              {createdItem && suggestedLocation && (
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p><strong>{createdItem.itemCode}</strong> has been placed at <strong>{suggestedLocation.code}</strong></p>
+                  <p>Weight: {createdItem.weight}kg</p>
+                  <p>Operator: {getOperatorName()}</p>
+                </div>
+              )}
+              <div className="mt-6">
+                <Button onClick={handleComplete} className="w-full">
+                  Process Another Item
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
