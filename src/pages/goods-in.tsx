@@ -160,10 +160,19 @@ export default function GoodsInPage() {
   };
 
   const handlePrintLabel = async () => {
-    if (!createdItem) return;
+    console.log('🖨️ handlePrintLabel called');
+    
+    if (!createdItem) {
+      console.log('❌ No created item found');
+      return;
+    }
 
     setPrinting(true);
+    console.log('🖨️ Setting printing to true');
+    
     try {
+      console.log('🖨️ Starting print process...');
+      
       const labelData: ItemLabelData = {
         systemCode: createdItem.systemCode,
         itemCode: createdItem.itemCode,
@@ -176,13 +185,15 @@ export default function GoodsInPage() {
       const zpl = generateItemZPL(labelData);
       await sendZPL(zpl);
       
+      console.log('✅ Print successful');
       toast.success('Label printed successfully!');
       
     } catch (error) {
-      console.error('Print error:', error);
+      console.error('❌ Print error:', error);
       toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // Continue to next step even if print fails
     } finally {
+      console.log('🖨️ Print process finished, calling proceedToLocationStep');
       setPrinting(false);
       // Move to location selection step regardless of print result
       proceedToLocationStep();
@@ -190,50 +201,78 @@ export default function GoodsInPage() {
   };
 
   const proceedToLocationStep = () => {
+    console.log('📍 proceedToLocationStep called');
+    console.log('📍 Current step before:', currentStep);
+    console.log('📍 Show label dialog before:', showLabelDialog);
+    
     setCurrentStep('location');
+    console.log('📍 Set current step to location');
+    
     setShowLabelDialog(false);
+    console.log('📍 Set showLabelDialog to false');
     
     // Find optimal location
     const availableLocations = locations.filter(loc => loc.available && loc.verified);
     const optimal = findOptimalLocation(availableLocations, createdItem!.weight);
     
     if (optimal) {
+      console.log('📍 Found optimal location:', optimal.code);
       setSuggestedLocation(optimal);
       setShowLocationDialog(true);
+      console.log('📍 Set showLocationDialog to true');
       toast.info(`Suggested location: ${optimal.code}`);
     } else {
+      console.log('❌ No optimal location found');
       toast.error('No suitable locations available');
     }
+    
+    console.log('📍 proceedToLocationStep completed');
   };
 
   const handleSkipLabel = () => {
+    console.log('⏭️ handleSkipLabel called');
     // Move to location selection step without printing
     proceedToLocationStep();
   };
 
   const handleApproveLocation = () => {
-    if (!suggestedLocation) return;
+    console.log('✅ handleApproveLocation called');
+    
+    if (!suggestedLocation) {
+      console.log('❌ No suggested location');
+      return;
+    }
     
     setCurrentStep('scan');
     setShowLocationDialog(false);
     setShowScanLocationDialog(true);
     
+    console.log('📱 Moving to scan step for location:', suggestedLocation.code);
     toast.info(`Please scan location barcode: ${suggestedLocation.code}`);
   };
 
   const handleLocationScan = async (scannedCode: string) => {
-    if (!suggestedLocation || !createdItem) return;
+    console.log('📱 handleLocationScan called with code:', scannedCode);
+    
+    if (!suggestedLocation || !createdItem) {
+      console.log('❌ Missing suggestedLocation or createdItem');
+      return;
+    }
     
     // Verify the scanned location matches the suggested location
     if (scannedCode !== suggestedLocation.code) {
+      console.log('❌ Wrong location scanned. Expected:', suggestedLocation.code, 'Got:', scannedCode);
       toast.error(`Wrong location scanned. Expected: ${suggestedLocation.code}, Got: ${scannedCode}`);
       return;
     }
     
     setLoading(true);
     setCurrentStep('complete');
+    console.log('🎯 Moving to complete step');
     
     try {
+      console.log('💾 Updating location and item...');
+      
       // Update location weight
       await updateLocation(suggestedLocation.id, {
         currentWeight: suggestedLocation.currentWeight + createdItem.weight
@@ -256,6 +295,7 @@ export default function GoodsInPage() {
         notes: `Placed at ${suggestedLocation.code} via goods-in process`
       });
 
+      console.log('✅ All updates completed successfully');
       toast.success('🎉 Item successfully placed in stock!', {
         description: `${createdItem.itemCode} is now at ${suggestedLocation.code}`,
         duration: 5000
@@ -265,11 +305,12 @@ export default function GoodsInPage() {
       
       // Auto-complete after delay
       setTimeout(() => {
+        console.log('⏰ Auto-completing after delay');
         handleComplete();
       }, 3000);
       
     } catch (error) {
-      console.error('Error placing item:', error);
+      console.error('❌ Error placing item:', error);
       toast.error('Failed to place item in stock');
       setCurrentStep('scan');
     } finally {
@@ -278,6 +319,8 @@ export default function GoodsInPage() {
   };
 
   const handleComplete = () => {
+    console.log('🏁 handleComplete called');
+    
     setShowLabelDialog(false);
     setShowLocationDialog(false);
     setShowScanLocationDialog(false);
@@ -293,6 +336,7 @@ export default function GoodsInPage() {
       quantity: '1'
     });
     
+    console.log('🏁 Process completed, form reset');
     toast.success('Goods-in process completed!', {
       description: 'Ready to process another item',
       duration: 3000
