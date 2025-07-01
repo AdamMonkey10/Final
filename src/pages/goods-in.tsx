@@ -45,8 +45,6 @@ export default function GoodsInPage() {
     itemCode: '',
     description: '',
     weight: '',
-    coilNumber: '',
-    coilLength: '',
     quantity: '1'
   });
   
@@ -100,8 +98,8 @@ export default function GoodsInPage() {
       return;
     }
 
-    if (!formData.itemCode || !formData.description || !formData.weight) {
-      toast.error('Please fill in all required fields');
+    if (!formData.itemCode || !formData.description) {
+      toast.error('Please fill in Product/SKU and description');
       return;
     }
 
@@ -110,16 +108,11 @@ export default function GoodsInPage() {
 
     try {
       const systemCode = generateSystemCode();
-      const weight = parseFloat(formData.weight);
+      const weight = formData.weight ? parseFloat(formData.weight) : 0;
 
       // Prepare metadata
       const metadata: any = {};
       
-      if (formData.coilNumber && formData.coilLength) {
-        metadata.coilNumber = formData.coilNumber;
-        metadata.coilLength = formData.coilLength;
-      }
-
       if (formData.quantity && parseInt(formData.quantity) > 1) {
         metadata.quantity = parseInt(formData.quantity);
       }
@@ -180,32 +173,18 @@ export default function GoodsInPage() {
       
       toast.success('Label printed successfully!');
       
-      // Move to location selection step
-      setCurrentStep('location');
-      setShowLabelDialog(false);
-      
-      // Find optimal location
-      const availableLocations = locations.filter(loc => loc.available && loc.verified);
-      const optimal = findOptimalLocation(availableLocations, createdItem.weight);
-      
-      if (optimal) {
-        setSuggestedLocation(optimal);
-        setShowLocationDialog(true);
-        toast.info(`Suggested location: ${optimal.code}`);
-      } else {
-        toast.error('No suitable locations available');
-      }
-      
     } catch (error) {
       console.error('Print error:', error);
-      toast.error(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Continue to next step even if print fails
     } finally {
       setPrinting(false);
+      // Move to location selection step regardless of print result
+      proceedToLocationStep();
     }
   };
 
-  const handleSkipLabel = () => {
-    // Move to location selection step without printing
+  const proceedToLocationStep = () => {
     setCurrentStep('location');
     setShowLabelDialog(false);
     
@@ -220,6 +199,11 @@ export default function GoodsInPage() {
     } else {
       toast.error('No suitable locations available');
     }
+  };
+
+  const handleSkipLabel = () => {
+    // Move to location selection step without printing
+    proceedToLocationStep();
   };
 
   const handleApproveLocation = () => {
@@ -301,8 +285,6 @@ export default function GoodsInPage() {
       itemCode: '',
       description: '',
       weight: '',
-      coilNumber: '',
-      coilLength: '',
       quantity: '1'
     });
     
@@ -357,12 +339,12 @@ export default function GoodsInPage() {
     },
     {
       title: "Item Details",
-      description: "Enter the Product/SKU, description, and weight. Add coil details if applicable.",
+      description: "Enter the Product/SKU and description. Weight is optional but recommended for location optimization.",
       type: "info" as const
     },
     {
       title: "Print Label",
-      description: "Print a barcode label for the item. This label will be used for scanning and identification.",
+      description: "Print a barcode label for the item. The process continues even if printing fails.",
       type: "info" as const
     },
     {
@@ -380,13 +362,13 @@ export default function GoodsInPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Goods In</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">Goods In</h1>
         <div className="flex gap-2">
-          <Button onClick={() => navigate('/scan')} variant="outline">
+          <Button onClick={() => navigate('/scan')} variant="outline" size="sm" className="hidden md:flex">
             <QrCode className="h-4 w-4 mr-2" />
             Scan Items
           </Button>
-          <Button onClick={() => navigate('/')} variant="outline">
+          <Button onClick={() => navigate('/')} variant="outline" size="sm">
             <Home className="h-4 w-4 mr-2" />
             Dashboard
           </Button>
@@ -422,7 +404,7 @@ export default function GoodsInPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
             <PackagePlus className="h-5 w-5" />
             Create New Item
           </CardTitle>
@@ -442,7 +424,7 @@ export default function GoodsInPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description *</Label>
+                <Label htmlFor="description" className="text-base">Description *</Label>
                 <Input
                   id="description"
                   value={formData.description}
@@ -450,13 +432,13 @@ export default function GoodsInPage() {
                   placeholder="Item description"
                   required
                   disabled={loading}
-                  className="h-12 text-base"
+                  className="h-14 text-base"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="weight">Weight (kg) *</Label>
+                  <Label htmlFor="weight" className="text-base">Weight (kg)</Label>
                   <Input
                     id="weight"
                     type="number"
@@ -465,14 +447,14 @@ export default function GoodsInPage() {
                     value={formData.weight}
                     onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
                     placeholder="0.00"
-                    required
                     disabled={loading}
-                    className="h-12 text-base"
+                    className="h-14 text-base"
                   />
+                  <p className="text-xs text-muted-foreground">Optional - helps with location optimization</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="quantity">Quantity</Label>
+                  <Label htmlFor="quantity" className="text-base">Quantity</Label>
                   <Input
                     id="quantity"
                     type="number"
@@ -481,48 +463,15 @@ export default function GoodsInPage() {
                     onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                     placeholder="1"
                     disabled={loading}
-                    className="h-12 text-base"
+                    className="h-14 text-base"
                   />
-                </div>
-              </div>
-
-              {/* Optional coil details */}
-              <div className="border rounded-lg p-4 bg-blue-50">
-                <h3 className="font-medium mb-3 text-blue-900">Optional Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="coilNumber">Number of Coils</Label>
-                    <Input
-                      id="coilNumber"
-                      type="number"
-                      min="1"
-                      value={formData.coilNumber}
-                      onChange={(e) => setFormData({ ...formData, coilNumber: e.target.value })}
-                      placeholder="Enter number of coils"
-                      disabled={loading}
-                      className="h-12 text-base"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="coilLength">Coil Length (ft)</Label>
-                    <Input
-                      id="coilLength"
-                      type="number"
-                      step="0.1"
-                      value={formData.coilLength}
-                      onChange={(e) => setFormData({ ...formData, coilLength: e.target.value })}
-                      placeholder="Enter coil length"
-                      disabled={loading}
-                      className="h-12 text-base"
-                    />
-                  </div>
                 </div>
               </div>
             </div>
 
             <Button 
               type="submit" 
-              className="w-full h-14 text-lg"
+              className="w-full h-16 text-lg"
               disabled={loading || !selectedOperator}
             >
               {loading ? 'Creating Item...' : 'Create Item'}
@@ -533,7 +482,7 @@ export default function GoodsInPage() {
 
       {/* Label Printing Dialog */}
       <Dialog open={showLabelDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Printer className="h-5 w-5" />
@@ -584,10 +533,10 @@ export default function GoodsInPage() {
               </div>
 
               {/* Print Actions */}
-              <div className="flex gap-3">
+              <div className="flex flex-col md:flex-row gap-3">
                 <Button 
                   onClick={handlePrintLabel}
-                  className="flex-1 h-12"
+                  className="flex-1 h-14 text-base"
                   disabled={printing}
                 >
                   <Printer className="h-5 w-5 mr-2" />
@@ -596,7 +545,7 @@ export default function GoodsInPage() {
                 <Button 
                   onClick={handleSkipLabel}
                   variant="outline"
-                  className="h-12"
+                  className="h-14 text-base"
                   disabled={printing}
                 >
                   Skip Label
@@ -604,7 +553,7 @@ export default function GoodsInPage() {
               </div>
 
               <div className="text-xs text-center text-muted-foreground">
-                <p>After printing, you'll select a location and scan to put the item into stock.</p>
+                <p>The process will continue to location selection even if printing fails.</p>
               </div>
             </div>
           )}
@@ -613,7 +562,7 @@ export default function GoodsInPage() {
 
       {/* Location Assignment Dialog */}
       <Dialog open={showLocationDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MapPin className="h-5 w-5" />
@@ -650,7 +599,7 @@ export default function GoodsInPage() {
 
       {/* Scan Location Dialog */}
       <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Scan className="h-5 w-5" />
@@ -713,7 +662,7 @@ export default function GoodsInPage() {
                 </div>
               )}
               <div className="mt-6">
-                <Button onClick={handleComplete} className="w-full">
+                <Button onClick={handleComplete} className="w-full h-14 text-base">
                   Process Another Item
                 </Button>
               </div>

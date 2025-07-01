@@ -6,14 +6,14 @@ interface InstructionsContextType {
 }
 
 const InstructionsContext = createContext<InstructionsContextType>({
-  showInstructions: true,
+  showInstructions: false, // Default to off
   toggleInstructions: () => {},
 });
 
 export function InstructionsProvider({ children }: { children: React.ReactNode }) {
   const [showInstructions, setShowInstructions] = useState(() => {
     const saved = localStorage.getItem('wareflow-show-instructions');
-    return saved !== null ? JSON.parse(saved) : true;
+    return saved !== null ? JSON.parse(saved) : false; // Default to false (off)
   });
 
   const toggleInstructions = () => {
