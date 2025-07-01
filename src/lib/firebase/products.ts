@@ -27,22 +27,13 @@ export interface Product {
   };
 }
 
-export async function getProducts(categoryFilter?: string): Promise<Product[]> {
+export async function getProducts(): Promise<Product[]> {
   try {
-    let q = query(
+    const q = query(
       collection(db, COLLECTION),
       orderBy('lastUsed', 'desc'),
       limit(50)
     );
-
-    if (categoryFilter) {
-      q = query(
-        collection(db, COLLECTION),
-        where('category', '==', categoryFilter),
-        orderBy('lastUsed', 'desc'),
-        limit(50)
-      );
-    }
 
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({
@@ -108,10 +99,10 @@ export async function saveProduct(productData: Omit<Product, 'id' | 'lastUsed' |
   }
 }
 
-export async function searchProducts(searchTerm: string, categoryFilter?: string): Promise<Product[]> {
+export async function searchProducts(searchTerm: string): Promise<Product[]> {
   try {
     // Get all products and filter client-side for better search
-    const products = await getProducts(categoryFilter);
+    const products = await getProducts();
     
     if (!searchTerm.trim()) {
       return products;

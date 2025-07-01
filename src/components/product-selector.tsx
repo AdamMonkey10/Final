@@ -48,13 +48,10 @@ export function ProductSelector({
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // New product form
+  // New product form - removed weight and optional fields
   const [newProduct, setNewProduct] = useState({
     sku: '',
-    description: '',
-    weight: '',
-    coilNumber: '',
-    coilLength: ''
+    description: ''
   });
 
   useEffect(() => {
@@ -110,17 +107,8 @@ export function ProductSelector({
         sku: newProduct.sku.trim(),
         description: newProduct.description.trim(),
         category: 'general', // Default category
-        weight: newProduct.weight ? parseFloat(newProduct.weight) : undefined,
         metadata: {}
       };
-
-      // Add metadata if provided
-      if (newProduct.coilNumber && newProduct.coilLength) {
-        productData.metadata = {
-          coilNumber: newProduct.coilNumber,
-          coilLength: newProduct.coilLength
-        };
-      }
 
       await saveProduct(productData);
       toast.success('Product saved successfully');
@@ -128,10 +116,7 @@ export function ProductSelector({
       // Reset form and close dialog
       setNewProduct({
         sku: '',
-        description: '',
-        weight: '',
-        coilNumber: '',
-        coilLength: ''
+        description: ''
       });
       setShowAddDialog(false);
       
@@ -149,7 +134,7 @@ export function ProductSelector({
 
   return (
     <div className="space-y-2">
-      <Label className="flex items-center gap-2">
+      <Label className="flex items-center gap-2 text-base">
         <Package className="h-4 w-4" />
         Product/SKU
       </Label>
@@ -161,7 +146,7 @@ export function ProductSelector({
               variant="outline"
               role="combobox"
               aria-expanded={open}
-              className="flex-1 justify-between h-12 text-base"
+              className="flex-1 justify-between h-14 text-base"
               disabled={disabled}
             >
               {value || placeholder}
@@ -240,7 +225,7 @@ export function ProductSelector({
           size="icon"
           onClick={() => setShowAddDialog(true)}
           disabled={disabled}
-          className="h-12 w-12"
+          className="h-14 w-14"
         >
           <Plus className="h-4 w-4" />
         </Button>
@@ -252,9 +237,6 @@ export function ProductSelector({
             <div>
               <div className="font-medium">{selectedProduct.sku}</div>
               <div className="text-sm text-muted-foreground">{selectedProduct.description}</div>
-              {selectedProduct.weight && (
-                <div className="text-sm text-muted-foreground">Weight: {selectedProduct.weight}kg</div>
-              )}
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-xs">
@@ -274,78 +256,34 @@ export function ProductSelector({
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="newSku">Product/SKU *</Label>
+              <Label htmlFor="newSku" className="text-base">Product/SKU *</Label>
               <Input
                 id="newSku"
                 value={newProduct.sku}
                 onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
                 placeholder="Enter product/SKU code"
                 required
-                className="h-12 text-base"
+                className="h-14 text-base"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="newDescription">Description *</Label>
+              <Label htmlFor="newDescription" className="text-base">Description *</Label>
               <Input
                 id="newDescription"
                 value={newProduct.description}
                 onChange={(e) => setNewProduct(prev => ({ ...prev, description: e.target.value }))}
                 placeholder="Enter product description"
                 required
-                className="h-12 text-base"
+                className="h-14 text-base"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="newWeight">Weight (kg)</Label>
-              <Input
-                id="newWeight"
-                type="number"
-                step="0.01"
-                value={newProduct.weight}
-                onChange={(e) => setNewProduct(prev => ({ ...prev, weight: e.target.value }))}
-                placeholder="Enter weight"
-                className="h-12 text-base"
-              />
-            </div>
-
-            {/* Optional coil details */}
-            <div className="border rounded-lg p-4 bg-blue-50">
-              <h3 className="font-medium mb-3 text-blue-900">Optional Details</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="newCoilNumber">Number of Coils</Label>
-                  <Input
-                    id="newCoilNumber"
-                    type="number"
-                    min="1"
-                    value={newProduct.coilNumber}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, coilNumber: e.target.value }))}
-                    placeholder="Enter number of coils"
-                    className="h-12 text-base"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="newCoilLength">Coil Length (ft)</Label>
-                  <Input
-                    id="newCoilLength"
-                    type="number"
-                    step="0.1"
-                    value={newProduct.coilLength}
-                    onChange={(e) => setNewProduct(prev => ({ ...prev, coilLength: e.target.value }))}
-                    placeholder="Enter coil length"
-                    className="h-12 text-base"
-                  />
-                </div>
-              </div>
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleAddProduct} className="flex-1 h-12">
+              <Button onClick={handleAddProduct} className="flex-1 h-14 text-base">
                 Save Product
               </Button>
-              <Button variant="outline" onClick={() => setShowAddDialog(false)} className="h-12">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)} className="h-14 text-base">
                 Cancel
               </Button>
             </div>
