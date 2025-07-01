@@ -41,7 +41,7 @@ import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
 import { generateBulkLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
-import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler, List, Grid3X3 } from 'lucide-react';
+import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler, List, Grid3X3, Package } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { LocationBarcodePrint } from '@/components/location-barcode-print';
@@ -51,18 +51,19 @@ import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
 import type { Item } from '@/types/warehouse';
 
-interface LocationWithItem extends Location {
-  storedItem?: Item;
+interface LocationWithItems extends Location {
+  items?: Item[];
 }
 
 export default function LocationsPage() {
   const { user, authLoading } = useFirebase();
-  const [locations, setLocations] = useState<LocationWithItem[]>([]);
-  const [filteredLocations, setFilteredLocations] = useState<LocationWithItem[]>([]);
+  const [locations, setLocations] = useState<LocationWithItems[]>([]);
+  const [filteredLocations, setFilteredLocations] = useState<LocationWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'code' | 'row' | 'bay' | 'level' | 'rackType'>('code');
-  const [selectedLocation, setSelectedLocation] = useState<LocationWithItem | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<LocationWithItems | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [showBarcodeDialog, setShowBarcodeDialog] = useState(false);
   const [showLocationBarcodeDialog, setShowLocationBarcodeDialog] = useState(false);
   const [showVisualDialog, setShowVisualDialog] = useState(false);
@@ -70,13 +71,14 @@ export default function LocationsPage() {
   const [selectedLocationsForPrint, setSelectedLocationsForPrint] = useState<Location[]>([]);
   const [bulkPrinting, setBulkPrinting] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'graphic'>('list');
+  const [loadingItems, setLoadingItems] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (user && !authLoading) {
       // Set up real-time subscription to locations
       const unsubscribe = subscribeToLocations(async (fetchedLocations) => {
         try {
-          // Fetch items for each location that has weight
+          // Load items for all locations that have weight
           const locationsWithItems = await Promise.all(
             fetchedLocations.map(async (location) => {
               if (location.currentWeight > 0) {
@@ -84,14 +86,20 @@ export default function LocationsPage() {
                   const items = await getItemsByLocation(location.code);
                   return {
                     ...location,
-                    storedItem: items[0] // Assume one item per location for now
+                    items: items
                   };
                 } catch (error) {
                   console.error(`Error loading items for location ${location.code}:`, error);
-                  return location;
+                  return {
+                    ...location,
+                    items: []
+                  };
                 }
               }
-              return location;
+              return {
+                ...location,
+                items: []
+              };
             })
           );
 
@@ -99,7 +107,7 @@ export default function LocationsPage() {
           setLoading(false);
         } catch (error) {
           console.error('Error processing locations:', error);
-          setLocations(fetchedLocations);
+          setLocations(fetchedLocations.map(loc => ({ ...loc, items: [] })));
           setLoading(false);
         }
       });
@@ -139,6 +147,36 @@ export default function LocationsPage() {
     setFilteredLocations(filtered);
   };
 
+  const loadItemsForLocation = async (location: LocationWithItems) => {
+    if (location.currentWeight === 0) {
+      toast.info('No items at this location');
+      return;
+    }
+
+    setLoadingItems(prev => ({ ...prev, [location.id]: true }));
+    
+    try {
+      const items = await getItemsByLocation(location.code);
+      
+      if (items.length === 0) {
+        toast.warning(`No items found at location ${location.code}`);
+        return;
+      }
+
+      // Update the location with loaded items
+      setLocations(prev => prev.map(loc => 
+        loc.id === location.id ? { ...loc, items } : loc
+      ));
+
+      toast.success(`Found ${items.length} item(s) at ${location.code}`);
+    } catch (error) {
+      console.error('Error loading items:', error);
+      toast.error('Failed to load items for this location');
+    } finally {
+      setLoadingItems(prev => ({ ...prev, [location.id]: false }));
+    }
+  };
+
   const getWeightStatusColor = (currentWeight: number, maxWeight: number) => {
     if (currentWeight === 0) return 'bg-green-100 text-green-800';
     if (maxWeight === Infinity) return 'bg-blue-100 text-blue-800'; // Ground level
@@ -155,7 +193,7 @@ export default function LocationsPage() {
     return 'In Use';
   };
 
-  const handleLocationSelect = (location: LocationWithItem) => {
+  const handleLocationSelect = (location: LocationWithItems) => {
     setSelectedLocation(location);
     setShowVisualDialog(true);
   };
@@ -164,6 +202,32 @@ export default function LocationsPage() {
     if (selectedLocation) {
       toast.success(`Location ${selectedLocation.code} selected`);
       setShowVisualDialog(false);
+    }
+  };
+
+  const handleShowItemBarcode = async (location: LocationWithItems) => {
+    // If items are already loaded, show them
+    if (location.items && location.items.length > 0) {
+      if (location.items.length === 1) {
+        setSelectedItem(location.items[0]);
+        setShowBarcodeDialog(true);
+      } else {
+        // Multiple items - show selection dialog or first item
+        setSelectedItem(location.items[0]);
+        setShowBarcodeDialog(true);
+        toast.info(`Showing barcode for first item. Location has ${location.items.length} items.`);
+      }
+      return;
+    }
+
+    // Load items if not already loaded
+    await loadItemsForLocation(location);
+    
+    // After loading, check if we have items
+    const updatedLocation = locations.find(loc => loc.id === location.id);
+    if (updatedLocation?.items && updatedLocation.items.length > 0) {
+      setSelectedItem(updatedLocation.items[0]);
+      setShowBarcodeDialog(true);
     }
   };
 
@@ -318,6 +382,7 @@ export default function LocationsPage() {
                         <TableHead>Rack Type</TableHead>
                         <TableHead>Weight Status</TableHead>
                         <TableHead>Max Weight</TableHead>
+                        <TableHead>Items</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -351,6 +416,18 @@ export default function LocationsPage() {
                           <TableCell>
                             {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
                           </TableCell>
+                          <TableCell>
+                            {location.currentWeight > 0 ? (
+                              <div className="flex items-center gap-1">
+                                <Package className="h-3 w-3 text-blue-500" />
+                                <span className="text-sm">
+                                  {location.items ? location.items.length : '?'} item(s)
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Empty</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button
                               variant="outline"
@@ -368,19 +445,17 @@ export default function LocationsPage() {
                               }}
                             >
                               <QrCode className="h-4 w-4 mr-2" />
-                              Print Barcode
+                              Location Barcode
                             </Button>
-                            {location.storedItem && (
+                            {location.currentWeight > 0 && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  setSelectedLocation(location);
-                                  setShowBarcodeDialog(true);
-                                }}
+                                onClick={() => handleShowItemBarcode(location)}
+                                disabled={loadingItems[location.id]}
                               >
                                 <QrCode className="h-4 w-4 mr-2" />
-                                Item Barcode
+                                {loadingItems[location.id] ? 'Loading...' : 'Item Barcode'}
                               </Button>
                             )}
                           </TableCell>
@@ -432,8 +507,16 @@ export default function LocationsPage() {
             <DialogTitle>Item Barcode</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {selectedLocation?.storedItem && (
-              <BarcodePrint value={selectedLocation.storedItem.systemCode} />
+            {selectedItem && (
+              <div className="space-y-4">
+                <div className="p-4 bg-muted rounded-lg">
+                  <h3 className="font-medium">{selectedItem.itemCode}</h3>
+                  <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
+                  <p className="text-sm">Weight: {selectedItem.weight}kg</p>
+                  <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
+                </div>
+                <BarcodePrint value={selectedItem.systemCode} />
+              </div>
             )}
           </div>
         </DialogContent>
@@ -513,7 +596,35 @@ export default function LocationsPage() {
                     {RACK_TYPES[selectedLocation.rackType as keyof typeof RACK_TYPES]?.name || selectedLocation.rackType || 'Standard'}
                   </div>
                 </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Items</div>
+                  <div className="font-medium">
+                    {selectedLocation.items ? selectedLocation.items.length : 0} item(s)
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">Weight</div>
+                  <div className="font-medium">
+                    {selectedLocation.currentWeight}kg / {selectedLocation.maxWeight === Infinity ? 'Unlimited' : `${selectedLocation.maxWeight}kg`}
+                  </div>
+                </div>
               </div>
+              
+              {selectedLocation.items && selectedLocation.items.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium">Items at this location:</h4>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {selectedLocation.items.map((item) => (
+                      <div key={item.id} className="p-2 bg-muted rounded text-sm">
+                        <div className="font-medium">{item.itemCode}</div>
+                        <div className="text-muted-foreground">{item.description}</div>
+                        <div className="text-xs">Weight: {item.weight}kg</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               <BayVisualizer
                 location={selectedLocation}
                 onConfirm={handleLocationConfirm}
