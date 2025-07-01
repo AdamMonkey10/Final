@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Wifi } from 'lucide-react';
+import { Camera, CameraOff, RotateCcw, AlertCircle, CheckCircle, RefreshCw, Wifi, QrCode } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface CameraScannerProps {
@@ -513,8 +513,8 @@ export function CameraScanner({
               size="sm"
               className="text-xs"
             >
-              <Wifi className="h-3 w-3 mr-1" />
-              Force Reinit
+              <QrCode className="h-3 w-3 mr-1" />
+              Scan
             </Button>
           )}
           
