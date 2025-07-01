@@ -3,13 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Card,
   CardContent,
   CardDescription,
@@ -25,7 +18,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addItem, updateItem } from '@/lib/firebase/items';
-import { getCategories } from '@/lib/firebase/categories';
 import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
@@ -41,7 +33,6 @@ import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan 
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
-import type { Category } from '@/lib/firebase/categories';
 import type { Location } from '@/types/warehouse';
 
 export default function GoodsInPage() {
@@ -54,13 +45,11 @@ export default function GoodsInPage() {
     itemCode: '',
     description: '',
     weight: '',
-    category: '',
     coilNumber: '',
     coilLength: '',
     quantity: '1'
   });
   
-  const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
   const [showLabelDialog, setShowLabelDialog] = useState(false);
@@ -79,20 +68,9 @@ export default function GoodsInPage() {
 
   useEffect(() => {
     if (user && !authLoading) {
-      loadCategories();
       loadLocations();
     }
   }, [user, authLoading]);
-
-  const loadCategories = async () => {
-    try {
-      const fetchedCategories = await getCategories();
-      setCategories(fetchedCategories);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-      toast.error('Failed to load categories');
-    }
-  };
 
   const loadLocations = async () => {
     try {
@@ -122,7 +100,7 @@ export default function GoodsInPage() {
       return;
     }
 
-    if (!formData.itemCode || !formData.description || !formData.weight || !formData.category) {
+    if (!formData.itemCode || !formData.description || !formData.weight) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -134,28 +112,25 @@ export default function GoodsInPage() {
       const systemCode = generateSystemCode();
       const weight = parseFloat(formData.weight);
 
-      // Prepare metadata for raw materials
+      // Prepare metadata
       const metadata: any = {};
-      const selectedCategory = categories.find(c => c.id === formData.category);
       
-      if (selectedCategory?.prefix === 'RAW') {
-        if (formData.coilNumber && formData.coilLength) {
-          metadata.coilNumber = formData.coilNumber;
-          metadata.coilLength = formData.coilLength;
-        }
+      if (formData.coilNumber && formData.coilLength) {
+        metadata.coilNumber = formData.coilNumber;
+        metadata.coilLength = formData.coilLength;
       }
 
       if (formData.quantity && parseInt(formData.quantity) > 1) {
         metadata.quantity = parseInt(formData.quantity);
       }
 
-      // Create the item
+      // Create the item with default category
       const itemId = await addItem({
         itemCode: formData.itemCode,
         systemCode,
         description: formData.description,
         weight,
-        category: formData.category,
+        category: 'general', // Default category
         status: 'pending',
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined
       });
@@ -326,7 +301,6 @@ export default function GoodsInPage() {
       itemCode: '',
       description: '',
       weight: '',
-      category: '',
       coilNumber: '',
       coilLength: '',
       quantity: '1'
@@ -337,9 +311,6 @@ export default function GoodsInPage() {
       duration: 3000
     });
   };
-
-  const selectedCategory = categories.find(c => c.id === formData.category);
-  const isRawMaterial = selectedCategory?.prefix === 'RAW';
 
   const getStepIndicator = () => {
     const steps = [
@@ -386,7 +357,7 @@ export default function GoodsInPage() {
     },
     {
       title: "Item Details",
-      description: "Enter the Product/SKU, description, weight, and category. Raw materials have additional coil fields.",
+      description: "Enter the Product/SKU, description, and weight. Add coil details if applicable.",
       type: "info" as const
     },
     {
@@ -461,12 +432,11 @@ export default function GoodsInPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-6">
               <div className="space-y-2">
                 <ProductSelector
                   value={formData.itemCode}
                   onChange={(value) => setFormData({ ...formData, itemCode: value })}
-                  category={formData.category}
                   disabled={loading}
                 />
               </div>
@@ -480,62 +450,45 @@ export default function GoodsInPage() {
                   placeholder="Item description"
                   required
                   disabled={loading}
+                  className="h-12 text-base"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="weight">Weight (kg) *</Label>
-                <Input
-                  id="weight"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.weight}
-                  onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                  placeholder="0.00"
-                  required
-                  disabled={loading}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="weight">Weight (kg) *</Label>
+                  <Input
+                    id="weight"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.weight}
+                    onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                    placeholder="0.00"
+                    required
+                    disabled={loading}
+                    className="h-12 text-base"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="quantity">Quantity</Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    min="1"
+                    value={formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                    placeholder="1"
+                    disabled={loading}
+                    className="h-12 text-base"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="category">Category *</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(value) => setFormData({ ...formData, category: value })}
-                  disabled={loading}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Quantity</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  placeholder="1"
-                  disabled={loading}
-                />
-              </div>
-            </div>
-
-            {/* Raw Materials specific fields */}
-            {isRawMaterial && (
+              {/* Optional coil details */}
               <div className="border rounded-lg p-4 bg-blue-50">
-                <h3 className="font-medium mb-3 text-blue-900">Raw Material Details</h3>
+                <h3 className="font-medium mb-3 text-blue-900">Optional Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="coilNumber">Number of Coils</Label>
@@ -547,6 +500,7 @@ export default function GoodsInPage() {
                       onChange={(e) => setFormData({ ...formData, coilNumber: e.target.value })}
                       placeholder="Enter number of coils"
                       disabled={loading}
+                      className="h-12 text-base"
                     />
                   </div>
                   <div className="space-y-2">
@@ -559,15 +513,16 @@ export default function GoodsInPage() {
                       onChange={(e) => setFormData({ ...formData, coilLength: e.target.value })}
                       placeholder="Enter coil length"
                       disabled={loading}
+                      className="h-12 text-base"
                     />
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
             <Button 
               type="submit" 
-              className="w-full h-12 text-lg"
+              className="w-full h-14 text-lg"
               disabled={loading || !selectedOperator}
             >
               {loading ? 'Creating Item...' : 'Create Item'}

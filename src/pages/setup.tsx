@@ -49,18 +49,15 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addLocation, getLocations, deleteLocation } from '@/lib/firebase/locations';
-import { getCategories, addCategory, deleteCategory, updateCategory } from '@/lib/firebase/categories';
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
-import { CategoryDialog } from '@/components/category-dialog';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCcw } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
-import type { Category } from '@/lib/firebase/categories';
 import type { User } from '@/lib/firebase/users';
 import type { Operator } from '@/lib/firebase/operators';
 
@@ -85,13 +82,10 @@ export default function Setup() {
     maxWeight: number;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
-  const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
   const [showOperatorDialog, setShowOperatorDialog] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<Category | undefined>();
   const [newUser, setNewUser] = useState({ username: '', password: '' });
   const [newOperator, setNewOperator] = useState({ name: '', email: '' });
   const [locationToDelete, setLocationToDelete] = useState<Location | null>(null);
@@ -116,25 +110,12 @@ export default function Setup() {
 
   useEffect(() => {
     if (user && !authLoading) {
-      loadCategories();
       loadUsers();
       loadOperators();
       loadPrinterSettings();
       fetchExistingLocations();
     }
   }, [user, authLoading]);
-
-  const loadCategories = async () => {
-    if (!user || authLoading) return;
-    
-    try {
-      const fetchedCategories = await getCategories();
-      setCategories(fetchedCategories);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-      toast.error('Failed to load categories');
-    }
-  };
 
   const loadUsers = async () => {
     if (!user || authLoading) return;
@@ -280,31 +261,6 @@ export default function Setup() {
     return 'In Use';
   };
 
-  const handleSaveCategory = async (data: any) => {
-    try {
-      if (selectedCategory) {
-        await updateCategory(selectedCategory.id, data);
-      } else {
-        await addCategory(data);
-      }
-      loadCategories();
-    } catch (error) {
-      console.error('Error saving category:', error);
-      throw error;
-    }
-  };
-
-  const handleDeleteCategory = async (category: Category) => {
-    try {
-      await deleteCategory(category.id);
-      toast.success('Category deleted');
-      loadCategories();
-    } catch (error) {
-      console.error('Error deleting category:', error);
-      toast.error('Failed to delete category');
-    }
-  };
-
   const handleAddUser = async () => {
     try {
       if (!newUser.username || !newUser.password) {
@@ -391,48 +347,10 @@ export default function Setup() {
     }
   };
 
-  const downloadInventoryData = () => {
-    try {
-      const items = categories.map(cat => ({
-        name: cat.name,
-        prefix: cat.prefix,
-        description: cat.description,
-        currentQuantity: cat.kanbanRules?.currentQuantity || 0,
-        minQuantity: cat.kanbanRules?.minQuantity || 0,
-        maxQuantity: cat.kanbanRules?.maxQuantity || 0,
-        reorderPoint: cat.kanbanRules?.reorderPoint || 0,
-        fixedLocations: cat.kanbanRules?.fixedLocations?.join(', ') || ''
-      }));
-
-      const csvContent = [
-        ['Name', 'Prefix', 'Description', 'Current Qty', 'Min Qty', 'Max Qty', 'Reorder Point', 'Fixed Locations'],
-        ...items.map(item => Object.values(item))
-      ].map(row => row.join(',')).join('\n');
-
-      const blob = new Blob([csvContent], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `inventory-data-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error downloading data:', error);
-      toast.error('Failed to download data');
-    }
-  };
-
   const setupInstructions = [
     {
       title: "Location Generation",
       description: "Generate warehouse locations by selecting row, bay range, and number of levels. Each bay creates 3 positions per level.",
-      type: "info" as const
-    },
-    {
-      title: "Category Management",
-      description: "Create and manage item categories with optional Kanban rules for quantity-based stock management.",
       type: "info" as const
     },
     {
@@ -446,8 +364,8 @@ export default function Setup() {
       type: "tip" as const
     },
     {
-      title: "Data Management",
-      description: "Export inventory data and manage user accounts. Keep your warehouse data organized and accessible.",
+      title: "User Management",
+      description: "Manage user accounts for system access. Keep your warehouse data organized and accessible.",
       type: "success" as const
     }
   ];
@@ -465,7 +383,7 @@ export default function Setup() {
       {showInstructions && (
         <InstructionPanel
           title="Warehouse Setup Guide"
-          description="Configure your warehouse system including locations, categories, operators, and printer settings. Complete setup before starting warehouse operations."
+          description="Configure your warehouse system including locations, operators, and printer settings. Complete setup before starting warehouse operations."
           steps={setupInstructions}
           onClose={() => {}}
           className="mb-6"
@@ -475,11 +393,9 @@ export default function Setup() {
       <Tabs defaultValue="locations">
         <TabsList>
           <TabsTrigger value="locations">Locations</TabsTrigger>
-          <TabsTrigger value="categories">Categories</TabsTrigger>
           <TabsTrigger value="operators">Operators</TabsTrigger>
           <TabsTrigger value="printer">Printer Settings</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="data">Data Management</TabsTrigger>
         </TabsList>
 
         <TabsContent value="locations">
@@ -493,11 +409,11 @@ export default function Setup() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="space-y-2">
                     <Label>Row</Label>
                     <Select value={selectedRow} onValueChange={setSelectedRow}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-12 text-base">
                         <SelectValue placeholder="Select row" />
                       </SelectTrigger>
                       <SelectContent>
@@ -512,7 +428,7 @@ export default function Setup() {
                   <div className="space-y-2">
                     <Label>Levels High (How many levels?)</Label>
                     <Select value={maxLevel.toString()} onValueChange={(value) => setMaxLevel(parseInt(value))}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-12 text-base">
                         <SelectValue placeholder="Select max level" />
                       </SelectTrigger>
                       <SelectContent>
@@ -532,6 +448,7 @@ export default function Setup() {
                       value={bayStart}
                       onChange={(e) => setBayStart(e.target.value)}
                       placeholder="1"
+                      className="h-12 text-base"
                     />
                   </div>
                   <div className="space-y-2">
@@ -542,6 +459,7 @@ export default function Setup() {
                       value={bayEnd}
                       onChange={(e) => setBayEnd(e.target.value)}
                       placeholder="10"
+                      className="h-12 text-base"
                     />
                   </div>
                 </div>
@@ -560,7 +478,7 @@ export default function Setup() {
                   </div>
                 </div>
 
-                <Button onClick={generateLocations} className="w-full">
+                <Button onClick={generateLocations} className="w-full h-12 text-base">
                   Generate Locations
                 </Button>
 
@@ -607,7 +525,7 @@ export default function Setup() {
                     </div>
                     <Button
                       onClick={saveLocations}
-                      className="w-full mt-4"
+                      className="w-full mt-4 h-12 text-base"
                       variant="default"
                     >
                       Save All Locations
@@ -623,7 +541,7 @@ export default function Setup() {
                 <CardTitle className="flex items-center justify-between">
                   <span>Existing Locations</span>
                   <Button onClick={fetchExistingLocations} variant="outline" disabled={loadingLocations}>
-                    <RefreshCcw className={`h-4 w-4 mr-2 ${loadingLocations ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loadingLocations ? 'animate-spin' : ''}`} />
                     Refresh
                   </Button>
                 </CardTitle>
@@ -704,131 +622,6 @@ export default function Setup() {
           </div>
         </TabsContent>
 
-        <TabsContent value="categories">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Item Categories</span>
-                <Button onClick={() => {
-                  setSelectedCategory(undefined);
-                  setShowCategoryDialog(true);
-                }}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Category
-                </Button>
-              </CardTitle>
-              <CardDescription>
-                Manage product categories and Kanban rules
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Stock Level</TableHead>
-                      <TableHead>Rules</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {categories.map((category) => (
-                      <TableRow key={category.id}>
-                        <TableCell className="font-medium">
-                          {category.name}
-                          {category.isDefault && (
-                            <Badge variant="secondary" className="ml-2">
-                              Default
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>{category.description}</TableCell>
-                        <TableCell>
-                          {category.kanbanRules ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between text-sm">
-                                <span>Current: {category.kanbanRules.currentQuantity}</span>
-                                <Badge variant={
-                                  category.kanbanRules.currentQuantity <= category.kanbanRules.minQuantity ? 'destructive' :
-                                  category.kanbanRules.currentQuantity <= category.kanbanRules.reorderPoint ? 'warning' :
-                                  'success'
-                                }>
-                                  {category.kanbanRules.currentQuantity <= category.kanbanRules.minQuantity ? 'Low Stock' :
-                                   category.kanbanRules.currentQuantity <= category.kanbanRules.reorderPoint ? 'Reorder Soon' :
-                                   'In Stock'}
-                                </Badge>
-                              </div>
-                              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                                <div 
-                                  className={cn(
-                                    "h-full transition-all",
-                                    category.kanbanRules.currentQuantity <= category.kanbanRules.minQuantity ? 
-                                      "bg-destructive" :
-                                    category.kanbanRules.currentQuantity <= category.kanbanRules.reorderPoint ?
-                                      "bg-yellow-500" :
-                                      "bg-green-500"
-                                  )}
-                                  style={{ 
-                                    width: `${Math.min(100, (category.kanbanRules.currentQuantity / category.kanbanRules.maxQuantity) * 100)}%` 
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            <Badge variant="outline" className="bg-muted">
-                              No Stock Control
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {category.isDefault ? (
-                            <Badge variant="outline" className="bg-muted">
-                              No Rules Required
-                            </Badge>
-                          ) : category.kanbanRules ? (
-                            <div className="space-y-1 text-sm">
-                              <div>Min: {category.kanbanRules.minQuantity}</div>
-                              <div>Max: {category.kanbanRules.maxQuantity}</div>
-                              <div>Reorder at: {category.kanbanRules.reorderPoint}</div>
-                              <div>Location: {category.kanbanRules.fixedLocations?.join(', ') || '—'}</div>
-                            </div>
-                          ) : '—'}
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          {!category.isDefault && (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setShowCategoryDialog(true);
-                                }}
-                              >
-                                <Settings className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeleteCategory(category)}
-                                className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="operators">
           <Card>
             <CardHeader>
@@ -900,7 +693,7 @@ export default function Setup() {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="printerIp">Printer IP Address</Label>
                     <Input
@@ -908,6 +701,7 @@ export default function Setup() {
                       value={printerSettings.ip}
                       onChange={(e) => setPrinterSettings(prev => ({ ...prev, ip: e.target.value }))}
                       placeholder="10.0.1.90"
+                      className="h-12 text-base"
                     />
                   </div>
                   <div className="space-y-2">
@@ -918,6 +712,7 @@ export default function Setup() {
                       value={printerSettings.port}
                       onChange={(e) => setPrinterSettings(prev => ({ ...prev, port: parseInt(e.target.value) || 9100 }))}
                       placeholder="9100"
+                      className="h-12 text-base"
                     />
                   </div>
                 </div>
@@ -926,7 +721,7 @@ export default function Setup() {
                   <Button 
                     onClick={handleSavePrinterSettings}
                     disabled={printerLoading}
-                    className="flex-1"
+                    className="flex-1 h-12"
                   >
                     {printerLoading ? 'Saving...' : 'Save Settings'}
                   </Button>
@@ -934,7 +729,7 @@ export default function Setup() {
                     onClick={handleTestPrinter}
                     disabled={testingConnection}
                     variant="outline"
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 h-12"
                   >
                     <TestTube className="h-4 w-4" />
                     {testingConnection ? 'Testing...' : 'Test Connection'}
@@ -1007,40 +802,7 @@ export default function Setup() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="data">
-          <Card>
-            <CardHeader>
-              <CardTitle>Data Management</CardTitle>
-              <CardDescription>
-                Export and manage warehouse data
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Button
-                  onClick={downloadInventoryData}
-                  className="w-full"
-                  variant="outline"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Download Inventory Data (CSV)
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
-
-      {/* Category Dialog */}
-      {showCategoryDialog && (
-        <CategoryDialog
-          open={showCategoryDialog}
-          onOpenChange={setShowCategoryDialog}
-          onSave={handleSaveCategory}
-          editData={selectedCategory}
-        />
-      )}
 
       {/* Add User Dialog */}
       <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
@@ -1057,6 +819,7 @@ export default function Setup() {
                 value={newUser.username}
                 onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                 placeholder="Enter email address"
+                className="h-12 text-base"
               />
             </div>
             <div className="space-y-2">
@@ -1067,9 +830,10 @@ export default function Setup() {
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                 placeholder="Enter password"
+                className="h-12 text-base"
               />
             </div>
-            <Button onClick={handleAddUser} className="w-full">
+            <Button onClick={handleAddUser} className="w-full h-12">
               Add User
             </Button>
           </div>
@@ -1091,6 +855,7 @@ export default function Setup() {
                 onChange={(e) => setNewOperator({ ...newOperator, name: e.target.value })}
                 placeholder="Enter operator name"
                 required
+                className="h-12 text-base"
               />
             </div>
             <div className="space-y-2">
@@ -1101,9 +866,10 @@ export default function Setup() {
                 value={newOperator.email}
                 onChange={(e) => setNewOperator({ ...newOperator, email: e.target.value })}
                 placeholder="Enter email address"
+                className="h-12 text-base"
               />
             </div>
-            <Button onClick={handleAddOperator} className="w-full">
+            <Button onClick={handleAddOperator} className="w-full h-12">
               Add Operator
             </Button>
           </div>

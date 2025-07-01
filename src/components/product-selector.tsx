@@ -3,13 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -32,14 +25,12 @@ import { Badge } from '@/components/ui/badge';
 import { Check, ChevronsUpDown, Package, Plus, Clock, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getProducts, searchProducts, saveProduct, type Product } from '@/lib/firebase/products';
-import { getCategories, type Category } from '@/lib/firebase/categories';
 import { toast } from 'sonner';
 
 interface ProductSelectorProps {
   value: string;
   onChange: (value: string) => void;
   onProductSelect?: (product: Product) => void;
-  category?: string;
   placeholder?: string;
   disabled?: boolean;
 }
@@ -48,14 +39,12 @@ export function ProductSelector({
   value, 
   onChange, 
   onProductSelect, 
-  category,
   placeholder = "Select or enter Product/SKU",
   disabled = false
 }: ProductSelectorProps) {
   const [open, setOpen] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -63,7 +52,6 @@ export function ProductSelector({
   const [newProduct, setNewProduct] = useState({
     sku: '',
     description: '',
-    category: category || '',
     weight: '',
     coilNumber: '',
     coilLength: ''
@@ -71,8 +59,7 @@ export function ProductSelector({
 
   useEffect(() => {
     loadProducts();
-    loadCategories();
-  }, [category]);
+  }, []);
 
   useEffect(() => {
     if (searchTerm) {
@@ -80,12 +67,12 @@ export function ProductSelector({
     } else {
       loadProducts();
     }
-  }, [searchTerm, category]);
+  }, [searchTerm]);
 
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const fetchedProducts = await getProducts(category);
+      const fetchedProducts = await getProducts();
       setProducts(fetchedProducts);
     } catch (error) {
       console.error('Error loading products:', error);
@@ -94,19 +81,10 @@ export function ProductSelector({
     }
   };
 
-  const loadCategories = async () => {
-    try {
-      const fetchedCategories = await getCategories();
-      setCategories(fetchedCategories);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
-
   const searchProductsDebounced = async () => {
     try {
       setLoading(true);
-      const results = await searchProducts(searchTerm, category);
+      const results = await searchProducts(searchTerm);
       setProducts(results);
     } catch (error) {
       console.error('Error searching products:', error);
@@ -123,28 +101,25 @@ export function ProductSelector({
 
   const handleAddProduct = async () => {
     try {
-      if (!newProduct.sku.trim() || !newProduct.description.trim() || !newProduct.category) {
-        toast.error('Please fill in all required fields');
+      if (!newProduct.sku.trim() || !newProduct.description.trim()) {
+        toast.error('Product/SKU and description are required');
         return;
       }
 
       const productData = {
         sku: newProduct.sku.trim(),
         description: newProduct.description.trim(),
-        category: newProduct.category,
+        category: 'general', // Default category
         weight: newProduct.weight ? parseFloat(newProduct.weight) : undefined,
         metadata: {}
       };
 
-      // Add metadata for raw materials
-      const selectedCategory = categories.find(c => c.id === newProduct.category);
-      if (selectedCategory?.prefix === 'RAW') {
-        if (newProduct.coilNumber && newProduct.coilLength) {
-          productData.metadata = {
-            coilNumber: newProduct.coilNumber,
-            coilLength: newProduct.coilLength
-          };
-        }
+      // Add metadata if provided
+      if (newProduct.coilNumber && newProduct.coilLength) {
+        productData.metadata = {
+          coilNumber: newProduct.coilNumber,
+          coilLength: newProduct.coilLength
+        };
       }
 
       await saveProduct(productData);
@@ -154,7 +129,6 @@ export function ProductSelector({
       setNewProduct({
         sku: '',
         description: '',
-        category: category || '',
         weight: '',
         coilNumber: '',
         coilLength: ''
@@ -187,7 +161,7 @@ export function ProductSelector({
               variant="outline"
               role="combobox"
               aria-expanded={open}
-              className="flex-1 justify-between"
+              className="flex-1 justify-between h-12 text-base"
               disabled={disabled}
             >
               {value || placeholder}
@@ -266,6 +240,7 @@ export function ProductSelector({
           size="icon"
           onClick={() => setShowAddDialog(true)}
           disabled={disabled}
+          className="h-12 w-12"
         >
           <Plus className="h-4 w-4" />
         </Button>
@@ -306,6 +281,7 @@ export function ProductSelector({
                 onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
                 placeholder="Enter product/SKU code"
                 required
+                className="h-12 text-base"
               />
             </div>
 
@@ -317,26 +293,8 @@ export function ProductSelector({
                 onChange={(e) => setNewProduct(prev => ({ ...prev, description: e.target.value }))}
                 placeholder="Enter product description"
                 required
+                className="h-12 text-base"
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="newCategory">Category *</Label>
-              <Select
-                value={newProduct.category}
-                onValueChange={(value) => setNewProduct(prev => ({ ...prev, category: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             <div className="space-y-2">
@@ -348,12 +306,14 @@ export function ProductSelector({
                 value={newProduct.weight}
                 onChange={(e) => setNewProduct(prev => ({ ...prev, weight: e.target.value }))}
                 placeholder="Enter weight"
+                className="h-12 text-base"
               />
             </div>
 
-            {/* Raw Materials specific fields */}
-            {categories.find(c => c.id === newProduct.category)?.prefix === 'RAW' && (
-              <>
+            {/* Optional coil details */}
+            <div className="border rounded-lg p-4 bg-blue-50">
+              <h3 className="font-medium mb-3 text-blue-900">Optional Details</h3>
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="newCoilNumber">Number of Coils</Label>
                   <Input
@@ -363,6 +323,7 @@ export function ProductSelector({
                     value={newProduct.coilNumber}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, coilNumber: e.target.value }))}
                     placeholder="Enter number of coils"
+                    className="h-12 text-base"
                   />
                 </div>
                 <div className="space-y-2">
@@ -374,16 +335,17 @@ export function ProductSelector({
                     value={newProduct.coilLength}
                     onChange={(e) => setNewProduct(prev => ({ ...prev, coilLength: e.target.value }))}
                     placeholder="Enter coil length"
+                    className="h-12 text-base"
                   />
                 </div>
-              </>
-            )}
+              </div>
+            </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleAddProduct} className="flex-1">
+              <Button onClick={handleAddProduct} className="flex-1 h-12">
                 Save Product
               </Button>
-              <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+              <Button variant="outline" onClick={() => setShowAddDialog(false)} className="h-12">
                 Cancel
               </Button>
             </div>
