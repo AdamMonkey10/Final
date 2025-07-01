@@ -18,7 +18,8 @@ import {
   Package2,
   LogOut,
   QrCode,
-  ExternalLink
+  ExternalLink,
+  ArrowUpFromLine
 } from 'lucide-react';
 import { logout } from '@/lib/firebase/users';
 
@@ -32,6 +33,11 @@ const routes = [
     title: 'Goods In',
     href: '/goods-in',
     icon: PackagePlus,
+  },
+  {
+    title: 'Goods Out',
+    href: '/goods-out',
+    icon: ArrowUpFromLine,
   },
   {
     title: 'Scan',

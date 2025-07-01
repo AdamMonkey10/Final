@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Package, Warehouse, QrCode, MapPin, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { Package, Warehouse, QrCode, MapPin, ArrowDownToLine, ArrowUpFromLine, PackagePlus } from 'lucide-react';
 import { getItems, getItemsByStatus } from '@/lib/firebase/items';
 import { getLocations, getLocationByCode } from '@/lib/firebase/locations';
 import { getMovements } from '@/lib/firebase/movements';
@@ -232,7 +232,7 @@ export default function Dashboard() {
         </div>
       </div>
       
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Link to="/inventory" className="transition-transform hover:scale-[1.02]">
           <Card className="hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors border-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -277,42 +277,88 @@ export default function Dashboard() {
           </Card>
         </Link>
 
-        <div className="md:col-span-2 lg:col-span-1">
-          <Card>
+        <Link to="/goods-in" className="transition-transform hover:scale-[1.02]">
+          <Card className="hover:bg-green-500/5 dark:hover:bg-green-500/10 transition-colors border-2 border-green-500/20">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-              <div className="flex gap-2">
-                <ArrowDownToLine className="h-4 w-4 text-blue-500" />
-                <ArrowUpFromLine className="h-4 w-4 text-orange-500" />
-              </div>
+              <CardTitle className="text-sm font-medium">Goods In</CardTitle>
+              <PackagePlus className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Last Hour</span>
-                  <div className="flex gap-2">
-                    <span className="text-sm font-medium text-blue-500">{movementMetrics.hourly.in} in</span>
-                    <span className="text-sm font-medium text-orange-500">{movementMetrics.hourly.out} out</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Today</span>
-                  <div className="flex gap-2">
-                    <span className="text-sm font-medium text-blue-500">{movementMetrics.daily.in} in</span>
-                    <span className="text-sm font-medium text-orange-500">{movementMetrics.daily.out} out</span>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">This Week</span>
-                  <div className="flex gap-2">
-                    <span className="text-sm font-medium text-blue-500">{movementMetrics.weekly.in} in</span>
-                    <span className="text-sm font-medium text-orange-500">{movementMetrics.weekly.out} out</span>
-                  </div>
-                </div>
+              <div className="text-2xl font-bold text-green-500">
+                {movementMetrics.daily.in}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Items received today
+              </div>
+              <div className="h-1 w-full bg-muted mt-4 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-green-500 transition-all" 
+                  style={{ width: `${Math.min(100, (movementMetrics.daily.in / 50) * 100)}%` }}
+                />
               </div>
             </CardContent>
           </Card>
-        </div>
+        </Link>
+
+        <Link to="/goods-out" className="transition-transform hover:scale-[1.02]">
+          <Card className="hover:bg-orange-500/5 dark:hover:bg-orange-500/10 transition-colors border-2 border-orange-500/20">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Goods Out</CardTitle>
+              <ArrowUpFromLine className="h-4 w-4 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-500">
+                {movementMetrics.daily.out}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Items picked today
+              </div>
+              <div className="h-1 w-full bg-muted mt-4 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-orange-500 transition-all" 
+                  style={{ width: `${Math.min(100, (movementMetrics.daily.out / 50) * 100)}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-1">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
+            <div className="flex gap-2">
+              <ArrowDownToLine className="h-4 w-4 text-blue-500" />
+              <ArrowUpFromLine className="h-4 w-4 text-orange-500" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Last Hour</span>
+                <div className="flex gap-2">
+                  <span className="text-sm font-medium text-blue-500">{movementMetrics.hourly.in} in</span>
+                  <span className="text-sm font-medium text-orange-500">{movementMetrics.hourly.out} out</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Today</span>
+                <div className="flex gap-2">
+                  <span className="text-sm font-medium text-blue-500">{movementMetrics.daily.in} in</span>
+                  <span className="text-sm font-medium text-orange-500">{movementMetrics.daily.out} out</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">This Week</span>
+                <div className="flex gap-2">
+                  <span className="text-sm font-medium text-blue-500">{movementMetrics.weekly.in} in</span>
+                  <span className="text-sm font-medium text-orange-500">{movementMetrics.weekly.out} out</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Scan Dialog */}

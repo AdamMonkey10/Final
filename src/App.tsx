@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { MainNav } from '@/components/main-nav';
 import Dashboard from '@/pages/dashboard';
 import GoodsIn from '@/pages/goods-in';
+import GoodsOut from '@/pages/goods-out';
 import Scan from '@/pages/scan';
 import ProcessScan from '@/pages/process-scan';
 import Setup from '@/pages/setup';
@@ -179,6 +180,7 @@ function AppContent() {
                       <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/goods-in" element={<GoodsIn />} />
+                        <Route path="/goods-out" element={<GoodsOut />} />
                         <Route path="/scan" element={<Scan />} />
                         <Route path="/process-scan" element={<ProcessScan />} />
                         <Route
