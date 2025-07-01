@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -29,6 +29,7 @@ import type { Item, Location } from '@/types/warehouse';
 
 export default function GoodsOutPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
   
@@ -43,8 +44,29 @@ export default function GoodsOutPage() {
   const [locationItems, setLocationItems] = useState<Item[]>([]);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [currentStep, setCurrentStep] = useState<'location' | 'item' | 'confirm' | 'complete'>('location');
+  const [skipLocationScan, setSkipLocationScan] = useState(false);
   const manualLocationInputRef = useRef<HTMLInputElement>(null);
   const manualItemInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if we have pre-selected item and location from inventory
+  useEffect(() => {
+    const state = location.state as {
+      preSelectedItem?: Item;
+      preSelectedLocation?: Location;
+      skipLocationScan?: boolean;
+    };
+
+    if (state?.preSelectedItem && state?.preSelectedLocation && state?.skipLocationScan) {
+      // Skip location scan and go directly to item scan
+      setScannedLocation(state.preSelectedLocation);
+      setLocationItems([state.preSelectedItem]);
+      setSkipLocationScan(true);
+      setCurrentStep('item');
+      setShowItemScanDialog(true);
+      
+      toast.success(`Ready to scan item at ${state.preSelectedLocation.code}`);
+    }
+  }, [location.state]);
 
   const getOperatorName = () => {
     return selectedOperator?.name || user?.email || 'System';
@@ -72,9 +94,9 @@ export default function GoodsOutPage() {
     setLoading(true);
 
     try {
-      const location = await getLocationByCode(locationCode);
+      const locationData = await getLocationByCode(locationCode);
       
-      if (!location) {
+      if (!locationData) {
         setSearchStatus('not-found');
         toast.error(`Location not found: ${locationCode}`);
         return;
@@ -90,7 +112,7 @@ export default function GoodsOutPage() {
       }
 
       setSearchStatus('found');
-      setScannedLocation(location);
+      setScannedLocation(locationData);
       setLocationItems(items);
       setCurrentStep('item');
       
@@ -237,6 +259,7 @@ export default function GoodsOutPage() {
     setManualLocationInput('');
     setManualItemInput('');
     setSearchStatus('idle');
+    setSkipLocationScan(false);
     
     toast.success('Goods-out process completed!', {
       description: 'Ready to process another pickup',
@@ -255,15 +278,22 @@ export default function GoodsOutPage() {
     setShowLocationScanDialog(false);
     setShowItemScanDialog(false);
     setShowConfirmDialog(false);
+    setSkipLocationScan(false);
   };
 
   const getStepIndicator = () => {
-    const steps = [
-      { key: 'location', label: 'Scan Location', icon: MapPin },
-      { key: 'item', label: 'Scan Item', icon: Package },
-      { key: 'confirm', label: 'Confirm Pickup', icon: ArrowUpFromLine },
-      { key: 'complete', label: 'Complete', icon: CheckCircle }
-    ];
+    const steps = skipLocationScan 
+      ? [
+          { key: 'item', label: 'Scan Item', icon: Package },
+          { key: 'confirm', label: 'Confirm Pickup', icon: ArrowUpFromLine },
+          { key: 'complete', label: 'Complete', icon: CheckCircle }
+        ]
+      : [
+          { key: 'location', label: 'Scan Location', icon: MapPin },
+          { key: 'item', label: 'Scan Item', icon: Package },
+          { key: 'confirm', label: 'Confirm Pickup', icon: ArrowUpFromLine },
+          { key: 'complete', label: 'Complete', icon: CheckCircle }
+        ];
 
     return (
       <div className="flex items-center justify-center space-x-2 mb-6">
@@ -359,6 +389,7 @@ export default function GoodsOutPage() {
                     <div className="font-medium">Location: {scannedLocation.code}</div>
                     <div className="text-sm text-muted-foreground">
                       {locationItems.length} item(s) available for pickup
+                      {skipLocationScan && <span className="text-blue-600"> • Pre-selected from inventory</span>}
                     </div>
                   </div>
                 </div>
@@ -406,7 +437,7 @@ export default function GoodsOutPage() {
         </CardHeader>
         <CardContent>
           <div className="text-center py-8">
-            {currentStep === 'location' && (
+            {currentStep === 'location' && !skipLocationScan && (
               <>
                 <MapPin className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                 <p className="text-lg font-medium mb-2">Ready to Scan Location</p>
@@ -440,6 +471,7 @@ export default function GoodsOutPage() {
                 <p className="text-lg font-medium mb-2">Ready to Scan Item</p>
                 <p className="text-sm text-muted-foreground mb-6">
                   Scan the item you want to pick from {scannedLocation?.code}
+                  {skipLocationScan && <span className="block text-blue-600 mt-1">Pre-selected from inventory</span>}
                 </p>
                 <Button 
                   onClick={() => setShowItemScanDialog(true)}
@@ -547,6 +579,11 @@ export default function GoodsOutPage() {
                 <div className="flex items-center gap-2 text-blue-800 mb-2">
                   <MapPin className="h-5 w-5" />
                   <span className="font-medium">Location: {scannedLocation.code}</span>
+                  {skipLocationScan && (
+                    <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                      From Inventory
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-sm text-blue-700">
                   {locationItems.length} item(s) available for pickup
@@ -614,6 +651,11 @@ export default function GoodsOutPage() {
                 <p className="text-sm">Weight: {selectedItem.weight}kg</p>
                 <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
                 <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                {skipLocationScan && (
+                  <Badge variant="outline" className="mt-2 bg-blue-100 text-blue-700 border-blue-300">
+                    Selected from Inventory
+                  </Badge>
+                )}
               </div>
               
               {/* Location Visualizer */}
