@@ -12,14 +12,20 @@ const DEFAULT_PRINTER_SETTINGS: PrinterSettings = {
 };
 
 /**
- * Send ZPL data to the printer
+ * Send ZPL data directly to the printer using HTTPS
  */
 export async function sendZPL(zpl: string, settings?: PrinterSettings): Promise<boolean> {
   const printerSettings = settings || await getPrinterSettings();
   
   try {
-    // Use the proxied endpoint to avoid CORS issues
-    const response = await fetch('/api/print', {
+    const ip = printerSettings.ip;
+    console.log('Sending to printer IP:', ip);
+    console.log('ZPL length:', zpl.length, 'characters');
+    
+    const url = `https://${ip}/print`;
+    console.log('Printer URL:', url);
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain',
@@ -84,7 +90,7 @@ export async function savePrinterSettings(settings: PrinterSettings): Promise<vo
 }
 
 /**
- * Test printer connection
+ * Test printer connection using direct HTTPS call
  */
 export async function testPrinterConnection(settings?: PrinterSettings): Promise<boolean> {
   const printerSettings = settings || await getPrinterSettings();
