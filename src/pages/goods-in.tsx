@@ -175,20 +175,29 @@ export default function GoodsInPage() {
     }
 
     toast.success(`✅ Location ${location.code} selected`, {
-      description: 'Confirm placement by scanning location',
+      description: 'Click "Scan to Place" to confirm placement',
       duration: 3000
     });
 
     setSuggestedLocation(location);
-    setShowLocationDialog(false);
-    setCurrentStep('scan');
-    setShowScanLocationDialog(true);
+    // Don't close the location dialog yet - wait for scan button click
   };
 
   const handleRecommendedLocationSelect = () => {
     if (suggestedLocation) {
       handleLocationSelect(suggestedLocation);
     }
+  };
+
+  const handleScanToPlace = () => {
+    if (!suggestedLocation) {
+      toast.error('Please select a location first');
+      return;
+    }
+    
+    setShowLocationDialog(false);
+    setCurrentStep('scan');
+    setShowScanLocationDialog(true);
   };
 
   const handleLocationScan = async (scannedCode: string) => {
@@ -374,7 +383,7 @@ export default function GoodsInPage() {
     },
     {
       title: "Scan Location",
-      description: "Scan the selected location barcode to confirm placement and immediately put the item into stock.",
+      description: "Click 'Scan to Place' then scan the selected location barcode to confirm placement.",
       type: "info" as const
     },
     {
@@ -427,23 +436,32 @@ export default function GoodsInPage() {
         </Card>
       )}
 
-      {/* Suggested Location Display */}
-      {suggestedLocation && currentStep === 'scan' && (
-        <Card className="border-2 border-blue-200 bg-blue-50">
+      {/* Selected Location Display */}
+      {suggestedLocation && currentStep === 'location' && (
+        <Card className="border-2 border-green-200 bg-green-50">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <MapPin className="h-5 w-5 text-blue-500" />
-              <div>
-                <div className="font-medium text-blue-900">
-                  Selected Location: {suggestedLocation.code}
-                </div>
-                <div className="text-sm text-blue-700">
-                  Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
-                </div>
-                <div className="text-xs text-blue-600">
-                  Current weight: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                <div>
+                  <div className="font-medium text-green-900">
+                    Selected Location: {suggestedLocation.code}
+                  </div>
+                  <div className="text-sm text-green-700">
+                    Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                  </div>
+                  <div className="text-xs text-green-600">
+                    Current weight: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                  </div>
                 </div>
               </div>
+              <Button 
+                onClick={handleScanToPlace}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Scan className="h-4 w-4 mr-2" />
+                Scan to Place
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -610,7 +628,7 @@ export default function GoodsInPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Scan Location Dialog */}
+      {/* Scan Location Dialog - Now Separate */}
       <Dialog open={showScanLocationDialog} onOpenChange={(open) => {
         if (!open) {
           handleBackToLocationSelection();
