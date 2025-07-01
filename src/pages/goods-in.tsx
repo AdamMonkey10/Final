@@ -30,7 +30,7 @@ import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -183,6 +183,12 @@ export default function GoodsInPage() {
     setShowLocationDialog(false);
     setCurrentStep('scan');
     setShowScanLocationDialog(true);
+  };
+
+  const handleRecommendedLocationSelect = () => {
+    if (suggestedLocation) {
+      handleLocationSelect(suggestedLocation);
+    }
   };
 
   const handleLocationScan = async (scannedCode: string) => {
@@ -554,16 +560,33 @@ export default function GoodsInPage() {
               </div>
 
               {suggestedLocation && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-blue-800 mb-2">
-                    <MapPin className="h-5 w-5" />
-                    <span className="font-medium">Recommended: {suggestedLocation.code}</span>
-                  </div>
-                  <div className="text-sm text-blue-700">
-                    Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
-                  </div>
-                  <div className="text-xs text-blue-600">
-                    Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors" onClick={handleRecommendedLocationSelect}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Star className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <div className="flex items-center gap-2 text-blue-800 mb-1">
+                          <MapPin className="h-4 w-4" />
+                          <span className="font-medium">Recommended: {suggestedLocation.code}</span>
+                        </div>
+                        <div className="text-sm text-blue-700">
+                          Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                        </div>
+                        <div className="text-xs text-blue-600">
+                          Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                        </div>
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRecommendedLocationSelect();
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Star className="h-4 w-4 mr-2" />
+                      Use Recommended
+                    </Button>
                   </div>
                 </div>
               )}
