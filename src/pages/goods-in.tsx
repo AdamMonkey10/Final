@@ -40,6 +40,7 @@ import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
 import type { Location } from '@/types/warehouse';
+import type { Product } from '@/lib/firebase/products';
 
 export default function GoodsInPage() {
   const navigate = useNavigate();
@@ -96,6 +97,15 @@ export default function GoodsInPage() {
 
   const getOperatorName = () => {
     return selectedOperator?.name || user?.email || 'System';
+  };
+
+  // Handle product selection to auto-populate description
+  const handleProductSelect = (product: Product) => {
+    setFormData(prev => ({
+      ...prev,
+      itemCode: product.sku,
+      description: product.description // Auto-populate description from selected product
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -438,6 +448,7 @@ export default function GoodsInPage() {
                 <ProductSelector
                   value={formData.itemCode}
                   onChange={(value) => setFormData({ ...formData, itemCode: value })}
+                  onProductSelect={handleProductSelect}
                   disabled={loading}
                 />
               </div>
@@ -448,11 +459,14 @@ export default function GoodsInPage() {
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Item description"
+                  placeholder="Item description (auto-filled from product selection)"
                   required
                   disabled={loading}
                   className="h-14 text-base"
                 />
+                <p className="text-xs text-muted-foreground">
+                  This field will auto-populate when you select a product above
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -471,7 +485,7 @@ export default function GoodsInPage() {
                     className="h-14 text-base"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Items &gt;1000kg automatically go to ground level
+                    Items >1000kg automatically go to ground level
                   </p>
                 </div>
 
@@ -528,10 +542,7 @@ export default function GoodsInPage() {
               {/* Label Preview */}
               <div className="border rounded-lg p-6 bg-white">
                 <div className="text-center space-y-4">
-                  <div className="text-lg font-bold">{createdItem.itemCode}</div>
                   <div className="text-sm text-muted-foreground">{createdItem.description}</div>
-                  <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
-                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
                   
                   {/* Barcode Preview */}
                   <div className="py-4">
@@ -543,10 +554,7 @@ export default function GoodsInPage() {
                     />
                   </div>
                   
-                  <div className="text-xs text-muted-foreground">
-                    <div>Date: {new Date().toLocaleDateString()}</div>
-                    <div>Operator: {getOperatorName()}</div>
-                  </div>
+                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
                 </div>
               </div>
 
