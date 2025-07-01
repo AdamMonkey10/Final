@@ -51,9 +51,10 @@ export default function GoodsInPage() {
   
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
-  const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
   const [showLabelDialog, setShowLabelDialog] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [showLocationGraphicDialog, setShowLocationGraphicDialog] = useState(false);
+  const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
     id: string;
     systemCode: string;
@@ -64,7 +65,7 @@ export default function GoodsInPage() {
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [suitableLocations, setSuitableLocations] = useState<Location[]>([]);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'location' | 'scan' | 'label' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'graphic' | 'scan' | 'complete'>('form');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -112,54 +113,111 @@ export default function GoodsInPage() {
     }
 
     setLoading(true);
-    setCurrentStep('location');
+    setCurrentStep('label');
 
     try {
       const systemCode = generateSystemCode();
 
-      // Find optimal location and all suitable locations
-      const optimalLocation = findOptimalLocation(locations, weight, false);
-      const allSuitableLocations = getSuitableLocations(locations, weight);
-      
-      if (allSuitableLocations.length === 0) {
-        toast.error('No suitable locations found for this weight');
-        setLoading(false);
-        setCurrentStep('form');
-        return;
-      }
-
-      // Store created item details for later use
+      // Store created item details
       setCreatedItem({
-        id: '', // Will be set after location selection
+        id: '', // Will be set after placement
         systemCode,
         itemCode: formData.itemCode,
         description: formData.description,
         weight
       });
 
-      setSuggestedLocation(optimalLocation);
-      setSuitableLocations(allSuitableLocations);
-
-      const weightInfo = weight > 1000 ? ' (Heavy item - ground level only)' : '';
-      
-      toast.success('Item details ready!', {
-        description: `System code: ${systemCode}. ${allSuitableLocations.length} suitable locations found${weightInfo}`,
+      toast.success('Item created!', {
+        description: `System code: ${systemCode}`,
         duration: 3000
       });
 
-      // Show location selection
-      setShowLocationDialog(true);
+      // Show label generation dialog first
+      setShowLabelDialog(true);
 
     } catch (error) {
-      console.error('Error preparing item:', error);
-      toast.error('Failed to prepare item');
+      console.error('Error creating item:', error);
+      toast.error('Failed to create item');
       setCurrentStep('form');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLocationSelect = async (location: Location) => {
+  const handlePrintLabel = async () => {
+    if (!createdItem) return;
+
+    setPrinting(true);
+    
+    try {
+      const labelData: ItemLabelData = {
+        systemCode: createdItem.systemCode,
+        itemCode: createdItem.itemCode,
+        description: createdItem.description,
+        weight: createdItem.weight,
+        location: '', // No location yet
+        operator: getOperatorName(),
+        date: new Date().toLocaleDateString(),
+      };
+
+      const zpl = generateItemZPL(labelData);
+      await sendZPL(zpl);
+      
+      toast.success('Label printed successfully!');
+      
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  const handleContinueToLocation = async () => {
+    if (!createdItem) return;
+
+    setCurrentStep('location');
+    
+    try {
+      // Find optimal location and all suitable locations
+      const optimalLocation = findOptimalLocation(locations, createdItem.weight, false);
+      const allSuitableLocations = getSuitableLocations(locations, createdItem.weight);
+      
+      if (allSuitableLocations.length === 0) {
+        toast.error('No suitable locations found for this weight');
+        return;
+      }
+
+      setSuggestedLocation(optimalLocation);
+      setSuitableLocations(allSuitableLocations);
+
+      const weightInfo = createdItem.weight > 1000 ? ' (Heavy item - ground level only)' : '';
+      
+      toast.success('Locations found!', {
+        description: `${allSuitableLocations.length} suitable locations available${weightInfo}`,
+        duration: 3000
+      });
+
+      // Close label dialog and show location selection
+      setShowLabelDialog(false);
+      setShowLocationDialog(true);
+
+    } catch (error) {
+      console.error('Error finding locations:', error);
+      toast.error('Failed to find suitable locations');
+    }
+  };
+
+  const handleUseRecommended = () => {
+    if (!suggestedLocation) return;
+    
+    toast.success(`Using recommended location: ${suggestedLocation.code}`);
+    setCurrentStep('graphic');
+    setShowLocationDialog(false);
+    setShowLocationGraphicDialog(true);
+  };
+
+  const handleLocationSelect = (location: Location) => {
     if (!createdItem) return;
     
     // Check if location can accept the item weight
@@ -174,29 +232,18 @@ export default function GoodsInPage() {
       }
     }
 
-    toast.success(`✅ Location ${location.code} selected`, {
-      description: 'Click "Scan to Place" to confirm placement',
-      duration: 3000
-    });
-
+    toast.success(`Location ${location.code} selected`);
     setSuggestedLocation(location);
-    // Don't close the location dialog yet - wait for scan button click
-  };
-
-  const handleRecommendedLocationSelect = () => {
-    if (suggestedLocation) {
-      handleLocationSelect(suggestedLocation);
-    }
+    setCurrentStep('graphic');
+    setShowLocationDialog(false);
+    setShowLocationGraphicDialog(true);
   };
 
   const handleScanToPlace = () => {
-    if (!suggestedLocation) {
-      toast.error('Please select a location first');
-      return;
-    }
+    if (!suggestedLocation) return;
     
-    setShowLocationDialog(false);
     setCurrentStep('scan');
+    setShowLocationGraphicDialog(false);
     setShowScanLocationDialog(true);
   };
 
@@ -212,17 +259,17 @@ export default function GoodsInPage() {
     }
     
     setLoading(true);
-    setCurrentStep('label');
+    setCurrentStep('complete');
     
     try {
-      // Create the item with placed status immediately
+      // Create the item with placed status
       const itemId = await addItem({
         itemCode: createdItem.itemCode,
         systemCode: createdItem.systemCode,
         description: createdItem.description,
         weight: createdItem.weight,
         category: 'general',
-        status: 'placed', // Directly placed, no pending
+        status: 'placed',
         metadata: {}
       });
 
@@ -250,7 +297,11 @@ export default function GoodsInPage() {
       });
       
       setShowScanLocationDialog(false);
-      setShowLabelDialog(true);
+      
+      // Auto-complete after delay
+      setTimeout(() => {
+        handleComplete();
+      }, 3000);
       
     } catch (error) {
       console.error('Error placing item:', error);
@@ -261,65 +312,25 @@ export default function GoodsInPage() {
     }
   };
 
-  const handlePrintLabel = async () => {
-    if (!createdItem || !suggestedLocation) return;
-
-    setPrinting(true);
-    
-    try {
-      const labelData: ItemLabelData = {
-        systemCode: createdItem.systemCode,
-        itemCode: createdItem.itemCode,
-        description: createdItem.description,
-        weight: createdItem.weight,
-        location: suggestedLocation.code,
-        operator: getOperatorName(),
-        date: new Date().toLocaleDateString(),
-      };
-
-      const zpl = generateItemZPL(labelData);
-      await sendZPL(zpl);
-      
-      toast.success('Label printed successfully!');
-      
-    } catch (error) {
-      console.error('Print error:', error);
-      toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setPrinting(false);
-      // Complete the process regardless of print result
-      handleComplete();
-    }
-  };
-
-  const handleSkipLabel = () => {
-    handleComplete();
-  };
-
   const handleComplete = () => {
-    setCurrentStep('complete');
+    // Reset everything
+    setCreatedItem(null);
+    setSuggestedLocation(null);
+    setSuitableLocations([]);
+    setCurrentStep('form');
     
-    // Auto-reset after delay
-    setTimeout(() => {
-      setShowLabelDialog(false);
-      setCreatedItem(null);
-      setSuggestedLocation(null);
-      setSuitableLocations([]);
-      setCurrentStep('form');
-      
-      // Reset form
-      setFormData({
-        itemCode: '',
-        description: '',
-        weight: '',
-        quantity: '1'
-      });
-      
-      toast.success('Ready for next item!', {
-        description: 'Goods-in process completed',
-        duration: 3000
-      });
-    }, 2000);
+    // Reset form
+    setFormData({
+      itemCode: '',
+      description: '',
+      weight: '',
+      quantity: '1'
+    });
+    
+    toast.success('Ready for next item!', {
+      description: 'Goods-in process completed',
+      duration: 3000
+    });
   };
 
   const handleBackToLocationSelection = () => {
@@ -328,12 +339,19 @@ export default function GoodsInPage() {
     setShowLocationDialog(true);
   };
 
+  const handleBackToLocationGraphic = () => {
+    setShowScanLocationDialog(false);
+    setCurrentStep('graphic');
+    setShowLocationGraphicDialog(true);
+  };
+
   const getStepIndicator = () => {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
-      { key: 'location', label: 'Select Location', icon: MapPin },
-      { key: 'scan', label: 'Scan Location', icon: Scan },
-      { key: 'label', label: 'Print Label', icon: Printer },
+      { key: 'label', label: 'Generate Label', icon: Printer },
+      { key: 'location', label: 'Choose Location', icon: MapPin },
+      { key: 'graphic', label: 'Location View', icon: Star },
+      { key: 'scan', label: 'Scan to Place', icon: Scan },
       { key: 'complete', label: 'In Stock', icon: CheckCircle }
     ];
 
@@ -367,28 +385,28 @@ export default function GoodsInPage() {
 
   const instructionSteps = [
     {
-      title: "Select Operator",
-      description: "Ensure an operator is selected before creating items. This tracks who processed the goods-in.",
-      type: "warning" as const
-    },
-    {
-      title: "Item Details",
-      description: "Enter the Product/SKU, description, and weight. The system will find suitable locations automatically.",
+      title: "Create Item",
+      description: "Enter item details including Product/SKU, description, and weight.",
       type: "info" as const
     },
     {
-      title: "Location Choice",
-      description: "Choose from suggested locations. Heavy items (>1000kg) are automatically restricted to ground level.",
+      title: "Generate Label",
+      description: "Print the item barcode label first, then proceed to location selection.",
       type: "info" as const
     },
     {
-      title: "Scan Location",
-      description: "Click 'Scan to Place' then scan the selected location barcode to confirm placement.",
+      title: "Choose Location",
+      description: "Select from recommended or other suitable locations based on weight capacity.",
       type: "info" as const
     },
     {
-      title: "Print Label",
-      description: "Optionally print a barcode label for the item. The item is already in stock at this point.",
+      title: "View Location",
+      description: "See the location graphic and confirm your choice before scanning.",
+      type: "info" as const
+    },
+    {
+      title: "Scan to Place",
+      description: "Scan the location barcode to confirm placement and put the item into stock.",
       type: "success" as const
     }
   ];
@@ -416,7 +434,7 @@ export default function GoodsInPage() {
       {showInstructions && (
         <InstructionPanel
           title="Goods In Process"
-          description="Create new items and choose optimal locations. Heavy items (>1000kg) are automatically placed on ground level for safety."
+          description="Create items, generate labels, choose locations, and place items into stock with guided workflow."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -436,37 +454,6 @@ export default function GoodsInPage() {
         </Card>
       )}
 
-      {/* Selected Location Display */}
-      {suggestedLocation && currentStep === 'location' && (
-        <Card className="border-2 border-green-200 bg-green-50">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <div>
-                  <div className="font-medium text-green-900">
-                    Selected Location: {suggestedLocation.code}
-                  </div>
-                  <div className="text-sm text-green-700">
-                    Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
-                  </div>
-                  <div className="text-xs text-green-600">
-                    Current weight: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
-                  </div>
-                </div>
-              </div>
-              <Button 
-                onClick={handleScanToPlace}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <Scan className="h-4 w-4 mr-2" />
-                Scan to Place
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
@@ -474,7 +461,7 @@ export default function GoodsInPage() {
             Create New Item
           </CardTitle>
           <CardDescription>
-            Enter details for items entering the warehouse - choose from suitable locations based on weight
+            Enter details for items entering the warehouse
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -542,11 +529,86 @@ export default function GoodsInPage() {
               className="w-full h-16 text-lg"
               disabled={loading || !selectedOperator}
             >
-              {loading ? 'Finding Locations...' : 'Create Item & Find Locations'}
+              {loading ? 'Creating Item...' : 'Create Item'}
             </Button>
           </form>
         </CardContent>
       </Card>
+
+      {/* Label Generation Dialog */}
+      <Dialog open={showLabelDialog} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5" />
+              Generate Item Label
+            </DialogTitle>
+          </DialogHeader>
+          
+          {createdItem && (
+            <div className="space-y-6">
+              {/* Item Details */}
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="space-y-2 text-sm">
+                  <div><strong>Product/SKU:</strong> {createdItem.itemCode}</div>
+                  <div><strong>Description:</strong> {createdItem.description}</div>
+                  <div><strong>Weight:</strong> {createdItem.weight}kg</div>
+                  <div><strong>System Code:</strong> {createdItem.systemCode}</div>
+                  <div><strong>Operator:</strong> {getOperatorName()}</div>
+                </div>
+              </div>
+
+              {/* Label Preview */}
+              <div className="border rounded-lg p-6 bg-white">
+                <div className="text-center space-y-4">
+                  <div className="text-lg font-bold">{createdItem.itemCode}</div>
+                  <div className="text-sm text-muted-foreground">{createdItem.description}</div>
+                  <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
+                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
+                  
+                  {/* Barcode Preview */}
+                  <div className="py-4">
+                    <Barcode 
+                      value={createdItem.systemCode} 
+                      width={2} 
+                      height={60}
+                      className="mx-auto"
+                    />
+                  </div>
+                  
+                  <div className="text-xs text-muted-foreground">
+                    <div>Date: {new Date().toLocaleDateString()}</div>
+                    <div>Operator: {getOperatorName()}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-3">
+                <Button 
+                  onClick={handlePrintLabel}
+                  className="h-14 text-base"
+                  disabled={printing}
+                >
+                  <Printer className="h-5 w-5 mr-2" />
+                  {printing ? 'Printing...' : 'Print Label'}
+                </Button>
+                <Button 
+                  onClick={handleContinueToLocation}
+                  variant="outline"
+                  className="h-14 text-base"
+                >
+                  Continue to Location Selection
+                </Button>
+              </div>
+
+              <div className="text-xs text-center text-muted-foreground">
+                <p>Print the label first, then proceed to select a location for the item.</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Location Selection Dialog */}
       <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
@@ -565,7 +627,7 @@ export default function GoodsInPage() {
                     <h3 className="font-medium">{createdItem.itemCode}</h3>
                     <p className="text-sm text-muted-foreground">{createdItem.description}</p>
                     <p className="text-sm">Weight: {createdItem.weight}kg</p>
-                    <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                    <p className="text-xs text-muted-foreground">System Code: {createdItem.systemCode}</p>
                   </div>
                   <div className="text-right">
                     {createdItem.weight > 1000 && (
@@ -578,7 +640,7 @@ export default function GoodsInPage() {
               </div>
 
               {suggestedLocation && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors" onClick={handleRecommendedLocationSelect}>
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg cursor-pointer hover:bg-blue-100 transition-colors" onClick={handleUseRecommended}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Star className="h-5 w-5 text-blue-600" />
@@ -598,7 +660,7 @@ export default function GoodsInPage() {
                     <Button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleRecommendedLocationSelect();
+                        handleUseRecommended();
                       }}
                       className="bg-blue-600 hover:bg-blue-700"
                     >
@@ -628,10 +690,43 @@ export default function GoodsInPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Scan Location Dialog - Now Separate */}
+      {/* Location Graphic Dialog */}
+      <Dialog open={showLocationGraphicDialog} onOpenChange={setShowLocationGraphicDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5" />
+              Location: {suggestedLocation?.code}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {suggestedLocation && createdItem && (
+            <div className="space-y-4">
+              {/* Item Summary */}
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="space-y-2 text-sm">
+                  <div><strong>Item:</strong> {createdItem.itemCode}</div>
+                  <div><strong>Weight:</strong> {createdItem.weight}kg</div>
+                  <div><strong>Location:</strong> {suggestedLocation.code}</div>
+                  <div><strong>Operator:</strong> {getOperatorName()}</div>
+                </div>
+              </div>
+
+              {/* Bay Visualizer */}
+              <BayVisualizer
+                location={suggestedLocation}
+                onConfirm={handleScanToPlace}
+                mode="place"
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Scan Location Dialog */}
       <Dialog open={showScanLocationDialog} onOpenChange={(open) => {
         if (!open) {
-          handleBackToLocationSelection();
+          handleBackToLocationGraphic();
         }
       }}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
@@ -639,13 +734,13 @@ export default function GoodsInPage() {
             <div className="flex items-center justify-between">
               <DialogTitle className="flex items-center gap-2">
                 <Scan className="h-5 w-5" />
-                Scan Selected Location
+                Scan Location to Place Item
               </DialogTitle>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleBackToLocationSelection}
+                  onClick={handleBackToLocationGraphic}
                   className="flex items-center gap-2"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -654,7 +749,7 @@ export default function GoodsInPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={handleBackToLocationSelection}
+                  onClick={handleBackToLocationGraphic}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -664,42 +759,19 @@ export default function GoodsInPage() {
           
           {suggestedLocation && createdItem && (
             <div className="space-y-6">
-              {/* Item Summary */}
-              <div className="p-4 bg-muted rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium">{createdItem.itemCode}</h3>
-                    <p className="text-sm text-muted-foreground">{createdItem.description}</p>
-                    <p className="text-sm">Weight: {createdItem.weight}kg</p>
-                    <p className="text-xs text-muted-foreground">System Code: {createdItem.systemCode}</p>
-                    <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
-                  </div>
-                </div>
-              </div>
-
               {/* Location Instructions */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-800 mb-2">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center gap-2 text-green-800 mb-2">
                   <MapPin className="h-5 w-5" />
-                  <span className="font-medium">Scan Selected Location</span>
+                  <span className="font-medium">Scan Location: {suggestedLocation.code}</span>
                 </div>
-                <div className="text-sm text-blue-700">
-                  Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>
-                </div>
-                <div className="text-xs text-blue-600 mt-1">
+                <div className="text-sm text-green-700">
                   Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
                 </div>
-                <div className="text-xs text-blue-600">
-                  Item will be placed directly into stock after scanning
+                <div className="text-xs text-green-600 mt-1">
+                  Scan the location barcode to confirm placement
                 </div>
               </div>
-
-              {/* Bay Visualizer */}
-              <BayVisualizer
-                location={suggestedLocation}
-                onConfirm={() => {}} // Not used in this context
-                mode="place"
-              />
 
               {/* Camera Scanner */}
               <CameraScanner
@@ -711,90 +783,8 @@ export default function GoodsInPage() {
               />
 
               <div className="text-xs text-center text-muted-foreground">
-                <p>Scan the location barcode to place the item directly into stock.</p>
+                <p>Scan the location barcode to place the item into stock.</p>
                 <p>Expected location: <strong>{suggestedLocation.code}</strong></p>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Label Printing Dialog */}
-      <Dialog open={showLabelDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              Item In Stock - Print Label?
-            </DialogTitle>
-          </DialogHeader>
-          
-          {createdItem && suggestedLocation && (
-            <div className="space-y-6">
-              {/* Success Message */}
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center gap-2 text-green-800 mb-3">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Item Successfully Placed in Stock!</span>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div><strong>Product/SKU:</strong> {createdItem.itemCode}</div>
-                  <div><strong>Description:</strong> {createdItem.description}</div>
-                  <div><strong>Weight:</strong> {createdItem.weight}kg</div>
-                  <div><strong>Location:</strong> {suggestedLocation.code}</div>
-                  <div><strong>System Code:</strong> {createdItem.systemCode}</div>
-                  <div><strong>Operator:</strong> {getOperatorName()}</div>
-                </div>
-              </div>
-
-              {/* Label Preview */}
-              <div className="border rounded-lg p-6 bg-white">
-                <div className="text-center space-y-4">
-                  <div className="text-lg font-bold">{createdItem.itemCode}</div>
-                  <div className="text-sm text-muted-foreground">{createdItem.description}</div>
-                  <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
-                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
-                  <div className="text-sm">Location: {suggestedLocation.code}</div>
-                  
-                  {/* Barcode Preview */}
-                  <div className="py-4">
-                    <Barcode 
-                      value={createdItem.systemCode} 
-                      width={2} 
-                      height={60}
-                      className="mx-auto"
-                    />
-                  </div>
-                  
-                  <div className="text-xs text-muted-foreground">
-                    <div>Date: {new Date().toLocaleDateString()}</div>
-                    <div>Operator: {getOperatorName()}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Print Actions */}
-              <div className="flex flex-col md:flex-row gap-3">
-                <Button 
-                  onClick={handlePrintLabel}
-                  className="flex-1 h-14 text-base"
-                  disabled={printing}
-                >
-                  <Printer className="h-5 w-5 mr-2" />
-                  {printing ? 'Printing...' : 'Print Label & Continue'}
-                </Button>
-                <Button 
-                  onClick={handleSkipLabel}
-                  variant="outline"
-                  className="h-14 text-base"
-                  disabled={printing}
-                >
-                  Skip Label
-                </Button>
-              </div>
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>The item is already in stock. Printing is optional.</p>
               </div>
             </div>
           )}
@@ -808,7 +798,7 @@ export default function GoodsInPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-green-500" />
-                Process Complete!
+                Item Placed Successfully!
               </DialogTitle>
             </DialogHeader>
             
