@@ -73,7 +73,14 @@ export default function ScanPage() {
       }
 
       setSearchStatus('found');
-      toast.success(`Found: ${item.itemCode}`);
+      
+      // Only allow picking of placed items (no pending items exist)
+      if (item.status !== 'placed') {
+        toast.error(`Item ${item.itemCode} is not available for picking`);
+        return;
+      }
+
+      toast.success(`Found: ${item.itemCode} at ${item.location}`);
 
       // Close scan dialog
       setShowScanDialog(false);
@@ -130,12 +137,12 @@ export default function ScanPage() {
     },
     {
       title: "Scan Item",
-      description: "Click 'Start Scanning' and scan or enter a barcode. The system will process it and navigate to the next step.",
+      description: "Click 'Start Scanning' and scan or enter a barcode. Only items currently in stock can be picked.",
       type: "info" as const
     },
     {
       title: "Automatic Navigation",
-      description: "After scanning, you'll be taken to the processing page to complete the workflow.",
+      description: "After scanning, you'll be taken to the processing page to complete the pickup workflow.",
       type: "success" as const
     }
   ];
@@ -160,7 +167,7 @@ export default function ScanPage() {
       {showInstructions && (
         <InstructionPanel
           title="Warehouse Scanner"
-          description="Scan barcodes to identify items. The system will automatically navigate you through the placement or picking workflow."
+          description="Scan barcodes to identify items in stock. The system will automatically navigate you through the pickup workflow."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -200,7 +207,7 @@ export default function ScanPage() {
                 </div>
                 {searchStatus === 'found' && (
                   <div className="text-sm text-green-600 mt-1">
-                    Item identified successfully! Taking you to the processing page...
+                    Item identified successfully! Taking you to the pickup page...
                   </div>
                 )}
               </div>
@@ -216,7 +223,7 @@ export default function ScanPage() {
             Scan Item Barcode
           </CardTitle>
           <CardDescription>
-            Scan or enter a barcode to identify items. You'll be automatically taken to the processing workflow.
+            Scan or enter a barcode to identify items in stock. You'll be automatically taken to the pickup workflow.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -224,7 +231,7 @@ export default function ScanPage() {
             <QrCode className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-lg font-medium mb-2">Ready to Scan</p>
             <p className="text-sm text-muted-foreground mb-6">
-              Click below to start scanning barcodes
+              Click below to start scanning barcodes for items in stock
             </p>
             <Button 
               onClick={() => setShowScanDialog(true)}

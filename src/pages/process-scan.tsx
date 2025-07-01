@@ -16,10 +16,9 @@ import {
 } from '@/components/ui/dialog';
 import { QrCode, MapPin, Home, ArrowLeft, CheckCircle, Package, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getLocations, updateLocation } from '@/lib/firebase/locations';
+import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/locations';
 import { updateItem } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
-import { LocationSelector } from '@/components/location-selector';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
@@ -36,12 +35,10 @@ export default function ProcessScanPage() {
   const { showInstructions } = useInstructions();
   
   const [scannedItem, setScannedItem] = useState<Item | null>(null);
-  const [availableLocations, setAvailableLocations] = useState<Location[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
   const [showVisualDialog, setShowVisualDialog] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'location' | 'confirm' | 'complete'>('location');
+  const [currentStep, setCurrentStep] = useState<'confirm' | 'complete'>('confirm');
 
   useEffect(() => {
     // Get the scanned item from navigation state
@@ -55,34 +52,21 @@ export default function ProcessScanPage() {
 
     setScannedItem(item);
 
-    // Determine the workflow based on item status
-    if (item.status === 'pending') {
-      setCurrentStep('location');
-      loadLocations();
-      setShowLocationDialog(true);
-    } else if (item.status === 'placed') {
-      setCurrentStep('confirm');
-      loadCurrentLocation(item.location!);
+    // Since we only handle placed items, load the current location
+    if (item.status === 'placed' && item.location) {
+      loadCurrentLocation(item.location);
+    } else {
+      toast.error('Item is not available for pickup');
+      navigate('/scan');
     }
   }, [location.state, navigate]);
 
-  const loadLocations = async () => {
-    try {
-      const locations = await getLocations();
-      setAvailableLocations(locations);
-    } catch (error) {
-      console.error('Error loading locations:', error);
-      toast.error('Failed to load locations');
-    }
-  };
-
   const loadCurrentLocation = async (locationCode: string) => {
     try {
-      const locations = await getLocations();
-      const currentLocation = locations.find(loc => loc.code === locationCode);
+      const locationData = await getLocationByCode(locationCode);
       
-      if (currentLocation) {
-        setSelectedLocation(currentLocation);
+      if (locationData) {
+        setCurrentLocation(locationData);
         setShowVisualDialog(true);
       } else {
         toast.error('Current location not found');
@@ -98,102 +82,20 @@ export default function ProcessScanPage() {
     return selectedOperator?.name || user?.email || 'System';
   };
 
-  const handleLocationSelect = async (location: Location) => {
-    if (!scannedItem) return;
-    
-    // Check weight capacity
-    const newWeight = location.currentWeight + scannedItem.weight;
-    if (location.level !== '0' && newWeight > location.maxWeight) {
-      toast.error('❌ Weight capacity exceeded', {
-        description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
-        duration: 5000
-      });
-      return;
-    }
-
-    setSelectedLocation(location);
-    setShowLocationDialog(false);
-    setCurrentStep('confirm');
-    setShowVisualDialog(true);
-    
-    toast.success(`✅ Location selected: ${location.code}`, {
-      description: 'Confirm placement in the next step',
-      duration: 3000
-    });
-  };
-
-  const handlePlaceItem = async () => {
-    if (!scannedItem || !selectedLocation) return;
-
-    setLoading(true);
-    setCurrentStep('complete');
-    
-    const placementToast = toast.loading(`📦 Placing ${scannedItem.itemCode} at ${selectedLocation.code}...`, {
-      duration: Infinity
-    });
-
-    try {
-      // Update location weight
-      await updateLocation(selectedLocation.id, {
-        currentWeight: selectedLocation.currentWeight + scannedItem.weight
-      });
-
-      // Update item status and location
-      await updateItem(scannedItem.id, {
-        status: 'placed',
-        location: selectedLocation.code,
-        locationVerified: true
-      });
-
-      // Record movement
-      await addMovement({
-        itemId: scannedItem.id,
-        type: 'IN',
-        weight: scannedItem.weight,
-        operator: getOperatorName(),
-        reference: scannedItem.itemCode,
-        notes: `Placed at ${selectedLocation.code}`
-      });
-
-      toast.dismiss(placementToast);
-      toast.success(`🎉 Item placed successfully!`, {
-        description: `${scannedItem.itemCode} is now at ${selectedLocation.code}`,
-        duration: 5000
-      });
-      
-      setShowVisualDialog(false);
-      
-      // Navigate back to dashboard after delay
-      setTimeout(() => {
-        navigate('/');
-      }, 2000);
-      
-    } catch (error) {
-      console.error('Error placing item:', error);
-      toast.dismiss(placementToast);
-      toast.error('❌ Failed to place item', {
-        description: 'Please try again or contact support',
-        duration: 5000
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handlePickItem = async () => {
-    if (!scannedItem || !selectedLocation) return;
+    if (!scannedItem || !currentLocation) return;
 
     setLoading(true);
     setCurrentStep('complete');
     
-    const pickingToast = toast.loading(`📤 Picking ${scannedItem.itemCode} from ${selectedLocation.code}...`, {
+    const pickingToast = toast.loading(`📤 Picking ${scannedItem.itemCode} from ${currentLocation.code}...`, {
       duration: Infinity
     });
 
     try {
       // Update location weight
-      await updateLocation(selectedLocation.id, {
-        currentWeight: Math.max(0, selectedLocation.currentWeight - scannedItem.weight)
+      await updateLocation(currentLocation.id, {
+        currentWeight: Math.max(0, currentLocation.currentWeight - scannedItem.weight)
       });
 
       // Update item status
@@ -210,12 +112,12 @@ export default function ProcessScanPage() {
         weight: scannedItem.weight,
         operator: getOperatorName(),
         reference: scannedItem.itemCode,
-        notes: `Picked from ${selectedLocation.code}`
+        notes: `Picked from ${currentLocation.code}`
       });
 
       toast.dismiss(pickingToast);
       toast.success(`🎉 Item picked successfully!`, {
-        description: `${scannedItem.itemCode} removed from ${selectedLocation.code}`,
+        description: `${scannedItem.itemCode} removed from ${currentLocation.code}`,
         duration: 5000
       });
       
@@ -240,7 +142,6 @@ export default function ProcessScanPage() {
 
   const getItemStatusBadge = (status: string) => {
     const styles = {
-      pending: 'bg-yellow-100 text-yellow-800',
       placed: 'bg-green-100 text-green-800',
       removed: 'bg-gray-100 text-gray-800',
     }[status] || 'bg-gray-100 text-gray-800';
@@ -254,33 +155,27 @@ export default function ProcessScanPage() {
 
   const getStepIndicator = () => {
     const steps = [
-      { key: 'location', label: 'Location', icon: MapPin },
-      { key: 'confirm', label: 'Confirm', icon: CheckCircle },
+      { key: 'confirm', label: 'Confirm Pickup', icon: CheckCircle },
       { key: 'complete', label: 'Complete', icon: Home }
     ];
 
-    // For placed items, skip location step
-    const relevantSteps = scannedItem?.status === 'placed' 
-      ? steps.filter(s => s.key !== 'location')
-      : steps;
-
     return (
       <div className="flex items-center justify-center space-x-2 mb-6">
-        {relevantSteps.map((step, index) => {
+        {steps.map((step, index) => {
           const Icon = step.icon;
           const isActive = currentStep === step.key;
-          const isCompleted = relevantSteps.findIndex(s => s.key === currentStep) > index;
+          const isCompleted = steps.findIndex(s => s.key === currentStep) > index;
           
           return (
             <div key={step.key} className="flex items-center">
               <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
-                isActive ? 'border-blue-500 bg-blue-500 text-white' :
+                isActive ? 'border-orange-500 bg-orange-500 text-white' :
                 isCompleted ? 'border-green-500 bg-green-500 text-white' :
                 'border-gray-300 bg-gray-100 text-gray-400'
               }`}>
                 <Icon className="h-4 w-4" />
               </div>
-              {index < relevantSteps.length - 1 && (
+              {index < steps.length - 1 && (
                 <div className={`w-8 h-0.5 mx-2 ${
                   isCompleted ? 'bg-green-500' : 'bg-gray-300'
                 }`} />
@@ -294,18 +189,18 @@ export default function ProcessScanPage() {
 
   const instructionSteps = [
     {
-      title: "Item Processing",
-      description: "Process the scanned item based on its current status - place pending items or pick placed items.",
+      title: "Item Pickup",
+      description: "Confirm pickup of the scanned item from its current location in the warehouse.",
       type: "info" as const
     },
     {
-      title: "Location Selection",
-      description: "For pending items, select an appropriate location considering weight capacity and accessibility.",
+      title: "Location Confirmation",
+      description: "Review the item location using the bay visualizer and confirm the pickup action.",
       type: "info" as const
     },
     {
-      title: "Confirmation",
-      description: "Confirm the action using the bay visualizer. The system will update all records automatically.",
+      title: "Automatic Updates",
+      description: "The system will automatically update inventory, location weights, and movement records.",
       type: "success" as const
     }
   ];
@@ -324,7 +219,7 @@ export default function ProcessScanPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Process Item</h1>
+        <h1 className="text-3xl font-bold">Pick Item</h1>
         <div className="flex gap-2">
           <Button onClick={() => navigate('/scan')} variant="outline">
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -343,8 +238,8 @@ export default function ProcessScanPage() {
       {/* Instructions Panel */}
       {showInstructions && (
         <InstructionPanel
-          title="Item Processing"
-          description="Complete the workflow for your scanned item. Follow the steps to place or pick items from warehouse locations."
+          title="Item Pickup"
+          description="Complete the pickup workflow for your scanned item. Confirm the location and remove the item from stock."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -352,11 +247,11 @@ export default function ProcessScanPage() {
       )}
 
       {/* Item Details Card */}
-      <Card className="border-2 border-blue-200 bg-blue-50">
+      <Card className="border-2 border-orange-200 bg-orange-50">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
-            Scanned Item Details
+            Item to Pick
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -367,15 +262,12 @@ export default function ProcessScanPage() {
               <p className="text-sm">Weight: {scannedItem.weight}kg</p>
               <p className="text-xs text-muted-foreground">System Code: {scannedItem.systemCode}</p>
               <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
-              {scannedItem.location && (
-                <p className="text-sm font-medium text-blue-600">Current Location: {scannedItem.location}</p>
-              )}
+              <p className="text-sm font-medium text-orange-600">Current Location: {scannedItem.location}</p>
             </div>
             <div className="text-right">
               {getItemStatusBadge(scannedItem.status)}
               <div className="mt-2 text-sm text-muted-foreground">
-                {scannedItem.status === 'pending' && 'Ready to place'}
-                {scannedItem.status === 'placed' && 'Ready to pick'}
+                Ready to pick
               </div>
             </div>
           </div>
@@ -389,9 +281,7 @@ export default function ProcessScanPage() {
             <div className="flex items-center gap-3 text-green-800">
               <CheckCircle className="h-6 w-6" />
               <div>
-                <div className="font-medium">
-                  {scannedItem.status === 'pending' ? 'Item Placed Successfully!' : 'Item Picked Successfully!'}
-                </div>
+                <div className="font-medium">Item Picked Successfully!</div>
                 <div className="text-sm">Returning to dashboard...</div>
               </div>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -400,42 +290,13 @@ export default function ProcessScanPage() {
         </Card>
       )}
 
-      {/* Location Selection Dialog */}
-      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
-        <DialogContent className="max-w-[95vw] w-[1400px] h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Select Location for {scannedItem.itemCode}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="mb-4 p-4 bg-muted rounded-lg">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-medium">{scannedItem.itemCode}</h3>
-                <p className="text-sm text-muted-foreground">{scannedItem.description}</p>
-                <p className="text-sm">Weight: {scannedItem.weight}kg</p>
-                <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
-              </div>
-              {getItemStatusBadge(scannedItem.status)}
-            </div>
-          </div>
-          <LocationSelector
-            locations={availableLocations}
-            onLocationSelect={handleLocationSelect}
-          />
-        </DialogContent>
-      </Dialog>
-
       {/* Visual Confirmation Dialog */}
       <Dialog open={showVisualDialog} onOpenChange={setShowVisualDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {scannedItem.status === 'pending' ? 'Confirm Placement' : 'Confirm Picking'}
-            </DialogTitle>
+            <DialogTitle>Confirm Item Pickup</DialogTitle>
           </DialogHeader>
-          {selectedLocation && (
+          {currentLocation && (
             <div className="space-y-4">
               <div className="p-4 bg-muted rounded-lg">
                 <h3 className="font-medium">{scannedItem.itemCode}</h3>
@@ -445,19 +306,19 @@ export default function ProcessScanPage() {
                 {getItemStatusBadge(scannedItem.status)}
               </div>
               
-              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="flex items-center gap-2 text-blue-800">
+              <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
+                <div className="flex items-center gap-2 text-orange-800">
                   <Home className="h-4 w-4" />
                   <span className="text-sm font-medium">
-                    After completing this action, you'll return to the dashboard
+                    After pickup, you'll return to the dashboard
                   </span>
                 </div>
               </div>
               
               <BayVisualizer
-                location={selectedLocation}
-                onConfirm={scannedItem.status === 'pending' ? handlePlaceItem : handlePickItem}
-                mode={scannedItem.status === 'pending' ? 'place' : 'pick'}
+                location={currentLocation}
+                onConfirm={handlePickItem}
+                mode="pick"
               />
             </div>
           )}

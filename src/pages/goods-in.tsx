@@ -17,10 +17,11 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { addItem, updateItem } from '@/lib/firebase/items';
-import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/locations';
+import { addItem } from '@/lib/firebase/items';
+import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
+import { LocationSelector } from '@/components/location-selector';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
@@ -50,9 +51,9 @@ export default function GoodsInPage() {
   
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showLabelDialog, setShowLabelDialog] = useState(false);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
+  const [showLabelDialog, setShowLabelDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
     id: string;
     systemCode: string;
@@ -62,7 +63,7 @@ export default function GoodsInPage() {
   } | null>(null);
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'scan' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'location' | 'scan' | 'label' | 'complete'>('form');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -110,7 +111,7 @@ export default function GoodsInPage() {
     }
 
     setLoading(true);
-    setCurrentStep('label');
+    setCurrentStep('location');
 
     try {
       const systemCode = generateSystemCode();
@@ -122,172 +123,90 @@ export default function GoodsInPage() {
         metadata.quantity = parseInt(formData.quantity);
       }
 
-      // Create the item with default category
-      const itemId = await addItem({
-        itemCode: formData.itemCode,
-        systemCode,
-        description: formData.description,
-        weight,
-        category: 'general', // Default category
-        status: 'pending',
-        metadata: Object.keys(metadata).length > 0 ? metadata : undefined
-      });
-
-      // Store created item details for label printing
+      // Store created item details for later use
       setCreatedItem({
-        id: itemId,
+        id: '', // Will be set after location selection
         systemCode,
         itemCode: formData.itemCode,
         description: formData.description,
         weight
       });
 
-      toast.success('Item created successfully!', {
+      toast.success('Item details ready!', {
         description: `System code: ${systemCode}`,
-        duration: 5000
+        duration: 3000
       });
 
-      // Show label dialog
-      setShowLabelDialog(true);
+      // Show location selection
+      setShowLocationDialog(true);
 
     } catch (error) {
-      console.error('Error creating item:', error);
-      toast.error('Failed to create item');
+      console.error('Error preparing item:', error);
+      toast.error('Failed to prepare item');
       setCurrentStep('form');
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePrintLabel = async () => {
-    console.log('🖨️ handlePrintLabel called');
+  const handleLocationSelect = async (location: Location) => {
+    if (!createdItem) return;
     
-    if (!createdItem) {
-      console.log('❌ No created item found');
+    // Check if location can accept the item weight
+    const newWeight = location.currentWeight + createdItem.weight;
+    if (location.level !== '0' && newWeight > location.maxWeight) {
+      toast.error('❌ Location weight capacity exceeded', {
+        description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
+        duration: 5000
+      });
       return;
     }
 
-    setPrinting(true);
-    console.log('🖨️ Setting printing to true');
-    
-    try {
-      console.log('🖨️ Starting print process...');
-      
-      const labelData: ItemLabelData = {
-        systemCode: createdItem.systemCode,
-        itemCode: createdItem.itemCode,
-        description: createdItem.description,
-        weight: createdItem.weight,
-        operator: getOperatorName(),
-        date: new Date().toLocaleDateString(),
-      };
+    toast.success(`✅ Location ${location.code} selected`, {
+      description: 'Confirm placement by scanning location',
+      duration: 3000
+    });
 
-      const zpl = generateItemZPL(labelData);
-      await sendZPL(zpl);
-      
-      console.log('✅ Print successful');
-      toast.success('Label printed successfully!');
-      
-    } catch (error) {
-      console.error('❌ Print error:', error);
-      toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Continue to next step even if print fails
-    } finally {
-      console.log('🖨️ Print process finished, calling proceedToLocationStep');
-      setPrinting(false);
-      // Move to location selection step regardless of print result
-      proceedToLocationStep();
-    }
-  };
-
-  const proceedToLocationStep = () => {
-    console.log('📍 proceedToLocationStep called');
-    console.log('📍 Current step before:', currentStep);
-    console.log('📍 Show label dialog before:', showLabelDialog);
-    
-    setCurrentStep('location');
-    console.log('📍 Set current step to location');
-    
-    setShowLabelDialog(false);
-    console.log('📍 Set showLabelDialog to false');
-    
-    // Find optimal location
-    const availableLocations = locations.filter(loc => loc.available && loc.verified);
-    const optimal = findOptimalLocation(availableLocations, createdItem!.weight);
-    
-    if (optimal) {
-      console.log('📍 Found optimal location:', optimal.code);
-      setSuggestedLocation(optimal);
-      setShowLocationDialog(true);
-      console.log('📍 Set showLocationDialog to true');
-      toast.info(`Suggested location: ${optimal.code}`);
-    } else {
-      console.log('❌ No optimal location found');
-      toast.error('No suitable locations available');
-    }
-    
-    console.log('📍 proceedToLocationStep completed');
-  };
-
-  const handleSkipLabel = () => {
-    console.log('⏭️ handleSkipLabel called');
-    // Move to location selection step without printing
-    proceedToLocationStep();
-  };
-
-  const handleApproveLocation = () => {
-    console.log('✅ handleApproveLocation called');
-    
-    if (!suggestedLocation) {
-      console.log('❌ No suggested location');
-      return;
-    }
-    
-    setCurrentStep('scan');
+    setSuggestedLocation(location);
     setShowLocationDialog(false);
+    setCurrentStep('scan');
     setShowScanLocationDialog(true);
-    
-    console.log('📱 Moving to scan step for location:', suggestedLocation.code);
-    toast.info(`Please scan location barcode: ${suggestedLocation.code}`);
   };
 
   const handleLocationScan = async (scannedCode: string) => {
-    console.log('📱 handleLocationScan called with code:', scannedCode);
-    
     if (!suggestedLocation || !createdItem) {
-      console.log('❌ Missing suggestedLocation or createdItem');
       return;
     }
     
     // Verify the scanned location matches the suggested location
     if (scannedCode !== suggestedLocation.code) {
-      console.log('❌ Wrong location scanned. Expected:', suggestedLocation.code, 'Got:', scannedCode);
       toast.error(`Wrong location scanned. Expected: ${suggestedLocation.code}, Got: ${scannedCode}`);
       return;
     }
     
     setLoading(true);
-    setCurrentStep('complete');
-    console.log('🎯 Moving to complete step');
+    setCurrentStep('label');
     
     try {
-      console.log('💾 Updating location and item...');
-      
+      // Create the item with placed status immediately
+      const itemId = await addItem({
+        itemCode: createdItem.itemCode,
+        systemCode: createdItem.systemCode,
+        description: createdItem.description,
+        weight: createdItem.weight,
+        category: 'general',
+        status: 'placed', // Directly placed, no pending
+        metadata: {}
+      });
+
       // Update location weight
       await updateLocation(suggestedLocation.id, {
         currentWeight: suggestedLocation.currentWeight + createdItem.weight
       });
 
-      // Update item status and location
-      await updateItem(createdItem.id, {
-        status: 'placed',
-        location: suggestedLocation.code,
-        locationVerified: true
-      });
-
       // Record movement
       await addMovement({
-        itemId: createdItem.id,
+        itemId: itemId,
         type: 'IN',
         weight: createdItem.weight,
         operator: getOperatorName(),
@@ -295,60 +214,92 @@ export default function GoodsInPage() {
         notes: `Placed at ${suggestedLocation.code} via goods-in process`
       });
 
-      console.log('✅ All updates completed successfully');
-      toast.success('🎉 Item successfully placed in stock!', {
+      // Update created item with ID
+      setCreatedItem(prev => prev ? { ...prev, id: itemId } : null);
+
+      toast.success('🎉 Item placed in stock successfully!', {
         description: `${createdItem.itemCode} is now at ${suggestedLocation.code}`,
         duration: 5000
       });
       
       setShowScanLocationDialog(false);
-      
-      // Auto-complete after delay
-      setTimeout(() => {
-        console.log('⏰ Auto-completing after delay');
-        handleComplete();
-      }, 3000);
+      setShowLabelDialog(true);
       
     } catch (error) {
-      console.error('❌ Error placing item:', error);
-      toast.error('Failed to place item in stock');
+      console.error('Error placing item:', error);
+      toast.error('❌ Failed to place item in stock');
       setCurrentStep('scan');
     } finally {
       setLoading(false);
     }
   };
 
+  const handlePrintLabel = async () => {
+    if (!createdItem || !suggestedLocation) return;
+
+    setPrinting(true);
+    
+    try {
+      const labelData: ItemLabelData = {
+        systemCode: createdItem.systemCode,
+        itemCode: createdItem.itemCode,
+        description: createdItem.description,
+        weight: createdItem.weight,
+        location: suggestedLocation.code,
+        operator: getOperatorName(),
+        date: new Date().toLocaleDateString(),
+      };
+
+      const zpl = generateItemZPL(labelData);
+      await sendZPL(zpl);
+      
+      toast.success('Label printed successfully!');
+      
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.warning(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setPrinting(false);
+      // Complete the process regardless of print result
+      handleComplete();
+    }
+  };
+
+  const handleSkipLabel = () => {
+    handleComplete();
+  };
+
   const handleComplete = () => {
-    console.log('🏁 handleComplete called');
+    setCurrentStep('complete');
     
-    setShowLabelDialog(false);
-    setShowLocationDialog(false);
-    setShowScanLocationDialog(false);
-    setCreatedItem(null);
-    setSuggestedLocation(null);
-    setCurrentStep('form');
-    
-    // Reset form
-    setFormData({
-      itemCode: '',
-      description: '',
-      weight: '',
-      quantity: '1'
-    });
-    
-    console.log('🏁 Process completed, form reset');
-    toast.success('Goods-in process completed!', {
-      description: 'Ready to process another item',
-      duration: 3000
-    });
+    // Auto-reset after delay
+    setTimeout(() => {
+      setShowLabelDialog(false);
+      setCreatedItem(null);
+      setSuggestedLocation(null);
+      setCurrentStep('form');
+      
+      // Reset form
+      setFormData({
+        itemCode: '',
+        description: '',
+        weight: '',
+        quantity: '1'
+      });
+      
+      toast.success('Ready for next item!', {
+        description: 'Goods-in process completed',
+        duration: 3000
+      });
+    }, 2000);
   };
 
   const getStepIndicator = () => {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
-      { key: 'label', label: 'Print Label', icon: Printer },
-      { key: 'location', label: 'Location', icon: MapPin },
+      { key: 'location', label: 'Select Location', icon: MapPin },
       { key: 'scan', label: 'Scan Location', icon: Scan },
+      { key: 'label', label: 'Print Label', icon: Printer },
       { key: 'complete', label: 'In Stock', icon: CheckCircle }
     ];
 
@@ -392,18 +343,18 @@ export default function GoodsInPage() {
       type: "info" as const
     },
     {
-      title: "Print Label",
-      description: "Print a barcode label for the item. The process continues even if printing fails.",
-      type: "info" as const
-    },
-    {
-      title: "Location Assignment",
-      description: "The system will suggest an optimal location based on weight and availability.",
+      title: "Location Selection",
+      description: "Choose an appropriate location based on weight capacity and accessibility.",
       type: "info" as const
     },
     {
       title: "Scan Location",
-      description: "Scan the location barcode to confirm placement and put the item into stock.",
+      description: "Scan the location barcode to confirm placement and immediately put the item into stock.",
+      type: "info" as const
+    },
+    {
+      title: "Print Label",
+      description: "Optionally print a barcode label for the item. The item is already in stock at this point.",
       type: "success" as const
     }
   ];
@@ -431,7 +382,7 @@ export default function GoodsInPage() {
       {showInstructions && (
         <InstructionPanel
           title="Goods In Process"
-          description="Create new items entering the warehouse. Fill in details, print labels, assign locations, and put items into stock."
+          description="Create new items and immediately place them in warehouse locations. Items go directly into stock without pending status."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -458,7 +409,7 @@ export default function GoodsInPage() {
             Create New Item
           </CardTitle>
           <CardDescription>
-            Enter details for items entering the warehouse
+            Enter details for items entering the warehouse - items will be placed directly into stock
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -524,34 +475,107 @@ export default function GoodsInPage() {
               className="w-full h-16 text-lg"
               disabled={loading || !selectedOperator}
             >
-              {loading ? 'Creating Item...' : 'Create Item'}
+              {loading ? 'Processing...' : 'Create & Place Item'}
             </Button>
           </form>
         </CardContent>
       </Card>
+
+      {/* Location Selection Dialog */}
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent className="max-w-[95vw] w-[1400px] h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Select Location for {createdItem?.itemCode}
+            </DialogTitle>
+          </DialogHeader>
+          {createdItem && (
+            <div className="mb-4 p-4 bg-muted rounded-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium">{createdItem.itemCode}</h3>
+                  <p className="text-sm text-muted-foreground">{createdItem.description}</p>
+                  <p className="text-sm">Weight: {createdItem.weight}kg</p>
+                  <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <LocationSelector
+            locations={locations}
+            onLocationSelect={handleLocationSelect}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Scan Location Dialog */}
+      <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Scan className="h-5 w-5" />
+              Scan Location Barcode
+            </DialogTitle>
+          </DialogHeader>
+          
+          {suggestedLocation && createdItem && (
+            <div className="space-y-6">
+              {/* Instructions */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center gap-2 text-yellow-800 mb-2">
+                  <QrCode className="h-5 w-5" />
+                  <span className="font-medium">Scan Required Location</span>
+                </div>
+                <div className="text-sm text-yellow-700">
+                  Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>
+                </div>
+                <div className="text-xs text-yellow-600 mt-1">
+                  Item will be placed directly into stock after scanning
+                </div>
+              </div>
+
+              {/* Camera Scanner */}
+              <CameraScanner
+                onResult={handleLocationScan}
+                onError={(error) => toast.error(`Scanner error: ${error}`)}
+                isActive={showScanLocationDialog}
+                autoComplete={true}
+                className="w-full"
+              />
+
+              <div className="text-xs text-center text-muted-foreground">
+                <p>Scan the location barcode to place the item directly into stock.</p>
+                <p>Expected location: <strong>{suggestedLocation.code}</strong></p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Label Printing Dialog */}
       <Dialog open={showLabelDialog} onOpenChange={() => {}}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5" />
-              Print Item Label
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              Item In Stock - Print Label?
             </DialogTitle>
           </DialogHeader>
           
-          {createdItem && (
+          {createdItem && suggestedLocation && (
             <div className="space-y-6">
-              {/* Item Summary */}
+              {/* Success Message */}
               <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                 <div className="flex items-center gap-2 text-green-800 mb-3">
                   <CheckCircle className="h-5 w-5" />
-                  <span className="font-medium">Item Created Successfully!</span>
+                  <span className="font-medium">Item Successfully Placed in Stock!</span>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div><strong>Product/SKU:</strong> {createdItem.itemCode}</div>
                   <div><strong>Description:</strong> {createdItem.description}</div>
                   <div><strong>Weight:</strong> {createdItem.weight}kg</div>
+                  <div><strong>Location:</strong> {suggestedLocation.code}</div>
                   <div><strong>System Code:</strong> {createdItem.systemCode}</div>
                   <div><strong>Operator:</strong> {getOperatorName()}</div>
                 </div>
@@ -564,6 +588,7 @@ export default function GoodsInPage() {
                   <div className="text-sm text-muted-foreground">{createdItem.description}</div>
                   <div className="text-3xl font-bold text-primary">{createdItem.systemCode}</div>
                   <div className="text-sm">Weight: {createdItem.weight}kg</div>
+                  <div className="text-sm">Location: {suggestedLocation.code}</div>
                   
                   {/* Barcode Preview */}
                   <div className="py-4">
@@ -603,85 +628,7 @@ export default function GoodsInPage() {
               </div>
 
               <div className="text-xs text-center text-muted-foreground">
-                <p>The process will continue to location selection even if printing fails.</p>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Location Assignment Dialog */}
-      <Dialog open={showLocationDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Suggested Location
-            </DialogTitle>
-          </DialogHeader>
-          
-          {suggestedLocation && createdItem && (
-            <div className="space-y-6">
-              {/* Item Summary */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="space-y-2 text-sm">
-                  <div><strong>Item:</strong> {createdItem.itemCode}</div>
-                  <div><strong>Weight:</strong> {createdItem.weight}kg</div>
-                  <div><strong>Operator:</strong> {getOperatorName()}</div>
-                </div>
-              </div>
-
-              {/* Location Visualizer */}
-              <BayVisualizer
-                location={suggestedLocation}
-                onConfirm={handleApproveLocation}
-                mode="place"
-              />
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>This location has been automatically selected based on weight capacity and accessibility.</p>
-                <p>Click "Scan to Place" to proceed to location scanning.</p>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Scan Location Dialog */}
-      <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Scan className="h-5 w-5" />
-              Scan Location Barcode
-            </DialogTitle>
-          </DialogHeader>
-          
-          {suggestedLocation && createdItem && (
-            <div className="space-y-6">
-              {/* Instructions */}
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center gap-2 text-yellow-800 mb-2">
-                  <QrCode className="h-5 w-5" />
-                  <span className="font-medium">Scan Required Location</span>
-                </div>
-                <div className="text-sm text-yellow-700">
-                  Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>
-                </div>
-              </div>
-
-              {/* Camera Scanner */}
-              <CameraScanner
-                onResult={handleLocationScan}
-                onError={(error) => toast.error(`Scanner error: ${error}`)}
-                isActive={showScanLocationDialog}
-                autoComplete={true}
-                className="w-full"
-              />
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>Scan the location barcode to confirm placement and put the item into stock.</p>
-                <p>Expected location: <strong>{suggestedLocation.code}</strong></p>
+                <p>The item is already in stock. Printing is optional.</p>
               </div>
             </div>
           )}
@@ -695,26 +642,24 @@ export default function GoodsInPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-green-500" />
-                Item In Stock!
+                Process Complete!
               </DialogTitle>
             </DialogHeader>
             
             <div className="text-center py-6">
               <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
               <h3 className="text-lg font-medium text-green-800 mb-2">
-                Successfully Added to Stock!
+                Item Successfully Added to Stock!
               </h3>
               {createdItem && suggestedLocation && (
                 <div className="space-y-2 text-sm text-muted-foreground">
-                  <p><strong>{createdItem.itemCode}</strong> has been placed at <strong>{suggestedLocation.code}</strong></p>
+                  <p><strong>{createdItem.itemCode}</strong> is now at <strong>{suggestedLocation.code}</strong></p>
                   <p>Weight: {createdItem.weight}kg</p>
                   <p>Operator: {getOperatorName()}</p>
                 </div>
               )}
-              <div className="mt-6">
-                <Button onClick={handleComplete} className="w-full h-14 text-base">
-                  Process Another Item
-                </Button>
+              <div className="mt-6 text-sm text-muted-foreground">
+                Preparing for next item...
               </div>
             </div>
           </DialogContent>
