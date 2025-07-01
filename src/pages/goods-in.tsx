@@ -620,7 +620,7 @@ export default function GoodsInPage() {
                         className="h-14 text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Items &gt;1000kg automatically go to ground level
+                        Items >1000kg automatically go to ground level
                       </p>
                     </div>
 
@@ -797,22 +797,63 @@ export default function GoodsInPage() {
                 </div>
               </div>
 
-              {/* Label Preview */}
-              <div className="border rounded-lg p-6 bg-white">
-                <div className="text-center space-y-4">
-                  <div className="text-sm text-muted-foreground">{createdItem.description}</div>
+              {/* FIXED SQUARE LABEL PREVIEW - THIS IS THE ONE YOU SEE! */}
+              <div className="space-y-4">
+                <div className="text-center">
+                  <div className="text-sm font-medium text-blue-600 mb-2">📄 103x103mm SQUARE LABEL PREVIEW</div>
+                </div>
+                
+                {/* PERFECT SQUARE: 400px × 400px with aspect-square enforced */}
+                <div className="mx-auto w-96 aspect-square border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col p-8 relative overflow-hidden">
                   
-                  {/* Barcode Preview */}
-                  <div className="py-4">
+                  {/* MASSIVE Description Text - BLACK and HUGE */}
+                  <div className="flex-1 flex items-center justify-center">
+                    <div 
+                      className="text-center leading-none break-words"
+                      style={{ 
+                        fontSize: '4rem', 
+                        fontWeight: '900', 
+                        color: '#000000',
+                        lineHeight: '0.85'
+                      }}
+                    >
+                      {createdItem.description}
+                    </div>
+                  </div>
+                  
+                  {/* Barcode in middle area */}
+                  <div className="flex-shrink-0 py-6">
                     <Barcode 
                       value={createdItem.systemCode} 
                       width={2} 
-                      height={60}
+                      height={50}
+                      fontSize={12}
+                      fontColor="#000000"
                       className="mx-auto"
                     />
                   </div>
                   
-                  <div className="text-sm">Weight: {createdItem.weight}kg</div>
+                  {/* Weight at bottom - also black and bold */}
+                  <div 
+                    className="flex-shrink-0 text-center"
+                    style={{ 
+                      fontSize: '2rem', 
+                      fontWeight: '900', 
+                      color: '#000000'
+                    }}
+                  >
+                    Weight: {createdItem.weight}kg
+                  </div>
+                  
+                  {/* Square corner indicators */}
+                  <div className="absolute top-3 left-3 w-6 h-6 border-l-4 border-t-4 border-blue-500"></div>
+                  <div className="absolute top-3 right-3 w-6 h-6 border-r-4 border-t-4 border-blue-500"></div>
+                  <div className="absolute bottom-3 left-3 w-6 h-6 border-l-4 border-b-4 border-blue-500"></div>
+                  <div className="absolute bottom-3 right-3 w-6 h-6 border-r-4 border-b-4 border-blue-500"></div>
+                </div>
+                
+                <div className="text-xs text-center text-gray-500">
+                  ⬜ Actual size: 103mm × 103mm SQUARE label
                 </div>
               </div>
 
