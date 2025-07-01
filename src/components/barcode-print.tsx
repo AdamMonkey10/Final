@@ -82,15 +82,12 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
   }
 
   return (
-    <div className="flex flex-col items-center space-y-4">
-      {/* Item Details */}
+    <div className="flex flex-col items-center space-y-6">
+      {/* Item Details Summary */}
       <div className="w-full p-4 border rounded-lg bg-muted">
         <div className="text-center space-y-2">
           <div className="text-lg font-bold">{item.itemCode}</div>
-          <div className="text-2xl font-bold text-black">
-            {item.description}
-          </div>
-          <div className="text-sm">
+          <div className="text-sm text-muted-foreground">
             Weight: {item.weight}kg
           </div>
           {item.location && (
@@ -104,38 +101,42 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         </div>
       </div>
 
-      {/* Label Preview - Matching actual ZPL output */}
-      <div className="w-full max-w-md p-4 border rounded-lg bg-white">
-        <div className="text-center space-y-4">
-          <div className="text-sm font-medium text-muted-foreground">Label Preview</div>
+      {/* EXACT Label Preview - Matching ZPL output */}
+      <div className="w-full max-w-md p-6 border-2 border-blue-200 rounded-lg bg-white shadow-lg">
+        <div className="text-center space-y-6">
+          <div className="text-xs font-medium text-blue-600 mb-4">📄 LABEL PREVIEW</div>
           
-          {/* HUGE description display - matching ZPL ^A0N,60,60 */}
-          <div className="text-3xl font-bold text-black leading-tight px-2">
+          {/* MASSIVE description display - exactly matching ZPL ^A0N,60,60 */}
+          <div className="text-5xl font-black text-black leading-none px-2 py-4 border-2 border-dashed border-gray-300 rounded">
             {item.description}
           </div>
           
           {/* Barcode Preview */}
-          <div className="py-4">
+          <div className="py-6 border-2 border-dashed border-gray-300 rounded">
             <Barcode 
               value={item.systemCode} 
-              width={2} 
+              width={3} 
               height={80}
-              fontSize={18}
+              fontSize={20}
               fontColor="#000000"
               className="mx-auto"
             />
           </div>
           
           {/* Weight - matching ZPL ^A0N,48,48 */}
-          <div className="text-xl font-bold text-black">
+          <div className="text-2xl font-black text-black border-2 border-dashed border-gray-300 rounded py-2">
             Weight: {item.weight}kg
+          </div>
+          
+          <div className="text-xs text-gray-500 mt-4">
+            This preview shows exactly how the label will print
           </div>
         </div>
       </div>
 
       <Button 
         onClick={handlePrint} 
-        className="w-full"
+        className="w-full h-12 text-lg"
         disabled={printing}
       >
         <Printer className="h-4 w-4 mr-2" />
