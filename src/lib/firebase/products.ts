@@ -18,12 +18,10 @@ export interface Product {
   sku: string;
   description: string;
   category: string;
-  weight?: number;
   lastUsed: any;
   usageCount: number;
   metadata?: {
-    coilNumber?: string;
-    coilLength?: string;
+    [key: string]: any;
   };
 }
 
@@ -75,19 +73,25 @@ export async function saveProduct(productData: Omit<Product, 'id' | 'lastUsed' |
     const existing = await getProductBySku(productData.sku);
     
     if (existing) {
-      // Update existing product
+      // Update existing product - only update description and metadata, NOT weight
       const docRef = doc(db, COLLECTION, existing.id);
       await setDoc(docRef, {
-        ...productData,
+        sku: productData.sku,
+        description: productData.description,
+        category: productData.category,
+        metadata: productData.metadata,
         lastUsed: serverTimestamp(),
         usageCount: (existing.usageCount || 0) + 1,
       }, { merge: true });
       return existing.id;
     } else {
-      // Create new product
+      // Create new product - don't save weight in products
       const docRef = doc(collection(db, COLLECTION));
       await setDoc(docRef, {
-        ...productData,
+        sku: productData.sku,
+        description: productData.description,
+        category: productData.category,
+        metadata: productData.metadata || {},
         lastUsed: serverTimestamp(),
         usageCount: 1,
       });
