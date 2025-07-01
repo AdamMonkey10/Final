@@ -15,6 +15,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { addItem } from '@/lib/firebase/items';
@@ -22,6 +28,7 @@ import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
 import { LocationSelector } from '@/components/location-selector';
+import { WarehouseLayout } from '@/components/warehouse-layout';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
@@ -30,7 +37,7 @@ import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3 } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -66,6 +73,7 @@ export default function GoodsInPage() {
   const [suitableLocations, setSuitableLocations] = useState<Location[]>([]);
   const [printing, setPrinting] = useState(false);
   const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'graphic' | 'scan' | 'complete'>('form');
+  const [locationViewMode, setLocationViewMode] = useState<'list' | 'graphic'>('list');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -318,6 +326,7 @@ export default function GoodsInPage() {
     setSuggestedLocation(null);
     setSuitableLocations([]);
     setCurrentStep('form');
+    setLocationViewMode('list');
     
     // Reset form
     setFormData({
@@ -396,7 +405,7 @@ export default function GoodsInPage() {
     },
     {
       title: "Choose Location",
-      description: "Select from recommended or other suitable locations based on weight capacity.",
+      description: "Select from recommended or other suitable locations using list or graphic view.",
       type: "info" as const
     },
     {
@@ -675,16 +684,42 @@ export default function GoodsInPage() {
                 <h3 className="font-medium">
                   {suitableLocations.length} Suitable Locations
                 </h3>
-                <Button onClick={loadLocations} variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button onClick={loadLocations} variant="outline" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
               </div>
 
-              <LocationSelector
-                locations={suitableLocations}
-                onLocationSelect={handleLocationSelect}
-              />
+              <Tabs value={locationViewMode} onValueChange={(value: 'list' | 'graphic') => setLocationViewMode(value)}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="list" className="flex items-center gap-2">
+                    <List className="h-4 w-4" />
+                    List View
+                  </TabsTrigger>
+                  <TabsTrigger value="graphic" className="flex items-center gap-2">
+                    <Grid3X3 className="h-4 w-4" />
+                    Graphic View
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="list" className="mt-4">
+                  <LocationSelector
+                    locations={suitableLocations}
+                    onLocationSelect={handleLocationSelect}
+                  />
+                </TabsContent>
+                
+                <TabsContent value="graphic" className="mt-4">
+                  <WarehouseLayout
+                    locations={suitableLocations}
+                    onLocationSelect={handleLocationSelect}
+                    suggestedLocation={suggestedLocation}
+                    itemWeight={createdItem.weight}
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
           )}
         </DialogContent>
