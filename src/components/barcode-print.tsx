@@ -49,7 +49,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         description: item.description,
         weight: item.weight,
         location: item.location || '',
-        operator: 'System', // You might want to get this from context
+        operator: 'System',
         date: new Date().toLocaleDateString(),
       };
 
@@ -101,48 +101,61 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         </div>
       </div>
 
-      {/* 103x103mm SQUARE Label Preview */}
+      {/* ACTUAL 103x103mm SQUARE Label Preview */}
       <div className="relative">
-        <div className="text-xs font-medium text-blue-600 mb-2 text-center">📄 103x103mm LABEL PREVIEW</div>
+        <div className="text-xs font-medium text-blue-600 mb-2 text-center">📄 103x103mm SQUARE LABEL PREVIEW</div>
         
-        {/* Perfect 103x103mm square (using aspect-square and fixed width) */}
-        <div className="w-80 h-80 border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col justify-center items-center p-4 relative overflow-hidden">
+        {/* PERFECT SQUARE: 320px × 320px (aspect-square enforced) */}
+        <div className="w-80 aspect-square border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col p-6 relative overflow-hidden">
           
-          {/* HUGE Description Text - Taking up most of the top area */}
-          <div className="flex-1 flex items-center justify-center w-full">
-            <div className="text-center">
-              <div className="text-4xl font-black text-black leading-tight break-words max-w-full">
-                {item.description}
-              </div>
+          {/* MASSIVE Description Text - BLACK and HUGE */}
+          <div className="flex-1 flex items-center justify-center">
+            <div 
+              className="text-center leading-none"
+              style={{ 
+                fontSize: '3.5rem', 
+                fontWeight: '900', 
+                color: '#000000',
+                lineHeight: '0.9'
+              }}
+            >
+              {item.description}
             </div>
           </div>
           
-          {/* Barcode in middle */}
-          <div className="flex-shrink-0 py-2">
+          {/* Barcode in middle area */}
+          <div className="flex-shrink-0 py-4">
             <Barcode 
               value={item.systemCode} 
               width={2} 
-              height={50}
-              fontSize={12}
+              height={40}
+              fontSize={10}
               fontColor="#000000"
               className="mx-auto"
             />
           </div>
           
-          {/* Weight at bottom */}
-          <div className="flex-shrink-0 text-xl font-black text-black text-center">
+          {/* Weight at bottom - also black and bold */}
+          <div 
+            className="flex-shrink-0 text-center"
+            style={{ 
+              fontSize: '1.5rem', 
+              fontWeight: '900', 
+              color: '#000000'
+            }}
+          >
             Weight: {item.weight}kg
           </div>
           
-          {/* Corner indicators to show it's a square */}
-          <div className="absolute top-1 left-1 w-3 h-3 border-l-2 border-t-2 border-blue-500"></div>
-          <div className="absolute top-1 right-1 w-3 h-3 border-r-2 border-t-2 border-blue-500"></div>
-          <div className="absolute bottom-1 left-1 w-3 h-3 border-l-2 border-b-2 border-blue-500"></div>
-          <div className="absolute bottom-1 right-1 w-3 h-3 border-r-2 border-b-2 border-blue-500"></div>
+          {/* Square corner indicators */}
+          <div className="absolute top-2 left-2 w-4 h-4 border-l-2 border-t-2 border-blue-500"></div>
+          <div className="absolute top-2 right-2 w-4 h-4 border-r-2 border-t-2 border-blue-500"></div>
+          <div className="absolute bottom-2 left-2 w-4 h-4 border-l-2 border-b-2 border-blue-500"></div>
+          <div className="absolute bottom-2 right-2 w-4 h-4 border-r-2 border-b-2 border-blue-500"></div>
         </div>
         
         <div className="text-xs text-center text-gray-500 mt-2">
-          Actual size: 103mm × 103mm square label
+          ⬜ Actual size: 103mm × 103mm SQUARE label
         </div>
       </div>
 
