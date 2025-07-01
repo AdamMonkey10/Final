@@ -30,7 +30,7 @@ import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -305,6 +305,12 @@ export default function GoodsInPage() {
         duration: 3000
       });
     }, 2000);
+  };
+
+  const handleBackToLocationSelection = () => {
+    setShowScanLocationDialog(false);
+    setCurrentStep('location');
+    setShowLocationDialog(true);
   };
 
   const getStepIndicator = () => {
@@ -582,13 +588,37 @@ export default function GoodsInPage() {
       </Dialog>
 
       {/* Scan Location Dialog */}
-      <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
+      <Dialog open={showScanLocationDialog} onOpenChange={(open) => {
+        if (!open) {
+          handleBackToLocationSelection();
+        }
+      }}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Scan className="h-5 w-5" />
-              Scan Selected Location
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <Scan className="h-5 w-5" />
+                Scan Selected Location
+              </DialogTitle>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBackToLocationSelection}
+                  className="flex items-center gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleBackToLocationSelection}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </DialogHeader>
           
           {suggestedLocation && createdItem && (
