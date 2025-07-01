@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { addItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
+import { saveProduct } from '@/lib/firebase/products';
 import { ProductSelector } from '@/components/product-selector';
 import { LocationSelector } from '@/components/location-selector';
 import { WarehouseLayout } from '@/components/warehouse-layout';
@@ -35,7 +36,7 @@ import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3 } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3, Upload, FileText, Download } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -60,6 +61,7 @@ export default function GoodsInPage() {
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showLocationGraphicDialog, setShowLocationGraphicDialog] = useState(false);
   const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
+  const [showCsvImportDialog, setShowCsvImportDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
     id: string;
     systemCode: string;
@@ -72,6 +74,11 @@ export default function GoodsInPage() {
   const [printing, setPrinting] = useState(false);
   const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'graphic' | 'scan' | 'complete'>('form');
   const [locationViewMode, setLocationViewMode] = useState<'list' | 'graphic'>('list');
+  
+  // CSV Import state
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvPreview, setCsvPreview] = useState<Array<{ sku: string; description: string }>>([]);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -361,6 +368,127 @@ export default function GoodsInPage() {
     setShowLocationGraphicDialog(true);
   };
 
+  // CSV Import Functions
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCsvFile(file);
+      previewCsvFile(file);
+    }
+  };
+
+  const previewCsvFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (content) {
+        const lines = content.split('\n').filter(line => line.trim());
+        const preview = lines.slice(1, 6).map(line => { // Skip header, show first 5 rows
+          const [sku, description] = line.split(',').map(item => item.trim().replace(/"/g, ''));
+          return { sku: sku || '', description: description || '' };
+        }).filter(item => item.sku && item.description);
+        setCsvPreview(preview);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleCsvImport = async () => {
+    if (!csvFile) {
+      toast.error('Please select a CSV file');
+      return;
+    }
+
+    setCsvImporting(true);
+    
+    const importPromise = new Promise<{ successful: number; failed: number }>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const content = e.target?.result as string;
+          if (!content) {
+            reject(new Error('Failed to read file content'));
+            return;
+          }
+
+          const lines = content.split('\n').filter(line => line.trim());
+          if (lines.length < 2) {
+            reject(new Error('CSV file must have at least a header and one data row'));
+            return;
+          }
+
+          let successfulImports = 0;
+          let failedImports = 0;
+
+          // Skip header row (index 0)
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            try {
+              // Parse CSV line (handle quoted values)
+              const [sku, description] = line.split(',').map(item => 
+                item.trim().replace(/^"(.*)"$/, '$1') // Remove surrounding quotes
+              );
+
+              if (sku && description) {
+                await saveProduct({
+                  sku: sku.trim(),
+                  description: description.trim(),
+                  category: 'general',
+                  metadata: {}
+                });
+                successfulImports++;
+              } else {
+                failedImports++;
+              }
+            } catch (error) {
+              console.error(`Error importing line ${i + 1}:`, error);
+              failedImports++;
+            }
+          }
+
+          resolve({ successful: successfulImports, failed: failedImports });
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(csvFile);
+    });
+
+    toast.promise(importPromise, {
+      loading: 'Importing products from CSV...',
+      success: (result) => {
+        setCsvFile(null);
+        setCsvPreview([]);
+        setShowCsvImportDialog(false);
+        // Reset file input
+        const fileInput = document.getElementById('csvFileInput') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
+        
+        return `Import completed! ${result.successful} products imported successfully${result.failed > 0 ? `, ${result.failed} failed` : ''}`;
+      },
+      error: (error) => `Import failed: ${error.message}`,
+    });
+
+    setCsvImporting(false);
+  };
+
+  const downloadCsvTemplate = () => {
+    const csvContent = 'sku,description\n"EXAMPLE-001","Example Product Description"\n"EXAMPLE-002","Another Product Description"';
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'product_import_template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    toast.success('CSV template downloaded');
+  };
+
   const getStepIndicator = () => {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
@@ -431,90 +559,220 @@ export default function GoodsInPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-            <PackagePlus className="h-5 w-5" />
-            Create New Item
-          </CardTitle>
-          <CardDescription>
-            Enter details for items entering the warehouse
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 gap-6">
-              <div className="space-y-2">
-                <ProductSelector
-                  value={formData.itemCode}
-                  onChange={(value) => setFormData({ ...formData, itemCode: value })}
-                  onProductSelect={handleProductSelect}
-                  disabled={loading}
-                />
+      <Tabs defaultValue="single" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="single">Single Item</TabsTrigger>
+          <TabsTrigger value="import">Import Products</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="single" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+                <PackagePlus className="h-5 w-5" />
+                Create New Item
+              </CardTitle>
+              <CardDescription>
+                Enter details for items entering the warehouse
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 gap-6">
+                  <div className="space-y-2">
+                    <ProductSelector
+                      value={formData.itemCode}
+                      onChange={(value) => setFormData({ ...formData, itemCode: value })}
+                      onProductSelect={handleProductSelect}
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="description" className="text-base">Description *</Label>
+                    <Input
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="Item description (auto-filled from product selection)"
+                      required
+                      disabled={loading}
+                      className="h-14 text-base"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This field will auto-populate when you select a product above
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="weight" className="text-base">Weight (kg) *</Label>
+                      <Input
+                        id="weight"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={formData.weight}
+                        onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                        placeholder="0.00"
+                        required
+                        disabled={loading}
+                        className="h-14 text-base"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Items &gt;1000kg automatically go to ground level
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="quantity" className="text-base">Quantity</Label>
+                      <Input
+                        id="quantity"
+                        type="number"
+                        min="1"
+                        value={formData.quantity}
+                        onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                        placeholder="1"
+                        disabled={loading}
+                        className="h-14 text-base"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Button 
+                  type="submit" 
+                  className="w-full h-16 text-lg"
+                  disabled={loading || !selectedOperator}
+                >
+                  {loading ? 'Creating Item...' : 'Create Item'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="import" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+                <Upload className="h-5 w-5" />
+                Import Products from CSV
+              </CardTitle>
+              <CardDescription>
+                Upload a CSV file to import multiple products at once
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">CSV Format Requirements:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• First row must be headers: <code>sku,description</code></li>
+                  <li>• Each subsequent row should contain: SKU code, Product description</li>
+                  <li>• Values can be quoted if they contain commas</li>
+                  <li>• Example: <code>"PROD-001","High Quality Steel Pipe"</code></li>
+                </ul>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="description" className="text-base">Description *</Label>
-                <Input
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Item description (auto-filled from product selection)"
-                  required
-                  disabled={loading}
-                  className="h-14 text-base"
-                />
-                <p className="text-xs text-muted-foreground">
-                  This field will auto-populate when you select a product above
-                </p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={downloadCsvTemplate}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Template
+                </Button>
+                <Button
+                  onClick={() => setShowCsvImportDialog(true)}
+                  className="flex items-center gap-2"
+                  disabled={!selectedOperator}
+                >
+                  <FileText className="h-4 w-4" />
+                  Import CSV
+                </Button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="weight" className="text-base">Weight (kg) *</Label>
-                  <Input
-                    id="weight"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={formData.weight}
-                    onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-                    placeholder="0.00"
-                    required
-                    disabled={loading}
-                    className="h-14 text-base"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Items &gt;1000kg automatically go to ground level
+              {!selectedOperator && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    Please select an operator before importing products.
                   </p>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
-                <div className="space-y-2">
-                  <Label htmlFor="quantity" className="text-base">Quantity</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min="1"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    placeholder="1"
-                    disabled={loading}
-                    className="h-14 text-base"
-                  />
-                </div>
+      {/* CSV Import Dialog */}
+      <Dialog open={showCsvImportDialog} onOpenChange={setShowCsvImportDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Import Products from CSV
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="csvFileInput">Select CSV File</Label>
+                <Input
+                  id="csvFileInput"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleCsvFileChange}
+                  className="h-12"
+                />
               </div>
+
+              {csvPreview.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Preview (first 5 rows)</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-muted px-3 py-2 text-sm font-medium">
+                      SKU | Description
+                    </div>
+                    {csvPreview.map((item, index) => (
+                      <div key={index} className="px-3 py-2 text-sm border-t">
+                        {item.sku} | {item.description}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-16 text-lg"
-              disabled={loading || !selectedOperator}
-            >
-              {loading ? 'Creating Item...' : 'Create Item'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleCsvImport}
+                disabled={!csvFile || csvImporting}
+                className="flex-1"
+              >
+                {csvImporting ? 'Importing...' : 'Import Products'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCsvImportDialog(false);
+                  setCsvFile(null);
+                  setCsvPreview([]);
+                }}
+                disabled={csvImporting}
+              >
+                Cancel
+              </Button>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              <p>This will create product records that can be selected when creating items.</p>
+              <p>Products will be saved with category "general" and can be edited later if needed.</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Label Generation Dialog */}
       <Dialog open={showLabelDialog} onOpenChange={() => {}}>
