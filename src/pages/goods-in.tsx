@@ -21,7 +21,6 @@ import { addItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
-import { LocationSelector } from '@/components/location-selector';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
@@ -51,7 +50,6 @@ export default function GoodsInPage() {
   
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
   const [showLabelDialog, setShowLabelDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
@@ -63,7 +61,7 @@ export default function GoodsInPage() {
   } | null>(null);
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'location' | 'scan' | 'label' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'scan' | 'label' | 'complete'>('form');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -111,34 +109,39 @@ export default function GoodsInPage() {
     }
 
     setLoading(true);
-    setCurrentStep('location');
+    setCurrentStep('scan');
 
     try {
       const systemCode = generateSystemCode();
 
-      // Prepare metadata
-      const metadata: any = {};
+      // Find optimal location based on weight
+      const optimalLocation = findOptimalLocation(locations, weight, false);
       
-      if (formData.quantity && parseInt(formData.quantity) > 1) {
-        metadata.quantity = parseInt(formData.quantity);
+      if (!optimalLocation) {
+        toast.error('No suitable location found for this weight');
+        setLoading(false);
+        setCurrentStep('form');
+        return;
       }
 
       // Store created item details for later use
       setCreatedItem({
-        id: '', // Will be set after location selection
+        id: '', // Will be set after location scanning
         systemCode,
         itemCode: formData.itemCode,
         description: formData.description,
         weight
       });
 
+      setSuggestedLocation(optimalLocation);
+
       toast.success('Item details ready!', {
-        description: `System code: ${systemCode}`,
+        description: `System code: ${systemCode}. Suggested location: ${optimalLocation.code}`,
         duration: 3000
       });
 
-      // Show location selection
-      setShowLocationDialog(true);
+      // Show location scanning dialog
+      setShowScanLocationDialog(true);
 
     } catch (error) {
       console.error('Error preparing item:', error);
@@ -147,30 +150,6 @@ export default function GoodsInPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleLocationSelect = async (location: Location) => {
-    if (!createdItem) return;
-    
-    // Check if location can accept the item weight
-    const newWeight = location.currentWeight + createdItem.weight;
-    if (location.level !== '0' && newWeight > location.maxWeight) {
-      toast.error('❌ Location weight capacity exceeded', {
-        description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
-        duration: 5000
-      });
-      return;
-    }
-
-    toast.success(`✅ Location ${location.code} selected`, {
-      description: 'Confirm placement by scanning location',
-      duration: 3000
-    });
-
-    setSuggestedLocation(location);
-    setShowLocationDialog(false);
-    setCurrentStep('scan');
-    setShowScanLocationDialog(true);
   };
 
   const handleLocationScan = async (scannedCode: string) => {
@@ -297,7 +276,6 @@ export default function GoodsInPage() {
   const getStepIndicator = () => {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
-      { key: 'location', label: 'Select Location', icon: MapPin },
       { key: 'scan', label: 'Scan Location', icon: Scan },
       { key: 'label', label: 'Print Label', icon: Printer },
       { key: 'complete', label: 'In Stock', icon: CheckCircle }
@@ -339,17 +317,12 @@ export default function GoodsInPage() {
     },
     {
       title: "Item Details",
-      description: "Enter the Product/SKU, description, and weight. All fields are required for proper warehouse management.",
-      type: "info" as const
-    },
-    {
-      title: "Location Selection",
-      description: "Choose an appropriate location based on weight capacity and accessibility.",
+      description: "Enter the Product/SKU, description, and weight. The system will automatically suggest the best location.",
       type: "info" as const
     },
     {
       title: "Scan Location",
-      description: "Scan the location barcode to confirm placement and immediately put the item into stock.",
+      description: "Scan the suggested location barcode to confirm placement and immediately put the item into stock.",
       type: "info" as const
     },
     {
@@ -382,7 +355,7 @@ export default function GoodsInPage() {
       {showInstructions && (
         <InstructionPanel
           title="Goods In Process"
-          description="Create new items and immediately place them in warehouse locations. Items go directly into stock without pending status."
+          description="Create new items and the system will suggest optimal locations. Items go directly into stock after scanning the suggested location."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -402,6 +375,28 @@ export default function GoodsInPage() {
         </Card>
       )}
 
+      {/* Suggested Location Display */}
+      {suggestedLocation && currentStep === 'scan' && (
+        <Card className="border-2 border-blue-200 bg-blue-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <MapPin className="h-5 w-5 text-blue-500" />
+              <div>
+                <div className="font-medium text-blue-900">
+                  Suggested Location: {suggestedLocation.code}
+                </div>
+                <div className="text-sm text-blue-700">
+                  Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                </div>
+                <div className="text-xs text-blue-600">
+                  Current weight: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
@@ -409,7 +404,7 @@ export default function GoodsInPage() {
             Create New Item
           </CardTitle>
           <CardDescription>
-            Enter details for items entering the warehouse - items will be placed directly into stock
+            Enter details for items entering the warehouse - the system will suggest optimal locations
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -451,7 +446,7 @@ export default function GoodsInPage() {
                     disabled={loading}
                     className="h-14 text-base"
                   />
-                  <p className="text-xs text-muted-foreground">Required for location optimization</p>
+                  <p className="text-xs text-muted-foreground">Used for optimal location selection</p>
                 </div>
 
                 <div className="space-y-2">
@@ -475,39 +470,11 @@ export default function GoodsInPage() {
               className="w-full h-16 text-lg"
               disabled={loading || !selectedOperator}
             >
-              {loading ? 'Processing...' : 'Create & Place Item'}
+              {loading ? 'Finding Location...' : 'Create Item & Find Location'}
             </Button>
           </form>
         </CardContent>
       </Card>
-
-      {/* Location Selection Dialog */}
-      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
-        <DialogContent className="max-w-[95vw] w-[1400px] h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5" />
-              Select Location for {createdItem?.itemCode}
-            </DialogTitle>
-          </DialogHeader>
-          {createdItem && (
-            <div className="mb-4 p-4 bg-muted rounded-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-medium">{createdItem.itemCode}</h3>
-                  <p className="text-sm text-muted-foreground">{createdItem.description}</p>
-                  <p className="text-sm">Weight: {createdItem.weight}kg</p>
-                  <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          <LocationSelector
-            locations={locations}
-            onLocationSelect={handleLocationSelect}
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Scan Location Dialog */}
       <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
@@ -515,25 +482,48 @@ export default function GoodsInPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Scan className="h-5 w-5" />
-              Scan Location Barcode
+              Scan Suggested Location
             </DialogTitle>
           </DialogHeader>
           
           {suggestedLocation && createdItem && (
             <div className="space-y-6">
-              {/* Instructions */}
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center gap-2 text-yellow-800 mb-2">
-                  <QrCode className="h-5 w-5" />
-                  <span className="font-medium">Scan Required Location</span>
+              {/* Item Summary */}
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">{createdItem.itemCode}</h3>
+                    <p className="text-sm text-muted-foreground">{createdItem.description}</p>
+                    <p className="text-sm">Weight: {createdItem.weight}kg</p>
+                    <p className="text-xs text-muted-foreground">System Code: {createdItem.systemCode}</p>
+                    <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                  </div>
                 </div>
-                <div className="text-sm text-yellow-700">
+              </div>
+
+              {/* Location Instructions */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-800 mb-2">
+                  <MapPin className="h-5 w-5" />
+                  <span className="font-medium">Scan Suggested Location</span>
+                </div>
+                <div className="text-sm text-blue-700">
                   Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>
                 </div>
-                <div className="text-xs text-yellow-600 mt-1">
+                <div className="text-xs text-blue-600 mt-1">
+                  Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                </div>
+                <div className="text-xs text-blue-600">
                   Item will be placed directly into stock after scanning
                 </div>
               </div>
+
+              {/* Bay Visualizer */}
+              <BayVisualizer
+                location={suggestedLocation}
+                onConfirm={() => {}} // Not used in this context
+                mode="place"
+              />
 
               {/* Camera Scanner */}
               <CameraScanner
