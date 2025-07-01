@@ -502,21 +502,13 @@ export default function LocationsPage() {
 
       {/* Item Barcode Dialog */}
       <Dialog open={showBarcodeDialog} onOpenChange={setShowBarcodeDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Item Barcode</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             {selectedItem && (
-              <div className="space-y-4">
-                <div className="p-4 bg-muted rounded-lg">
-                  <h3 className="font-medium">{selectedItem.itemCode}</h3>
-                  <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
-                  <p className="text-sm">Weight: {selectedItem.weight}kg</p>
-                  <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
-                </div>
-                <BarcodePrint value={selectedItem.systemCode} />
-              </div>
+              <BarcodePrint value={selectedItem.systemCode} />
             )}
           </div>
         </DialogContent>

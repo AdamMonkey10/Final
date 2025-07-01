@@ -5,6 +5,7 @@ import { getItemBySystemCode } from '@/lib/firebase/items';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
 import { toast } from 'sonner';
+import { Barcode } from '@/components/barcode';
 import type { Item } from '@/types/warehouse';
 
 interface BarcodePrintProps {
@@ -29,7 +30,9 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
       }
     };
 
-    loadItem();
+    if (value) {
+      loadItem();
+    }
   }, [value]);
 
   const handlePrint = async () => {
@@ -45,7 +48,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         itemCode: item.itemCode,
         description: item.description,
         weight: item.weight,
-        location: item.location,
+        location: item.location || '',
         operator: 'System', // You might want to get this from context
         date: new Date().toLocaleDateString(),
       };
@@ -63,26 +66,31 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
   };
 
   if (loading) {
-    return <div>Loading item details...</div>;
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   if (!item) {
-    return <div>Item not found</div>;
+    return (
+      <div className="text-center p-8">
+        <p className="text-muted-foreground">Item not found</p>
+      </div>
+    );
   }
 
   return (
     <div className="flex flex-col items-center space-y-4">
-      {/* Preview section */}
-      <div className="w-full max-w-md p-4 border rounded-lg bg-white">
+      {/* Item Details */}
+      <div className="w-full p-4 border rounded-lg bg-muted">
         <div className="text-center space-y-2">
-          <div className="text-lg font-bold">{item.systemCode}</div>
-          <div className="text-sm text-muted-foreground">
-            Reference: {item.itemCode}
-          </div>
+          <div className="text-lg font-bold">{item.itemCode}</div>
           <div className="text-sm text-muted-foreground">
             {item.description}
           </div>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm">
             Weight: {item.weight}kg
           </div>
           {item.location && (
@@ -90,6 +98,30 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
               Location: {item.location}
             </div>
           )}
+          <div className="text-xs text-muted-foreground">
+            System Code: {item.systemCode}
+          </div>
+        </div>
+      </div>
+
+      {/* Barcode Display */}
+      <div className="w-full max-w-md p-4 border rounded-lg bg-white">
+        <div className="text-center space-y-4">
+          <div className="text-sm font-medium">Item Barcode</div>
+          
+          {/* Barcode Preview */}
+          <div className="py-4">
+            <Barcode 
+              value={item.systemCode} 
+              width={2} 
+              height={80}
+              className="mx-auto"
+            />
+          </div>
+          
+          <div className="text-xs text-muted-foreground">
+            Scan this barcode to identify the item
+          </div>
         </div>
       </div>
 
