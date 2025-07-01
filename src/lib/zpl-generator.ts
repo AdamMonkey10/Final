@@ -27,7 +27,7 @@ export interface LocationLabelData {
 
 /**
  * Generate ZPL for item labels (103x103mm)
- * Clean version with only essential information
+ * Minimal version with only barcode, weight, and description
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateItemZPL(data: ItemLabelData): string {
@@ -36,34 +36,13 @@ export function generateItemZPL(data: ItemLabelData): string {
     return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
   };
 
-  // Calculate dynamic positioning for long text
-  const getTextX = (text: string, baseX: number = 15) => {
-    if (!text) return baseX;
-    if (text.length > 25) return 5;   // Start further left for very long text
-    if (text.length > 20) return 10;  // Start a bit further left
-    return baseX; // Normal position
-  };
-
-  const getFieldWidth = (startX: number) => {
-    return 785 - startX; // Total width minus starting position
-  };
-
-  const itemCodeX = getTextX(data.itemCode);
-  const descriptionX = getTextX(data.description);
-  const itemCodeWidth = getFieldWidth(itemCodeX);
-  const descriptionWidth = getFieldWidth(descriptionX);
-
   return `
-${BT_JPG_ZPL}
 ^XA
 ^PW800
-^FO15,60^XGR:BT.JPG,1,1^FS
-^FO${itemCodeX},210^FB${itemCodeWidth},1,0,R,0^A0N,72,72^FD${truncateText(data.itemCode, 30)}^FS
-^FO${descriptionX},290^FB${descriptionWidth},1,0,R,0^A0,36,36^FD${truncateText(data.description, 40)}^FS
-^FO0,390^FB800,1,0,C,0^A0N,96,96^FD${data.systemCode}^FS
-^FO0,510^FB800,1,0,C,0^A0,48,48^FDWeight: ${data.weight}kg^FS
-${data.location ? `^FO0,560^FB800,1,0,C,0^A0,36,36^FDLocation: ${data.location}^FS` : ''}
-^FO600,600^BQN,2,5^FDQA,${data.systemCode}^FS
+^FO0,200^FB800,1,0,C,0^A0,48,48^FD${truncateText(data.description, 40)}^FS
+^FO0,300^FB800,1,0,C,0^A0N,96,96^FD${data.systemCode}^FS
+^FO50,450^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
+^FO0,600^FB800,1,0,C,0^A0,48,48^FDWeight: ${data.weight}kg^FS
 ^XZ
 `.trim();
 }
