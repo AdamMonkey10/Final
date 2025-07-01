@@ -87,7 +87,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
       <div className="w-full p-4 border rounded-lg bg-muted">
         <div className="text-center space-y-2">
           <div className="text-lg font-bold">{item.itemCode}</div>
-          <div className="text-sm text-muted-foreground">
+          <div className="text-xl font-bold text-black">
             {item.description}
           </div>
           <div className="text-sm">
@@ -109,12 +109,19 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         <div className="text-center space-y-4">
           <div className="text-sm font-medium">Item Barcode</div>
           
+          {/* Enhanced description display */}
+          <div className="text-xl font-bold text-black mb-4">
+            {item.description}
+          </div>
+          
           {/* Barcode Preview */}
           <div className="py-4">
             <Barcode 
               value={item.systemCode} 
               width={2} 
               height={80}
+              fontSize={18}
+              fontColor="#000000"
               className="mx-auto"
             />
           </div>

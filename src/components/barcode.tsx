@@ -7,6 +7,8 @@ interface BarcodeProps {
   height?: number;
   format?: string;
   className?: string;
+  fontSize?: number;
+  fontColor?: string;
 }
 
 export function Barcode({
@@ -15,6 +17,8 @@ export function Barcode({
   height = 100,
   format = 'CODE128',
   className,
+  fontSize = 16,
+  fontColor = '#000000',
 }: BarcodeProps) {
   const barcodeRef = useRef<SVGSVGElement>(null);
 
@@ -26,8 +30,12 @@ export function Barcode({
           width,
           height,
           displayValue: true,
-          fontSize: 16,
+          fontSize,
+          fontOptions: 'bold',
+          fontColor,
           margin: 10,
+          background: '#ffffff',
+          lineColor: '#000000',
         });
       } catch (error) {
         console.error('Error generating barcode:', error);
@@ -37,7 +45,7 @@ export function Barcode({
         }
       }
     }
-  }, [value, width, height, format]);
+  }, [value, width, height, format, fontSize, fontColor]);
 
   if (!value) {
     return <div className={className}>No barcode value provided</div>;
