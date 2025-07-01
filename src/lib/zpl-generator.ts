@@ -27,7 +27,7 @@ export interface LocationLabelData {
 
 /**
  * Generate ZPL for item labels (103x103mm)
- * Minimal version with only barcode, weight, and description
+ * Minimal version with only description, system code barcode, and weight
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateItemZPL(data: ItemLabelData): string {
@@ -39,10 +39,10 @@ export function generateItemZPL(data: ItemLabelData): string {
   return `
 ^XA
 ^PW800
-^FO0,200^FB800,1,0,C,0^A0,48,48^FD${truncateText(data.description, 40)}^FS
-^FO0,300^FB800,1,0,C,0^A0N,96,96^FD${data.systemCode}^FS
-^FO50,450^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
-^FO0,600^FB800,1,0,C,0^A0,48,48^FDWeight: ${data.weight}kg^FS
+^FO0,150^FB800,2,0,C,0^A0,36,36^FD${truncateText(data.description, 50)}^FS
+^FO0,300^FB800,1,0,C,0^A0N,72,72^FD${data.systemCode}^FS
+^FO50,420^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
+^FO0,650^FB800,1,0,C,0^A0,48,48^FDWeight: ${data.weight}kg^FS
 ^XZ
 `.trim();
 }
