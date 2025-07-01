@@ -27,6 +27,7 @@ export interface LocationLabelData {
 
 /**
  * Generate ZPL for item labels (103x103mm)
+ * Clean version with only essential information
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateItemZPL(data: ItemLabelData): string {
@@ -62,8 +63,6 @@ ${BT_JPG_ZPL}
 ^FO0,390^FB800,1,0,C,0^A0N,96,96^FD${data.systemCode}^FS
 ^FO0,510^FB800,1,0,C,0^A0,48,48^FDWeight: ${data.weight}kg^FS
 ${data.location ? `^FO0,560^FB800,1,0,C,0^A0,36,36^FDLocation: ${data.location}^FS` : ''}
-^FO45,670^A0,32,32^FDDate: ${data.date}^FS
-^FO45,710^A0,32,32^FDOperator: ${data.operator}^FS
 ^FO600,600^BQN,2,5^FDQA,${data.systemCode}^FS
 ^XZ
 `.trim();
