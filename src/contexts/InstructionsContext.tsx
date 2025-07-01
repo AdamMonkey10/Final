@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 interface InstructionsContextType {
   showInstructions: boolean;
@@ -6,16 +6,25 @@ interface InstructionsContextType {
 }
 
 const InstructionsContext = createContext<InstructionsContextType>({
-  showInstructions: false,
+  showInstructions: false, // Default to off
   toggleInstructions: () => {},
 });
 
 export function InstructionsProvider({ children }: { children: React.ReactNode }) {
-  // Always return false for showInstructions
-  const showInstructions = false;
+  const [showInstructions, setShowInstructions] = useState(() => {
+    const saved = localStorage.getItem('wareflow-show-instructions');
+    return saved !== null ? JSON.parse(saved) : false; // Default to false (off)
+  });
+
   const toggleInstructions = () => {
-    // Do nothing - instructions are disabled
+    const newValue = !showInstructions;
+    setShowInstructions(newValue);
+    localStorage.setItem('wareflow-show-instructions', JSON.stringify(newValue));
   };
+
+  useEffect(() => {
+    localStorage.setItem('wareflow-show-instructions', JSON.stringify(showInstructions));
+  }, [showInstructions]);
 
   return (
     <InstructionsContext.Provider value={{ showInstructions, toggleInstructions }}>

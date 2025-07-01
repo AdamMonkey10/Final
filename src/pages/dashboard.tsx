@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { BayVisualizer } from '@/components/bay-visualizer';
+import { InstructionPanel } from '@/components/instruction-panel';
+import { useInstructions } from '@/contexts/InstructionsContext';
 import { startOfHour, startOfDay, startOfWeek, isWithinInterval, subHours, subDays, subWeeks } from 'date-fns';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item, Location, Movement } from '@/types/warehouse';
@@ -41,6 +43,7 @@ interface MovementMetrics {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useFirebase();
+  const { showInstructions } = useInstructions();
   const [items, setItems] = useState<Item[]>([]);
   const [locationStats, setLocationStats] = useState<LocationStats>({
     total: 0,
@@ -150,6 +153,34 @@ export default function Dashboard() {
 
   const placedItems = items.length;
 
+  const instructionSteps = [
+    {
+      title: "Quick Item Search",
+      description: "Use 'Find Item Location' to quickly locate any item in the warehouse by scanning its barcode.",
+      type: "info" as const
+    },
+    {
+      title: "Scan Items",
+      description: "Click 'Scan Items' to access the full scanning interface for placing and picking items.",
+      type: "info" as const
+    },
+    {
+      title: "Monitor Activity",
+      description: "The Recent Activity card shows warehouse movements for the last hour, day, and week.",
+      type: "tip" as const
+    },
+    {
+      title: "Location Status",
+      description: "The Location Status card shows how many warehouse locations are currently in use.",
+      type: "tip" as const
+    },
+    {
+      title: "Navigation",
+      description: "Click on any card to navigate to that section for more detailed operations.",
+      type: "success" as const
+    }
+  ];
+
   return (
     <div className="relative space-y-6 min-h-[calc(100vh-4rem)]">
       {/* Background Logo */}
@@ -158,6 +189,17 @@ export default function Dashboard() {
           <path d="m26.7 15.5v-6.4c0-.7-.4-1.1-1.2-1.3h6.3c2 0 3.7.2 5.2.6 1.4.4 2.5.9 3.2 1.6s1.1 1.5 1.1 2.4c-.1.8-.4 1.5-1.2 2.1-.7.7-1.8 1.2-3.2 1.6s-3.2.6-5.4.6h-6v-.1c.8 0 1.2-.5 1.2-1.1zm84.2 11.8c0-.6.3-1 .9-1.4s1.3-.6 2.2-.8 2-.3 3.1-.3 2.3.1 3.5.3v1.6c-.5-.3-1.2-.5-1.8-.7-.7-.2-1.4-.2-2.1-.2s-1.4.1-2 .3c-.5.2-.9.4-1 .7 0 .1-.1.2-.1.3 0 .4.3.8.9 1 .6.3 1.4.5 2.4.8l2 .6c.8.2 1.5.5 2.1.9s.9.9.9 1.4c-.1.6-.4 1.1-1 1.5s-1.4.8-2.4 1-2.2.4-3.4.4-2.6-.1-4-.4l-.7-1.8c.8.4 1.6.7 2.5.9s1.8.3 2.6.3c1 0 1.8-.2 2.6-.4s1.2-.6 1.2-1.1c0-.7-.8-1.2-2.4-1.6l-2.8-.8c-.5-.2-1-.3-1.5-.6-.5-.2-.9-.5-1.2-.8s-.5-.7-.5-1.1z" />
         </svg>
       </div>
+
+      {/* Instructions Panel */}
+      {showInstructions && (
+        <InstructionPanel
+          title="Dashboard Overview"
+          description="Your central hub for warehouse operations. Get quick access to key functions and monitor warehouse activity."
+          steps={instructionSteps}
+          onClose={() => {}}
+          className="mb-6"
+        />
+      )}
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">

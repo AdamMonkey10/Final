@@ -22,6 +22,7 @@ import { FirebaseProvider } from '@/contexts/FirebaseContext';
 import { OperatorProvider } from '@/contexts/OperatorContext';
 import { InstructionsProvider } from '@/contexts/InstructionsContext';
 import { OperatorSelector } from '@/components/operator-selector';
+import { InstructionToggle } from '@/components/instruction-toggle';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, authLoading } = useFirebase();
@@ -170,6 +171,7 @@ function AppContent() {
                         </div>
                         <MainNav />
                         <div className="ml-auto flex items-center gap-2">
+                          <InstructionToggle />
                           <OperatorSelector />
                         </div>
                       </div>
