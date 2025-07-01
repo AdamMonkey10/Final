@@ -98,8 +98,14 @@ export default function GoodsInPage() {
       return;
     }
 
-    if (!formData.itemCode || !formData.description) {
-      toast.error('Please fill in Product/SKU and description');
+    if (!formData.itemCode || !formData.description || !formData.weight) {
+      toast.error('Please fill in Product/SKU, description, and weight');
+      return;
+    }
+
+    const weight = parseFloat(formData.weight);
+    if (isNaN(weight) || weight <= 0) {
+      toast.error('Please enter a valid weight greater than 0');
       return;
     }
 
@@ -108,7 +114,6 @@ export default function GoodsInPage() {
 
     try {
       const systemCode = generateSystemCode();
-      const weight = formData.weight ? parseFloat(formData.weight) : 0;
 
       // Prepare metadata
       const metadata: any = {};
@@ -339,7 +344,7 @@ export default function GoodsInPage() {
     },
     {
       title: "Item Details",
-      description: "Enter the Product/SKU and description. Weight is optional but recommended for location optimization.",
+      description: "Enter the Product/SKU, description, and weight. All fields are required for proper warehouse management.",
       type: "info" as const
     },
     {
@@ -438,19 +443,20 @@ export default function GoodsInPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="weight" className="text-base">Weight (kg)</Label>
+                  <Label htmlFor="weight" className="text-base">Weight (kg) *</Label>
                   <Input
                     id="weight"
                     type="number"
                     step="0.01"
-                    min="0"
+                    min="0.01"
                     value={formData.weight}
                     onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
                     placeholder="0.00"
+                    required
                     disabled={loading}
                     className="h-14 text-base"
                   />
-                  <p className="text-xs text-muted-foreground">Optional - helps with location optimization</p>
+                  <p className="text-xs text-muted-foreground">Required for location optimization</p>
                 </div>
 
                 <div className="space-y-2">
