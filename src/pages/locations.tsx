@@ -46,8 +46,6 @@ import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { LocationBarcodePrint } from '@/components/location-barcode-print';
 import { WarehouseLayout } from '@/components/warehouse-layout';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -59,7 +57,6 @@ interface LocationWithItem extends Location {
 
 export default function LocationsPage() {
   const { user, authLoading } = useFirebase();
-  const { showInstructions } = useInstructions();
   const [locations, setLocations] = useState<LocationWithItem[]>([]);
   const [filteredLocations, setFilteredLocations] = useState<LocationWithItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,29 +213,6 @@ export default function LocationsPage() {
     }
   };
 
-  const instructionSteps = [
-    {
-      title: "View Modes",
-      description: "Switch between List View (table format) and Graphic View (visual warehouse layout) using the tabs.",
-      type: "info" as const
-    },
-    {
-      title: "Search and Filter",
-      description: "Use the search bar and filter dropdown to find specific locations by code, row, bay, level, or rack type.",
-      type: "tip" as const
-    },
-    {
-      title: "Location Status",
-      description: "View weight status indicators: Empty (green), In Use (blue), Heavy (yellow), or Full (red).",
-      type: "info" as const
-    },
-    {
-      title: "Print Barcodes",
-      description: "Print individual location barcodes or bulk print all/filtered locations directly to your Zebra printer.",
-      type: "success" as const
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -253,17 +227,6 @@ export default function LocationsPage() {
           </Badge>
         </div>
       </div>
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Location Management"
-          description="View and manage all warehouse locations. Switch between list and graphic views, print barcodes, and check location status."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       <Card>
         <CardHeader>

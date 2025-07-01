@@ -20,8 +20,6 @@ import { getLocations, updateLocation, getLocationByCode } from '@/lib/firebase/
 import { updateItem } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
 import { BayVisualizer } from '@/components/bay-visualizer';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +30,6 @@ export default function ProcessScanPage() {
   const location = useLocation();
   const { user } = useFirebase();
   const { selectedOperator } = useOperator();
-  const { showInstructions } = useInstructions();
   
   const [scannedItem, setScannedItem] = useState<Item | null>(null);
   const [currentLocation, setCurrentLocation] = useState<Location | null>(null);
@@ -187,24 +184,6 @@ export default function ProcessScanPage() {
     );
   };
 
-  const instructionSteps = [
-    {
-      title: "Item Pickup",
-      description: "Confirm pickup of the scanned item from its current location in the warehouse.",
-      type: "info" as const
-    },
-    {
-      title: "Location Confirmation",
-      description: "Review the item location using the bay visualizer and confirm the pickup action.",
-      type: "info" as const
-    },
-    {
-      title: "Automatic Updates",
-      description: "The system will automatically update inventory, location weights, and movement records.",
-      type: "success" as const
-    }
-  ];
-
   if (!scannedItem) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -234,17 +213,6 @@ export default function ProcessScanPage() {
 
       {/* Step Indicator */}
       {getStepIndicator()}
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Item Pickup"
-          description="Complete the pickup workflow for your scanned item. Confirm the location and remove the item from stock."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       {/* Item Details Card */}
       <Card className="border-2 border-orange-200 bg-orange-50">

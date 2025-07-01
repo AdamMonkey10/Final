@@ -19,8 +19,6 @@ import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search } fr
 import { toast } from 'sonner';
 import { getItemBySystemCode } from '@/lib/firebase/items';
 import { CameraScanner } from '@/components/camera-scanner';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { Badge } from '@/components/ui/badge';
@@ -30,7 +28,6 @@ export default function ScanPage() {
   const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
-  const { showInstructions } = useInstructions();
   const [loading, setLoading] = useState(false);
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [manualInput, setManualInput] = useState('');
@@ -129,24 +126,6 @@ export default function ScanPage() {
     }
   };
 
-  const instructionSteps = [
-    {
-      title: "Select Operator",
-      description: "Ensure an operator is selected from the top-right corner before scanning any items.",
-      type: "warning" as const
-    },
-    {
-      title: "Scan Item",
-      description: "Click 'Start Scanning' and scan or enter a barcode. Only items currently in stock can be picked.",
-      type: "info" as const
-    },
-    {
-      title: "Automatic Navigation",
-      description: "After scanning, you'll be taken to the processing page to complete the pickup workflow.",
-      type: "success" as const
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -162,17 +141,6 @@ export default function ScanPage() {
           </Button>
         </div>
       </div>
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Warehouse Scanner"
-          description="Scan barcodes to identify items in stock. The system will automatically navigate you through the pickup workflow."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       {!selectedOperator && (
         <Card className="border-yellow-200 bg-yellow-50">

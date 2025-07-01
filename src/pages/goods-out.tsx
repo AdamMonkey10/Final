@@ -22,8 +22,6 @@ import { getItemsByLocation, updateItem } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
 import { CameraScanner } from '@/components/camera-scanner';
 import { BayVisualizer } from '@/components/bay-visualizer';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +31,6 @@ export default function GoodsOutPage() {
   const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
-  const { showInstructions } = useInstructions();
   
   const [loading, setLoading] = useState(false);
   const [showLocationScanDialog, setShowLocationScanDialog] = useState(false);
@@ -309,29 +306,6 @@ export default function GoodsOutPage() {
     }
   };
 
-  const instructionSteps = [
-    {
-      title: "Select Operator",
-      description: "Ensure an operator is selected before starting the goods-out process.",
-      type: "warning" as const
-    },
-    {
-      title: "Scan Location",
-      description: "First, scan the location barcode where you want to pick items from.",
-      type: "info" as const
-    },
-    {
-      title: "Scan Item",
-      description: "Then scan the specific item barcode you want to remove from that location.",
-      type: "info" as const
-    },
-    {
-      title: "Confirm Pickup",
-      description: "Review the details and confirm the pickup to remove the item from stock.",
-      type: "success" as const
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -354,17 +328,6 @@ export default function GoodsOutPage() {
 
       {/* Step Indicator */}
       {getStepIndicator()}
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Goods Out Process"
-          description="Remove items from warehouse locations. Scan the location first, then scan the specific item to pick."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       {!selectedOperator && (
         <Card className="border-yellow-200 bg-yellow-50">

@@ -29,8 +29,6 @@ import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
 import { LocationSelector } from '@/components/location-selector';
 import { WarehouseLayout } from '@/components/warehouse-layout';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
 import { Barcode } from '@/components/barcode';
@@ -47,7 +45,6 @@ export default function GoodsInPage() {
   const navigate = useNavigate();
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
-  const { showInstructions } = useInstructions();
   
   const [formData, setFormData] = useState({
     itemCode: '',
@@ -392,34 +389,6 @@ export default function GoodsInPage() {
     );
   };
 
-  const instructionSteps = [
-    {
-      title: "Create Item",
-      description: "Enter item details including Product/SKU, description, and weight.",
-      type: "info" as const
-    },
-    {
-      title: "Generate Label",
-      description: "Print the item barcode label first, then proceed to location selection.",
-      type: "info" as const
-    },
-    {
-      title: "Choose Location",
-      description: "Select from recommended or other suitable locations using list or graphic view.",
-      type: "info" as const
-    },
-    {
-      title: "View Location",
-      description: "See the location graphic and confirm your choice before scanning.",
-      type: "info" as const
-    },
-    {
-      title: "Scan to Place",
-      description: "Scan the location barcode to confirm placement and put the item into stock.",
-      type: "success" as const
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -438,17 +407,6 @@ export default function GoodsInPage() {
 
       {/* Step Indicator */}
       {getStepIndicator()}
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Goods In Process"
-          description="Create items, generate labels, choose locations, and place items into stock with guided workflow."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       {!selectedOperator && (
         <Card className="border-yellow-200 bg-yellow-50">
@@ -513,7 +471,7 @@ export default function GoodsInPage() {
                     className="h-14 text-base"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Items &gt;1000kg automatically go to ground level
+                    Items >1000kg automatically go to ground level
                   </p>
                 </div>
 

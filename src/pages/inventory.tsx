@@ -27,14 +27,11 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { getItemsByStatus } from '@/lib/firebase/items';
 import { Search, Filter, Package, RefreshCcw } from 'lucide-react';
-import { InstructionPanel } from '@/components/instruction-panel';
-import { useInstructions } from '@/contexts/InstructionsContext';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item } from '@/types/warehouse';
 
 export default function Inventory() {
   const { user, authLoading } = useFirebase();
-  const { showInstructions } = useInstructions();
   const [items, setItems] = useState<Item[]>([]);
   const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,29 +112,6 @@ export default function Inventory() {
     );
   };
 
-  const instructionSteps = [
-    {
-      title: "Search and Filter",
-      description: "Use the search bar to find specific items by system code, description, category, or location.",
-      type: "info" as const
-    },
-    {
-      title: "Filter Options",
-      description: "Change the filter type to search by different item attributes like Product/SKU, description, category, or location.",
-      type: "tip" as const
-    },
-    {
-      title: "Item Information",
-      description: "View detailed information including system codes, Product/SKU, descriptions, categories, locations, and weights.",
-      type: "info" as const
-    },
-    {
-      title: "Real-time Updates",
-      description: "The inventory automatically updates when items are moved, placed, or removed from the warehouse.",
-      type: "success" as const
-    }
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -147,17 +121,6 @@ export default function Inventory() {
           Refresh
         </Button>
       </div>
-
-      {/* Instructions Panel */}
-      {showInstructions && (
-        <InstructionPanel
-          title="Inventory Management"
-          description="View and search all items currently stored in warehouse locations. Track item details and locations in real-time."
-          steps={instructionSteps}
-          onClose={() => {}}
-          className="mb-6"
-        />
-      )}
 
       <Card>
         <CardHeader>
