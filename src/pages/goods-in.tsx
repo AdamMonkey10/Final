@@ -21,6 +21,7 @@ import { addItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { ProductSelector } from '@/components/product-selector';
+import { LocationSelector } from '@/components/location-selector';
 import { InstructionPanel } from '@/components/instruction-panel';
 import { useInstructions } from '@/contexts/InstructionsContext';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
@@ -28,8 +29,8 @@ import { sendZPL } from '@/lib/printer-service';
 import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
-import { findOptimalLocation } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan } from 'lucide-react';
+import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -50,6 +51,7 @@ export default function GoodsInPage() {
   
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
   const [showLabelDialog, setShowLabelDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
@@ -60,8 +62,9 @@ export default function GoodsInPage() {
     weight: number;
   } | null>(null);
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
+  const [suitableLocations, setSuitableLocations] = useState<Location[]>([]);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'scan' | 'label' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'location' | 'scan' | 'label' | 'complete'>('form');
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -109,16 +112,17 @@ export default function GoodsInPage() {
     }
 
     setLoading(true);
-    setCurrentStep('scan');
+    setCurrentStep('location');
 
     try {
       const systemCode = generateSystemCode();
 
-      // Find optimal location based on weight
+      // Find optimal location and all suitable locations
       const optimalLocation = findOptimalLocation(locations, weight, false);
+      const allSuitableLocations = getSuitableLocations(locations, weight);
       
-      if (!optimalLocation) {
-        toast.error('No suitable location found for this weight');
+      if (allSuitableLocations.length === 0) {
+        toast.error('No suitable locations found for this weight');
         setLoading(false);
         setCurrentStep('form');
         return;
@@ -126,7 +130,7 @@ export default function GoodsInPage() {
 
       // Store created item details for later use
       setCreatedItem({
-        id: '', // Will be set after location scanning
+        id: '', // Will be set after location selection
         systemCode,
         itemCode: formData.itemCode,
         description: formData.description,
@@ -134,14 +138,17 @@ export default function GoodsInPage() {
       });
 
       setSuggestedLocation(optimalLocation);
+      setSuitableLocations(allSuitableLocations);
 
+      const weightInfo = weight > 1000 ? ' (Heavy item - ground level only)' : '';
+      
       toast.success('Item details ready!', {
-        description: `System code: ${systemCode}. Suggested location: ${optimalLocation.code}`,
+        description: `System code: ${systemCode}. ${allSuitableLocations.length} suitable locations found${weightInfo}`,
         duration: 3000
       });
 
-      // Show location scanning dialog
-      setShowScanLocationDialog(true);
+      // Show location selection
+      setShowLocationDialog(true);
 
     } catch (error) {
       console.error('Error preparing item:', error);
@@ -152,12 +159,38 @@ export default function GoodsInPage() {
     }
   };
 
+  const handleLocationSelect = async (location: Location) => {
+    if (!createdItem) return;
+    
+    // Check if location can accept the item weight
+    if (location.level !== '0') {
+      const newWeight = location.currentWeight + createdItem.weight;
+      if (newWeight > location.maxWeight) {
+        toast.error('❌ Location weight capacity exceeded', {
+          description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
+          duration: 5000
+        });
+        return;
+      }
+    }
+
+    toast.success(`✅ Location ${location.code} selected`, {
+      description: 'Confirm placement by scanning location',
+      duration: 3000
+    });
+
+    setSuggestedLocation(location);
+    setShowLocationDialog(false);
+    setCurrentStep('scan');
+    setShowScanLocationDialog(true);
+  };
+
   const handleLocationScan = async (scannedCode: string) => {
     if (!suggestedLocation || !createdItem) {
       return;
     }
     
-    // Verify the scanned location matches the suggested location
+    // Verify the scanned location matches the selected location
     if (scannedCode !== suggestedLocation.code) {
       toast.error(`Wrong location scanned. Expected: ${suggestedLocation.code}, Got: ${scannedCode}`);
       return;
@@ -256,6 +289,7 @@ export default function GoodsInPage() {
       setShowLabelDialog(false);
       setCreatedItem(null);
       setSuggestedLocation(null);
+      setSuitableLocations([]);
       setCurrentStep('form');
       
       // Reset form
@@ -276,6 +310,7 @@ export default function GoodsInPage() {
   const getStepIndicator = () => {
     const steps = [
       { key: 'form', label: 'Item Details', icon: Package },
+      { key: 'location', label: 'Select Location', icon: MapPin },
       { key: 'scan', label: 'Scan Location', icon: Scan },
       { key: 'label', label: 'Print Label', icon: Printer },
       { key: 'complete', label: 'In Stock', icon: CheckCircle }
@@ -317,12 +352,17 @@ export default function GoodsInPage() {
     },
     {
       title: "Item Details",
-      description: "Enter the Product/SKU, description, and weight. The system will automatically suggest the best location.",
+      description: "Enter the Product/SKU, description, and weight. The system will find suitable locations automatically.",
+      type: "info" as const
+    },
+    {
+      title: "Location Choice",
+      description: "Choose from suggested locations. Heavy items (>1000kg) are automatically restricted to ground level.",
       type: "info" as const
     },
     {
       title: "Scan Location",
-      description: "Scan the suggested location barcode to confirm placement and immediately put the item into stock.",
+      description: "Scan the selected location barcode to confirm placement and immediately put the item into stock.",
       type: "info" as const
     },
     {
@@ -355,7 +395,7 @@ export default function GoodsInPage() {
       {showInstructions && (
         <InstructionPanel
           title="Goods In Process"
-          description="Create new items and the system will suggest optimal locations. Items go directly into stock after scanning the suggested location."
+          description="Create new items and choose optimal locations. Heavy items (>1000kg) are automatically placed on ground level for safety."
           steps={instructionSteps}
           onClose={() => {}}
           className="mb-6"
@@ -383,7 +423,7 @@ export default function GoodsInPage() {
               <MapPin className="h-5 w-5 text-blue-500" />
               <div>
                 <div className="font-medium text-blue-900">
-                  Suggested Location: {suggestedLocation.code}
+                  Selected Location: {suggestedLocation.code}
                 </div>
                 <div className="text-sm text-blue-700">
                   Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
@@ -404,7 +444,7 @@ export default function GoodsInPage() {
             Create New Item
           </CardTitle>
           <CardDescription>
-            Enter details for items entering the warehouse - the system will suggest optimal locations
+            Enter details for items entering the warehouse - choose from suitable locations based on weight
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -446,7 +486,9 @@ export default function GoodsInPage() {
                     disabled={loading}
                     className="h-14 text-base"
                   />
-                  <p className="text-xs text-muted-foreground">Used for optimal location selection</p>
+                  <p className="text-xs text-muted-foreground">
+                    Items >1000kg automatically go to ground level
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -470,11 +512,74 @@ export default function GoodsInPage() {
               className="w-full h-16 text-lg"
               disabled={loading || !selectedOperator}
             >
-              {loading ? 'Finding Location...' : 'Create Item & Find Location'}
+              {loading ? 'Finding Locations...' : 'Create Item & Find Locations'}
             </Button>
           </form>
         </CardContent>
       </Card>
+
+      {/* Location Selection Dialog */}
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent className="max-w-[95vw] w-[1400px] h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Choose Location for {createdItem?.itemCode}
+            </DialogTitle>
+          </DialogHeader>
+          {createdItem && (
+            <div className="space-y-4">
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium">{createdItem.itemCode}</h3>
+                    <p className="text-sm text-muted-foreground">{createdItem.description}</p>
+                    <p className="text-sm">Weight: {createdItem.weight}kg</p>
+                    <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+                  </div>
+                  <div className="text-right">
+                    {createdItem.weight > 1000 && (
+                      <Badge variant="outline" className="bg-orange-100 text-orange-800">
+                        Heavy Item - Ground Level Only
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {suggestedLocation && (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-800 mb-2">
+                    <MapPin className="h-5 w-5" />
+                    <span className="font-medium">Recommended: {suggestedLocation.code}</span>
+                  </div>
+                  <div className="text-sm text-blue-700">
+                    Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
+                  </div>
+                  <div className="text-xs text-blue-600">
+                    Current: {suggestedLocation.currentWeight}kg / Max: {suggestedLocation.maxWeight === Infinity ? 'Unlimited' : `${suggestedLocation.maxWeight}kg`}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">
+                  {suitableLocations.length} Suitable Locations
+                </h3>
+                <Button onClick={loadLocations} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
+
+              <LocationSelector
+                locations={suitableLocations}
+                onLocationSelect={handleLocationSelect}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Scan Location Dialog */}
       <Dialog open={showScanLocationDialog} onOpenChange={() => {}}>
@@ -482,7 +587,7 @@ export default function GoodsInPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Scan className="h-5 w-5" />
-              Scan Suggested Location
+              Scan Selected Location
             </DialogTitle>
           </DialogHeader>
           
@@ -505,7 +610,7 @@ export default function GoodsInPage() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <div className="flex items-center gap-2 text-blue-800 mb-2">
                   <MapPin className="h-5 w-5" />
-                  <span className="font-medium">Scan Suggested Location</span>
+                  <span className="font-medium">Scan Selected Location</span>
                 </div>
                 <div className="text-sm text-blue-700">
                   Please scan the barcode for location: <strong>{suggestedLocation.code}</strong>

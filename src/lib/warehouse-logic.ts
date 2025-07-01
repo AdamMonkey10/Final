@@ -77,7 +77,7 @@ export function canAcceptWeight(location: Location, weight: number, levelLocatio
     return false;
   }
 
-  // Ground level (Level 0) can accept items if not marked as full
+  // Ground level (Level 0) can accept any weight if not marked as full
   if (location.level === '0') {
     return !location.isGroundFull;
   }
@@ -142,6 +142,11 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
     return null;
   }
 
+  // For heavy items (>1000kg), force ground level
+  if (weight > 1000) {
+    isGroundLevel = true;
+  }
+
   // Filter locations based on ground level requirement
   const filteredLocations = availableLocations.filter(loc => 
     (loc.level === '0') === isGroundLevel
@@ -204,6 +209,58 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
   // Sort by score (lower is better) and return the best location
   scoredLocations.sort((a, b) => a.score - b.score);
   return scoredLocations[0].location;
+}
+
+// Get all suitable locations for an item weight (for choice)
+export function getSuitableLocations(locations: Location[], weight: number): Location[] {
+  // Filter for available and verified locations first
+  const availableLocations = locations.filter(loc => loc.available && loc.verified);
+  
+  if (availableLocations.length === 0) {
+    return [];
+  }
+
+  // For heavy items (>1000kg), only show ground level
+  const isGroundLevel = weight > 1000;
+  
+  // Filter locations based on ground level requirement
+  const filteredLocations = availableLocations.filter(loc => {
+    if (isGroundLevel) {
+      return loc.level === '0';
+    }
+    // For lighter items, show all levels that can handle the weight
+    return true;
+  });
+
+  // Group locations by level
+  const levelGroups = filteredLocations.reduce((groups, loc) => {
+    const levelKey = `${loc.row}${loc.bay}-${loc.level}`;
+    if (!groups[levelKey]) {
+      groups[levelKey] = [];
+    }
+    groups[levelKey].push(loc);
+    return groups;
+  }, {} as Record<string, Location[]>);
+
+  // Filter locations that can accept the weight based on level capacity
+  const validLocations = filteredLocations.filter(location => {
+    const levelKey = `${location.row}${location.bay}-${location.level}`;
+    const levelLocations = levelGroups[levelKey];
+    return canAcceptWeight(location, weight, levelLocations, location.level === '0');
+  });
+
+  // Sort by suitability (optimal locations first)
+  return validLocations.sort((a, b) => {
+    const levelKeyA = `${a.row}${a.bay}-${a.level}`;
+    const levelKeyB = `${b.row}${b.bay}-${b.level}`;
+    const levelLocationsA = levelGroups[levelKeyA];
+    const levelLocationsB = levelGroups[levelKeyB];
+    
+    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA);
+    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB);
+    
+    return scoreA - scoreB;
+  });
 }
 
 export function getLocationHeight(location: Location): number {
