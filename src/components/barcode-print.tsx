@@ -87,7 +87,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
       <div className="w-full p-4 border rounded-lg bg-muted">
         <div className="text-center space-y-2">
           <div className="text-lg font-bold">{item.itemCode}</div>
-          <div className="text-xl font-bold text-black">
+          <div className="text-2xl font-bold text-black">
             {item.description}
           </div>
           <div className="text-sm">
@@ -104,13 +104,13 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         </div>
       </div>
 
-      {/* Barcode Display */}
+      {/* Label Preview - Matching actual ZPL output */}
       <div className="w-full max-w-md p-4 border rounded-lg bg-white">
         <div className="text-center space-y-4">
-          <div className="text-sm font-medium">Item Barcode</div>
+          <div className="text-sm font-medium text-muted-foreground">Label Preview</div>
           
-          {/* Enhanced description display */}
-          <div className="text-xl font-bold text-black mb-4">
+          {/* HUGE description display - matching ZPL ^A0N,60,60 */}
+          <div className="text-3xl font-bold text-black leading-tight px-2">
             {item.description}
           </div>
           
@@ -126,8 +126,9 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
             />
           </div>
           
-          <div className="text-xs text-muted-foreground">
-            Scan this barcode to identify the item
+          {/* Weight - matching ZPL ^A0N,48,48 */}
+          <div className="text-xl font-bold text-black">
+            Weight: {item.weight}kg
           </div>
         </div>
       </div>

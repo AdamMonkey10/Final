@@ -27,7 +27,7 @@ export interface LocationLabelData {
 
 /**
  * Generate ZPL for item labels (103x103mm)
- * Enhanced version with bigger, black description text
+ * Enhanced version with MUCH bigger, black description text as the main focus
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateItemZPL(data: ItemLabelData): string {
@@ -39,7 +39,7 @@ export function generateItemZPL(data: ItemLabelData): string {
   return `
 ^XA
 ^PW800
-^FO0,120^FB800,3,0,C,0^A0N,48,48^FD${truncateText(data.description, 40)}^FS
+^FO0,80^FB800,4,0,C,0^A0N,60,60^FD${truncateText(data.description, 35)}^FS
 ^FO50,420^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
 ^FO0,650^FB800,1,0,C,0^A0N,48,48^FDWeight: ${data.weight}kg^FS
 ^XZ
