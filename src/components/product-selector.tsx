@@ -48,7 +48,7 @@ export function ProductSelector({
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // New product form - removed weight and optional fields
+  // New product form - only essential fields
   const [newProduct, setNewProduct] = useState({
     sku: '',
     description: ''
@@ -248,7 +248,7 @@ export function ProductSelector({
         </div>
       )}
 
-      {/* Add Product Dialog */}
+      {/* Add Product Dialog - Simplified */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
