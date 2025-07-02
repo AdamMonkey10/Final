@@ -95,10 +95,14 @@ export function canAcceptWeight(location: Location, weight: number, levelLocatio
   return true;
 }
 
-// Calculate distance score (lower is better)
+// Calculate distance score (lower is better) - Updated for new bay/row system
 function calculateDistanceScore(row: string, bay: string): number {
-  const rowScore = (row.charCodeAt(0) - 'A'.charCodeAt(0)) * 100;
-  const bayScore = parseInt(bay) - 1;
+  // Row score: Row 1 (bays A-E) gets lower score than Row 2 (bays F-J)
+  const rowScore = (parseInt(row) - 1) * 1000; // Row 1 = 0, Row 2 = 1000
+  
+  // Bay score: A=0, B=1, C=2, etc.
+  const bayScore = bay.charCodeAt(0) - 'A'.charCodeAt(0);
+  
   return rowScore + bayScore;
 }
 

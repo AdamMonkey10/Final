@@ -59,14 +59,18 @@ import type { Location } from '@/types/warehouse';
 import type { User } from '@/lib/firebase/users';
 import type { Operator } from '@/lib/firebase/operators';
 
-// Extended warehouse structure constants
-const ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
+// Updated warehouse structure constants
+const BAYS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 const LOCATIONS_PER_BAY = 3;
 const MAX_LEVELS = 10; // Maximum possible levels
 
+// Helper function to derive row from bay
+const getRowFromBay = (bay: string): string => {
+  return ['A', 'B', 'C', 'D', 'E'].includes(bay) ? '1' : '2';
+};
+
 export default function Setup() {
   const { user, authLoading } = useFirebase();
-  const [selectedRow, setSelectedRow] = useState('');
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
   const [maxLevel, setMaxLevel] = useState(4); // How many levels high to go (0-4 = 5 levels total)
@@ -149,15 +153,20 @@ export default function Setup() {
   };
 
   const generateLocations = () => {
-    if (!selectedRow || !bayStart || !bayEnd) {
-      toast.error('Please fill in all fields');
+    if (!bayStart || !bayEnd) {
+      toast.error('Please fill in start and end bays');
       return;
     }
 
-    const startBay = parseInt(bayStart);
-    const endBay = parseInt(bayEnd);
+    const startBayIndex = BAYS.indexOf(bayStart.toUpperCase());
+    const endBayIndex = BAYS.indexOf(bayEnd.toUpperCase());
 
-    if (startBay > endBay) {
+    if (startBayIndex === -1 || endBayIndex === -1) {
+      toast.error('Invalid bay letters. Please use A-J');
+      return;
+    }
+
+    if (startBayIndex > endBayIndex) {
       toast.error('Start bay must be less than or equal to end bay');
       return;
     }
@@ -165,16 +174,18 @@ export default function Setup() {
     const levels = getLevelsArray();
     const locations = [];
     
-    for (let bay = startBay; bay <= endBay; bay++) {
+    for (let bayIndex = startBayIndex; bayIndex <= endBayIndex; bayIndex++) {
+      const bay = BAYS[bayIndex];
+      const row = getRowFromBay(bay);
+      
       for (let position = 1; position <= LOCATIONS_PER_BAY; position++) {
         for (const level of levels) {
-          const bayFormatted = bay.toString().padStart(2, '0');
-          const code = `${selectedRow}${bayFormatted}-${level}-${position}`;
+          const code = `${bay}-${level}-${position}`;
           
           locations.push({
             code,
-            row: selectedRow,
-            bay: bayFormatted,
+            row,
+            bay,
             level: level.toString(),
             location: position.toString(),
             maxWeight: level === 0 ? Infinity : 1000, // Ground level unlimited, others 1000kg
@@ -344,6 +355,13 @@ export default function Setup() {
     }
   };
 
+  const handleBayInputChange = (value: string, setter: (value: string) => void) => {
+    const upperValue = value.toUpperCase();
+    if (upperValue === '' || BAYS.includes(upperValue)) {
+      setter(upperValue);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -369,24 +387,36 @@ export default function Setup() {
                 <CardTitle>Generate Locations</CardTitle>
                 <CardDescription>
                   Generate warehouse locations. Each bay has {LOCATIONS_PER_BAY} locations across multiple levels.
+                  Bays A-E are Row 1, Bays F-J are Row 2.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div className="space-y-2">
-                    <Label>Row</Label>
-                    <Select value={selectedRow} onValueChange={setSelectedRow}>
-                      <SelectTrigger className="h-12 text-base">
-                        <SelectValue placeholder="Select row" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROWS.map((row) => (
-                          <SelectItem key={row} value={row}>
-                            Row {row}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Start Bay (A-J)</Label>
+                    <Input
+                      value={bayStart}
+                      onChange={(e) => handleBayInputChange(e.target.value, setBayStart)}
+                      placeholder="A"
+                      maxLength={1}
+                      className="h-12 text-base uppercase text-center"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {bayStart && `Row ${getRowFromBay(bayStart)}`}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Bay (A-J)</Label>
+                    <Input
+                      value={bayEnd}
+                      onChange={(e) => handleBayInputChange(e.target.value, setBayEnd)}
+                      placeholder="J"
+                      maxLength={1}
+                      className="h-12 text-base uppercase text-center"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {bayEnd && `Row ${getRowFromBay(bayEnd)}`}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Levels High (How many levels?)</Label>
@@ -403,28 +433,6 @@ export default function Setup() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Start Bay</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={bayStart}
-                      onChange={(e) => setBayStart(e.target.value)}
-                      placeholder="1"
-                      className="h-12 text-base"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>End Bay</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={bayEnd}
-                      onChange={(e) => setBayEnd(e.target.value)}
-                      placeholder="10"
-                      className="h-12 text-base"
-                    />
-                  </div>
                 </div>
 
                 <div className="mb-4 p-4 border rounded-lg">
@@ -433,11 +441,13 @@ export default function Setup() {
                     Configuration Summary
                   </h3>
                   <div className="text-sm text-muted-foreground space-y-1">
+                    <p>• Bays A-E will be assigned to Row 1, Bays F-J will be assigned to Row 2</p>
                     <p>• This will create locations from ground level (0) up to level {maxLevel}</p>
                     <p>• Total levels: {maxLevel + 1} (0-{maxLevel})</p>
                     <p>• Each bay will have {LOCATIONS_PER_BAY} positions per level</p>
                     <p>• Ground level (0) has unlimited weight capacity</p>
                     <p>• Upper levels (1-{maxLevel}) have 1000kg weight limit each</p>
+                    <p>• Location codes will be in format: BAY-LEVEL-POSITION (e.g., A-0-1, F-2-3)</p>
                   </div>
                 </div>
 
@@ -453,8 +463,8 @@ export default function Setup() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Code</TableHead>
-                            <TableHead>Row</TableHead>
                             <TableHead>Bay</TableHead>
+                            <TableHead>Row</TableHead>
                             <TableHead>Level</TableHead>
                             <TableHead>Max Weight</TableHead>
                           </TableRow>
@@ -465,8 +475,8 @@ export default function Setup() {
                               <TableCell className="font-medium">
                                 {location.code}
                               </TableCell>
-                              <TableCell>{location.row}</TableCell>
                               <TableCell>{location.bay}</TableCell>
+                              <TableCell>{location.row}</TableCell>
                               <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
                               <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
                             </TableRow>
@@ -484,6 +494,7 @@ export default function Setup() {
                     <div className="mt-4 p-3 bg-muted rounded-lg">
                       <p className="text-sm text-muted-foreground">
                         <strong>Summary:</strong> {generatedLocations.length} locations will be created across {maxLevel + 1} levels (0-{maxLevel}).
+                        Bays {bayStart}-{bayEnd} spanning Row {getRowFromBay(bayStart)} to Row {getRowFromBay(bayEnd)}.
                       </p>
                     </div>
                     <Button
@@ -531,8 +542,8 @@ export default function Setup() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Code</TableHead>
-                          <TableHead>Row</TableHead>
                           <TableHead>Bay</TableHead>
+                          <TableHead>Row</TableHead>
                           <TableHead>Level</TableHead>
                           <TableHead>Weight Status</TableHead>
                           <TableHead>Max Weight</TableHead>
@@ -543,8 +554,8 @@ export default function Setup() {
                         {existingLocations.map((location) => (
                           <TableRow key={location.id}>
                             <TableCell className="font-medium">{location.code}</TableCell>
-                            <TableCell>{location.row}</TableCell>
                             <TableCell>{location.bay}</TableCell>
+                            <TableCell>{location.row}</TableCell>
                             <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
                             <TableCell>
                               <Badge 
