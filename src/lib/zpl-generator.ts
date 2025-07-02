@@ -48,18 +48,16 @@ export function generateItemZPL(data: ItemLabelData): string {
 
 /**
  * Generate ZPL for location labels (103x103mm)
- * Simplified version with only location code and barcode
+ * Clean design with just location code, barcode, and location details
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateLocationZPL(data: LocationLabelData): string {
   return `
-${BT_JPG_ZPL}
 ^XA
 ^PW800
-^FO15,60^XGR:BT.JPG,1,1^FS
-^FO0,250^FB800,1,0,C,0^A0N,150,150^FD${data.code}^FS
-^FO50,450^BY3,3,80^BCN,80,Y,N,N^FD${data.code}^FS
-^FO600,600^BQN,2,6^FDLOC,${data.code}^FS
+^FO0,150^FB800,1,0,C,0^A0N,120,120^FD${data.code}^FS
+^FO50,420^BY3,3,80^BCN,80,Y,N,N^FD${data.code}^FS
+^FO0,650^FB800,1,0,C,0^A0N,24,24^FDRow ${data.row} • Bay ${data.bay} • Level ${data.level === '0' ? 'Ground' : data.level}^FS
 ^XZ
 `.trim();
 }
