@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Printer, Ruler } from 'lucide-react';
+import { Printer } from 'lucide-react';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import { generateLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
 import { sendZPL } from '@/lib/printer-service';
@@ -44,45 +44,15 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
     }
   };
 
-  const height = getLocationHeight(location);
-  const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
-
   return (
     <div className="flex flex-col items-center space-y-4">
-      {/* Preview section - matching item barcode format exactly */}
+      {/* Preview section - simplified to show only location code once */}
       <div className="w-full max-w-md p-4 border rounded-lg bg-white">
         <div className="text-center space-y-4">
-          {/* Location code as header - BLACK TEXT */}
-          <div className="text-lg font-bold text-black">{location.code}</div>
-          
-          {/* Location details - BLACK TEXT */}
-          <div className="text-sm text-black">
-            Row {location.row} • Bay {location.bay} • Level {location.level === '0' ? 'Ground' : location.level}
-          </div>
-          
-          {/* Main location code - large and prominent like item systemCode - BLACK TEXT */}
+          {/* Main location code - large and prominent - BLACK TEXT */}
           <div className="text-3xl font-bold text-black">{location.code}</div>
           
-          {/* Additional details - BLACK TEXT */}
-          <div className="text-sm text-black">
-            <div className="flex items-center justify-center gap-1 mb-2">
-              <Ruler className="h-3 w-3 text-black" />
-              <span className="text-black">Height: {height}m</span>
-            </div>
-            <div className="text-black">
-              {location.level === '0' 
-                ? 'Ground Level - No Weight Limit' 
-                : `Max Weight: ${location.maxWeight}kg`
-              }
-            </div>
-            {location.currentWeight > 0 && (
-              <div className="text-black">
-                Current Weight: {location.currentWeight}kg
-              </div>
-            )}
-          </div>
-          
-          {/* Barcode Preview - matching item barcode style exactly */}
+          {/* Barcode Preview */}
           <div className="py-4">
             <Barcode 
               value={location.code} 
@@ -90,14 +60,6 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
               height={60}
               className="mx-auto"
             />
-          </div>
-          
-          {/* Footer info - BLACK TEXT */}
-          <div className="text-xs text-black">
-            <div className="text-black">Date: {new Date().toLocaleDateString()}</div>
-            <div className="px-2 py-1 bg-blue-50 rounded mt-2 text-black">
-              {rackTypeName} Rack
-            </div>
           </div>
         </div>
       </div>
