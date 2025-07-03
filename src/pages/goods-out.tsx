@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine, Keyboard, Filter } from 'lucide-react';
+import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine, Keyboard, Filter, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocationByCode, updateLocation } from '@/lib/firebase/locations';
 import { getItemsByStatus, updateItem } from '@/lib/firebase/items';
@@ -583,6 +583,15 @@ export default function GoodsOutPage() {
                 onConfirm={handleProceedToScan}
                 mode="view"
               />
+              
+              {/* Manual Proceed Button */}
+              <Button 
+                onClick={handleProceedToScan}
+                className="w-full h-12 text-lg"
+              >
+                <ArrowRight className="h-5 w-5 mr-2" />
+                Proceed to Scan Item
+              </Button>
               
               <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2 text-blue-800">
