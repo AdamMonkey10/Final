@@ -36,7 +36,7 @@ import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3, Upload, FileText, Download } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3, Upload, FileText, Download, Hash } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -52,7 +52,8 @@ export default function GoodsInPage() {
     itemCode: '',
     description: '',
     weight: '',
-    quantity: '1'
+    quantity: '1',
+    lotNumber: ''
   });
   
   const [locations, setLocations] = useState<Location[]>([]);
@@ -68,6 +69,8 @@ export default function GoodsInPage() {
     itemCode: string;
     description: string;
     weight: number;
+    quantity: number;
+    lotNumber: string;
   } | null>(null);
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [suitableLocations, setSuitableLocations] = useState<Location[]>([]);
@@ -123,14 +126,21 @@ export default function GoodsInPage() {
       return;
     }
 
-    if (!formData.itemCode || !formData.description || !formData.weight) {
-      toast.error('Please fill in Product/SKU, description, and weight');
+    if (!formData.itemCode || !formData.description || !formData.weight || !formData.quantity || !formData.lotNumber) {
+      toast.error('Please fill in all required fields: Part Number, Description, Weight, Quantity, and LOT Number');
       return;
     }
 
     const weight = parseFloat(formData.weight);
+    const quantity = parseInt(formData.quantity);
+    
     if (isNaN(weight) || weight <= 0) {
       toast.error('Please enter a valid weight greater than 0');
+      return;
+    }
+
+    if (isNaN(quantity) || quantity <= 0) {
+      toast.error('Please enter a valid quantity greater than 0');
       return;
     }
 
@@ -146,7 +156,9 @@ export default function GoodsInPage() {
         systemCode,
         itemCode: formData.itemCode,
         description: formData.description,
-        weight
+        weight,
+        quantity,
+        lotNumber: formData.lotNumber
       });
 
       toast.success('Item created!', {
@@ -284,7 +296,7 @@ export default function GoodsInPage() {
     setCurrentStep('complete');
     
     try {
-      // Create the item with placed status
+      // Create the item with placed status and metadata including lot number
       const itemId = await addItem({
         itemCode: createdItem.itemCode,
         systemCode: createdItem.systemCode,
@@ -292,7 +304,10 @@ export default function GoodsInPage() {
         weight: createdItem.weight,
         category: 'general',
         status: 'placed',
-        metadata: {}
+        metadata: {
+          quantity: createdItem.quantity,
+          lotNumber: createdItem.lotNumber
+        }
       });
 
       // Update location weight
@@ -307,7 +322,7 @@ export default function GoodsInPage() {
         weight: createdItem.weight,
         operator: getOperatorName(),
         reference: createdItem.itemCode,
-        notes: `Placed at ${suggestedLocation.code} via goods-in process`
+        notes: `Placed at ${suggestedLocation.code} via goods-in process. LOT: ${createdItem.lotNumber}, Qty: ${createdItem.quantity}`
       });
 
       // Update created item with ID
@@ -347,7 +362,8 @@ export default function GoodsInPage() {
       itemCode: '',
       description: '',
       weight: '',
-      quantity: '1'
+      quantity: '1',
+      lotNumber: ''
     });
     
     toast.success('Ready for next item!', {
@@ -604,7 +620,7 @@ export default function GoodsInPage() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="weight" className="text-base">Weight (kg) *</Label>
                       <Input
@@ -620,12 +636,12 @@ export default function GoodsInPage() {
                         className="h-14 text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Items &gt;1000kg automatically go to ground level
+                        Items >1000kg automatically go to ground level
                       </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="quantity" className="text-base">Quantity</Label>
+                      <Label htmlFor="quantity" className="text-base">Quantity *</Label>
                       <Input
                         id="quantity"
                         type="number"
@@ -633,6 +649,23 @@ export default function GoodsInPage() {
                         value={formData.quantity}
                         onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                         placeholder="1"
+                        required
+                        disabled={loading}
+                        className="h-14 text-base"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="lotNumber" className="flex items-center gap-2 text-base">
+                        <Hash className="h-4 w-4" />
+                        LOT Number *
+                      </Label>
+                      <Input
+                        id="lotNumber"
+                        value={formData.lotNumber}
+                        onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
+                        placeholder="Enter LOT number"
+                        required
                         disabled={loading}
                         className="h-14 text-base"
                       />
@@ -788,33 +821,50 @@ export default function GoodsInPage() {
             <div className="space-y-6">
               {/* Item Details */}
               <div className="p-4 bg-muted rounded-lg">
-                <div className="space-y-2 text-sm">
-                  <div><strong>Product/SKU:</strong> {createdItem.itemCode}</div>
-                  <div><strong>Description:</strong> {createdItem.description}</div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><strong>Part Number:</strong> {createdItem.itemCode}</div>
                   <div><strong>Weight:</strong> {createdItem.weight}kg</div>
-                  <div><strong>System Code:</strong> {createdItem.systemCode}</div>
-                  <div><strong>Operator:</strong> {getOperatorName()}</div>
+                  <div><strong>Quantity:</strong> {createdItem.quantity}</div>
+                  <div><strong>LOT Number:</strong> {createdItem.lotNumber}</div>
+                  <div className="col-span-2"><strong>Description:</strong> {createdItem.description}</div>
+                  <div className="col-span-2"><strong>System Code:</strong> {createdItem.systemCode}</div>
+                  <div className="col-span-2"><strong>Operator:</strong> {getOperatorName()}</div>
                 </div>
               </div>
 
-              {/* FIXED SQUARE LABEL PREVIEW - THIS IS THE ONE YOU SEE! */}
+              {/* FIXED SQUARE LABEL PREVIEW */}
               <div className="space-y-4">
                 <div className="text-center">
                   <div className="text-sm font-medium text-blue-600 mb-2">📄 103x103mm SQUARE LABEL PREVIEW</div>
                 </div>
                 
                 {/* PERFECT SQUARE: 400px × 400px with aspect-square enforced */}
-                <div className="mx-auto w-96 aspect-square border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col p-8 relative overflow-hidden">
+                <div className="mx-auto w-96 aspect-square border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col p-6 relative overflow-hidden">
                   
-                  {/* MASSIVE Description Text - BLACK and HUGE */}
+                  {/* Part Number (A*****) - Large and prominent */}
+                  <div className="flex-shrink-0 text-center mb-2">
+                    <div 
+                      className="leading-none"
+                      style={{ 
+                        fontSize: '2.5rem', 
+                        fontWeight: '900', 
+                        color: '#000000',
+                        lineHeight: '0.9'
+                      }}
+                    >
+                      {createdItem.itemCode}
+                    </div>
+                  </div>
+                  
+                  {/* Description - Medium size */}
                   <div className="flex-1 flex items-center justify-center">
                     <div 
                       className="text-center leading-none break-words"
                       style={{ 
-                        fontSize: '4rem', 
-                        fontWeight: '900', 
+                        fontSize: '1.5rem', 
+                        fontWeight: '700', 
                         color: '#000000',
-                        lineHeight: '0.85'
+                        lineHeight: '0.9'
                       }}
                     >
                       {createdItem.description}
@@ -822,27 +872,39 @@ export default function GoodsInPage() {
                   </div>
                   
                   {/* Barcode in middle area */}
-                  <div className="flex-shrink-0 py-6">
+                  <div className="flex-shrink-0 py-4">
                     <Barcode 
                       value={createdItem.systemCode} 
                       width={2} 
-                      height={50}
-                      fontSize={12}
+                      height={40}
+                      fontSize={10}
                       fontColor="#000000"
                       className="mx-auto"
                     />
                   </div>
                   
-                  {/* Weight at bottom - also black and bold */}
-                  <div 
-                    className="flex-shrink-0 text-center"
-                    style={{ 
-                      fontSize: '2rem', 
-                      fontWeight: '900', 
-                      color: '#000000'
-                    }}
-                  >
-                    Weight: {createdItem.weight}kg
+                  {/* Bottom info - Weight, Quantity, LOT */}
+                  <div className="flex-shrink-0 space-y-1">
+                    <div 
+                      className="text-center"
+                      style={{ 
+                        fontSize: '1rem', 
+                        fontWeight: '700', 
+                        color: '#000000'
+                      }}
+                    >
+                      Weight: {createdItem.weight}kg | Qty: {createdItem.quantity}
+                    </div>
+                    <div 
+                      className="text-center"
+                      style={{ 
+                        fontSize: '1rem', 
+                        fontWeight: '700', 
+                        color: '#000000'
+                      }}
+                    >
+                      LOT: {createdItem.lotNumber}
+                    </div>
                   </div>
                   
                   {/* Square corner indicators */}
@@ -900,7 +962,7 @@ export default function GoodsInPage() {
                   <div>
                     <h3 className="font-medium">{createdItem.itemCode}</h3>
                     <p className="text-sm text-muted-foreground">{createdItem.description}</p>
-                    <p className="text-sm">Weight: {createdItem.weight}kg</p>
+                    <p className="text-sm">Weight: {createdItem.weight}kg | Qty: {createdItem.quantity} | LOT: {createdItem.lotNumber}</p>
                     <p className="text-xs text-muted-foreground">System Code: {createdItem.systemCode}</p>
                   </div>
                   <div className="text-right">
@@ -1007,6 +1069,8 @@ export default function GoodsInPage() {
                 <div className="space-y-2 text-sm">
                   <div><strong>Item:</strong> {createdItem.itemCode}</div>
                   <div><strong>Weight:</strong> {createdItem.weight}kg</div>
+                  <div><strong>Quantity:</strong> {createdItem.quantity}</div>
+                  <div><strong>LOT:</strong> {createdItem.lotNumber}</div>
                   <div><strong>Location:</strong> {suggestedLocation.code}</div>
                   <div><strong>Operator:</strong> {getOperatorName()}</div>
                 </div>
@@ -1110,7 +1174,8 @@ export default function GoodsInPage() {
               {createdItem && suggestedLocation && (
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <p><strong>{createdItem.itemCode}</strong> is now at <strong>{suggestedLocation.code}</strong></p>
-                  <p>Weight: {createdItem.weight}kg</p>
+                  <p>Weight: {createdItem.weight}kg | Qty: {createdItem.quantity}</p>
+                  <p>LOT: {createdItem.lotNumber}</p>
                   <p>Operator: {getOperatorName()}</p>
                 </div>
               )}
