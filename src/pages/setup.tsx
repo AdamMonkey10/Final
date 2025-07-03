@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -52,7 +53,7 @@ import { addLocation, getLocations, deleteLocation } from '@/lib/firebase/locati
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw, Weight } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw, Weight, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Location } from '@/types/warehouse';
@@ -110,7 +111,8 @@ export default function Setup() {
   // Printer settings state
   const [printerSettings, setPrinterSettings] = useState<PrinterSettings>({
     ip: '10.0.1.90',
-    port: 9100
+    port: 9100,
+    useWindowsPrint: false
   });
   const [printerLoading, setPrinterLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -741,37 +743,73 @@ export default function Setup() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Printer className="h-5 w-5" />
-                Zebra Printer Settings
+                Printer Settings
               </CardTitle>
               <CardDescription>
-                Configure your Zebra printer for ZPL label printing (103x103mm labels)
+                Configure your printer for label printing (103x103mm labels)
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="printerIp">Printer IP Address</Label>
-                    <Input
-                      id="printerIp"
-                      value={printerSettings.ip}
-                      onChange={(e) => setPrinterSettings(prev => ({ ...prev, ip: e.target.value }))}
-                      placeholder="10.0.1.90"
-                      className="h-12 text-base"
+                {/* Print Method Toggle */}
+                <div className="p-4 border rounded-lg">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-medium flex items-center gap-2">
+                        <Monitor className="h-4 w-4" />
+                        Print Method
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Choose between direct ZPL printing to Zebra printers or standard Windows printing
+                      </p>
+                    </div>
+                    <Switch
+                      checked={printerSettings.useWindowsPrint}
+                      onCheckedChange={(checked) => 
+                        setPrinterSettings(prev => ({ ...prev, useWindowsPrint: checked }))
+                      }
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="printerPort">Port</Label>
-                    <Input
-                      id="printerPort"
-                      type="number"
-                      value={printerSettings.port}
-                      onChange={(e) => setPrinterSettings(prev => ({ ...prev, port: parseInt(e.target.value) || 9100 }))}
-                      placeholder="9100"
-                      className="h-12 text-base"
-                    />
+                  
+                  <div className="text-sm">
+                    <div className="font-medium mb-2">
+                      {printerSettings.useWindowsPrint ? 'Windows Print Dialog' : 'Direct ZPL Printing'}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {printerSettings.useWindowsPrint 
+                        ? 'Labels will open in a new window and use the browser\'s print dialog. Compatible with any printer.'
+                        : 'Labels will be sent directly to your Zebra printer via ZPL commands over the network.'
+                      }
+                    </div>
                   </div>
                 </div>
+
+                {/* ZPL Printer Settings - Only show when not using Windows print */}
+                {!printerSettings.useWindowsPrint && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="printerIp">Printer IP Address</Label>
+                      <Input
+                        id="printerIp"
+                        value={printerSettings.ip}
+                        onChange={(e) => setPrinterSettings(prev => ({ ...prev, ip: e.target.value }))}
+                        placeholder="10.0.1.90"
+                        className="h-12 text-base"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="printerPort">Port</Label>
+                      <Input
+                        id="printerPort"
+                        type="number"
+                        value={printerSettings.port}
+                        onChange={(e) => setPrinterSettings(prev => ({ ...prev, port: parseInt(e.target.value) || 9100 }))}
+                        placeholder="9100"
+                        className="h-12 text-base"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button 
@@ -781,25 +819,26 @@ export default function Setup() {
                   >
                     {printerLoading ? 'Saving...' : 'Save Settings'}
                   </Button>
-                  <Button 
-                    onClick={handleTestPrinter}
-                    disabled={testingConnection}
-                    variant="outline"
-                    className="flex items-center gap-2 h-12"
-                  >
-                    <TestTube className="h-4 w-4" />
-                    {testingConnection ? 'Testing...' : 'Test Connection'}
-                  </Button>
+                  {!printerSettings.useWindowsPrint && (
+                    <Button 
+                      onClick={handleTestPrinter}
+                      disabled={testingConnection}
+                      variant="outline"
+                      className="flex items-center gap-2 h-12"
+                    >
+                      <TestTube className="h-4 w-4" />
+                      {testingConnection ? 'Testing...' : 'Test Connection'}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="p-4 bg-blue-50 rounded-lg">
-                  <h4 className="font-medium text-blue-900 mb-2">Printer Setup Instructions:</h4>
+                  <h4 className="font-medium text-blue-900 mb-2">Printing Options:</h4>
                   <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• Ensure your Zebra printer is connected to the network</li>
-                    <li>• Configure the printer for 103x103mm labels</li>
-                    <li>• Set the printer to accept HTTP POST requests on the specified port</li>
-                    <li>• Test the connection using the "Test Connection" button</li>
-                    <li>• Labels will be printed directly via ZPL commands</li>
+                    <li>• <strong>Windows Print:</strong> Uses browser print dialog, works with any printer, requires manual paper setup</li>
+                    <li>• <strong>Direct ZPL:</strong> Sends commands directly to Zebra printers, automatic label formatting</li>
+                    <li>• Both methods support 103x103mm square labels</li>
+                    <li>• Labels include barcodes, part numbers, descriptions, and LOT numbers</li>
                   </ul>
                 </div>
               </div>

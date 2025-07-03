@@ -40,7 +40,8 @@ import { toast } from 'sonner';
 import { subscribeToLocations } from '@/lib/firebase/locations';
 import { getItemsByLocation } from '@/lib/firebase/items';
 import { generateBulkLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
-import { sendZPL } from '@/lib/printer-service';
+import { generateBulkLocationHtml } from '@/lib/html-label-generator';
+import { sendZPL, getPrinterSettings } from '@/lib/printer-service';
 import { Grid2X2, Search, Filter, QrCode, RefreshCcw, Printer, PrinterIcon, Ruler, List, Grid3X3, Package } from 'lucide-react';
 import { BarcodePrint } from '@/components/barcode-print';
 import { BayVisualizer } from '@/components/bay-visualizer';
@@ -249,6 +250,9 @@ export default function LocationsPage() {
 
     setBulkPrinting(true);
     try {
+      // Get printer settings to determine print method
+      const printerSettings = await getPrinterSettings();
+      
       // Convert locations to label data
       const labelData: LocationLabelData[] = selectedLocationsForPrint.map(location => ({
         code: location.code,
@@ -261,13 +265,24 @@ export default function LocationsPage() {
         rackType: RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard',
       }));
 
-      // Generate bulk ZPL
-      const zpl = generateBulkLocationZPL(labelData);
+      if (printerSettings.useWindowsPrint) {
+        // Generate bulk HTML and open in new window for printing
+        const html = generateBulkLocationHtml(labelData);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+          toast.success(`${selectedLocationsForPrint.length} location labels opened in new window for printing`);
+        } else {
+          toast.error('Failed to open print window. Please check popup blocker settings.');
+        }
+      } else {
+        // Generate bulk ZPL and send to printer
+        const zpl = generateBulkLocationZPL(labelData);
+        await sendZPL(zpl);
+        toast.success(`Successfully sent ${selectedLocationsForPrint.length} location labels to printer`);
+      }
       
-      // Send to printer
-      await sendZPL(zpl);
-      
-      toast.success(`Successfully sent ${selectedLocationsForPrint.length} location labels to printer`);
       setShowBulkPrintDialog(false);
     } catch (error) {
       console.error('Bulk print error:', error);
@@ -299,7 +314,7 @@ export default function LocationsPage() {
             Location Management
           </CardTitle>
           <CardDescription>
-            View and manage storage locations with height and rack type information. Print ZPL barcodes directly to your Zebra printer.
+            View and manage storage locations with height and rack type information. Print labels using your configured print method.
             {loading && <span className="text-blue-600"> • Updating...</span>}
           </CardDescription>
         </CardHeader>
@@ -536,15 +551,15 @@ export default function LocationsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <p>
-              You are about to print <strong>{selectedLocationsForPrint.length}</strong> location barcodes.
-              This will send ZPL commands directly to your configured Zebra printer.
+              You are about to print <strong>{selectedLocationsForPrint.length}</strong> location barcodes
+              using your configured print method.
             </p>
             <div className="p-4 bg-blue-50 rounded-lg">
               <h4 className="font-medium text-blue-900 mb-2">Print Details:</h4>
               <ul className="text-sm text-blue-800 space-y-1">
                 <li>• Labels will be printed on 103x103mm labels</li>
                 <li>• Each label will be on a separate page</li>
-                <li>• ZPL commands will be sent directly to the printer</li>
+                <li>• Print method will be determined by your printer settings</li>
                 <li>• Ensure your printer is ready and has sufficient labels</li>
               </ul>
             </div>

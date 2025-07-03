@@ -4,11 +4,13 @@ import { db } from './firebase';
 export interface PrinterSettings {
   ip: string;
   port: number;
+  useWindowsPrint: boolean;
 }
 
 const DEFAULT_PRINTER_SETTINGS: PrinterSettings = {
   ip: '10.0.1.90',
-  port: 9100
+  port: 9100,
+  useWindowsPrint: false
 };
 
 /**
@@ -59,6 +61,7 @@ export async function getPrinterSettings(): Promise<PrinterSettings> {
       return {
         ip: data.ip || DEFAULT_PRINTER_SETTINGS.ip,
         port: data.port || DEFAULT_PRINTER_SETTINGS.port,
+        useWindowsPrint: data.useWindowsPrint ?? DEFAULT_PRINTER_SETTINGS.useWindowsPrint,
       };
     } else {
       // Return default settings if document doesn't exist
@@ -79,6 +82,7 @@ export async function savePrinterSettings(settings: PrinterSettings): Promise<vo
     await setDoc(docRef, {
       ip: settings.ip,
       port: settings.port,
+      useWindowsPrint: settings.useWindowsPrint,
       updatedAt: serverTimestamp(),
     }, { merge: true });
     

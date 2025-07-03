@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 import { getLocationHeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import { generateLocationZPL, type LocationLabelData } from '@/lib/zpl-generator';
-import { sendZPL } from '@/lib/printer-service';
+import { generateLocationHtml } from '@/lib/html-label-generator';
+import { sendZPL, getPrinterSettings } from '@/lib/printer-service';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
 import type { Location } from '@/types/warehouse';
@@ -18,6 +19,9 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
   const handlePrint = async () => {
     setPrinting(true);
     try {
+      // Get printer settings to determine print method
+      const printerSettings = await getPrinterSettings();
+      
       const height = getLocationHeight(location);
       const rackTypeName = RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard';
 
@@ -32,10 +36,24 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
         rackType: rackTypeName,
       };
 
-      const zpl = generateLocationZPL(labelData);
-      await sendZPL(zpl);
+      if (printerSettings.useWindowsPrint) {
+        // Generate HTML and open in new window for printing
+        const html = generateLocationHtml(labelData);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+          toast.success('Location label opened in new window for printing');
+        } else {
+          toast.error('Failed to open print window. Please check popup blocker settings.');
+        }
+      } else {
+        // Generate ZPL and send directly to printer
+        const zpl = generateLocationZPL(labelData);
+        await sendZPL(zpl);
+        toast.success('Location label sent to printer successfully');
+      }
       
-      toast.success('Location label sent to printer successfully');
     } catch (error) {
       console.error('Print error:', error);
       toast.error(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -114,7 +132,7 @@ export function LocationBarcodePrint({ location }: LocationBarcodePrintProps) {
       </Button>
       
       <div className="text-xs text-center text-muted-foreground">
-        ZPL label will be sent directly to the configured Zebra printer
+        Label will be printed using your configured print method
       </div>
     </div>
   );

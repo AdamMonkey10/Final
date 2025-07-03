@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 import { getItemBySystemCode } from '@/lib/firebase/items';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
-import { sendZPL } from '@/lib/printer-service';
+import { generateItemHtml } from '@/lib/html-label-generator';
+import { sendZPL, getPrinterSettings } from '@/lib/printer-service';
 import { toast } from 'sonner';
 import { Barcode } from '@/components/barcode';
 import type { Item } from '@/types/warehouse';
@@ -43,20 +44,39 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
 
     setPrinting(true);
     try {
+      // Get printer settings to determine print method
+      const printerSettings = await getPrinterSettings();
+      
       const labelData: ItemLabelData = {
         systemCode: item.systemCode,
         itemCode: item.itemCode,
         description: item.description,
         weight: item.weight,
+        quantity: item.metadata?.quantity || 1,
+        lotNumber: item.metadata?.lotNumber || '',
         location: item.location || '',
         operator: 'System',
         date: new Date().toLocaleDateString(),
       };
 
-      const zpl = generateItemZPL(labelData);
-      await sendZPL(zpl);
+      if (printerSettings.useWindowsPrint) {
+        // Generate HTML and open in new window for printing
+        const html = generateItemHtml(labelData);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+          toast.success('Label opened in new window for printing');
+        } else {
+          toast.error('Failed to open print window. Please check popup blocker settings.');
+        }
+      } else {
+        // Generate ZPL and send directly to printer
+        const zpl = generateItemZPL(labelData);
+        await sendZPL(zpl);
+        toast.success('Label sent to printer successfully');
+      }
       
-      toast.success('Label sent to printer successfully');
     } catch (error) {
       console.error('Print error:', error);
       toast.error(`Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -88,8 +108,13 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         <div className="text-center space-y-2">
           <div className="text-lg font-bold">{item.itemCode}</div>
           <div className="text-sm text-muted-foreground">
-            Weight: {item.weight}kg
+            Weight: {item.weight}kg | Qty: {item.metadata?.quantity || 1}
           </div>
+          {item.metadata?.lotNumber && (
+            <div className="text-sm text-muted-foreground">
+              LOT: {item.metadata.lotNumber}
+            </div>
+          )}
           {item.location && (
             <div className="text-sm text-muted-foreground">
               Location: {item.location}
@@ -108,13 +133,28 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
         {/* PERFECT SQUARE: 320px × 320px (aspect-square enforced) */}
         <div className="w-80 aspect-square border-4 border-blue-300 rounded-lg bg-white shadow-xl flex flex-col p-6 relative overflow-hidden">
           
-          {/* MASSIVE Description Text - BLACK and HUGE */}
+          {/* Part Number (A*****) - Large and prominent */}
+          <div className="flex-shrink-0 text-center mb-2">
+            <div 
+              className="leading-none"
+              style={{ 
+                fontSize: '2.5rem', 
+                fontWeight: '900', 
+                color: '#000000',
+                lineHeight: '0.9'
+              }}
+            >
+              {item.itemCode}
+            </div>
+          </div>
+          
+          {/* Description - Medium size */}
           <div className="flex-1 flex items-center justify-center">
             <div 
-              className="text-center leading-none"
+              className="text-center leading-none break-words"
               style={{ 
-                fontSize: '3.5rem', 
-                fontWeight: '900', 
+                fontSize: '1.5rem', 
+                fontWeight: '700', 
                 color: '#000000',
                 lineHeight: '0.9'
               }}
@@ -135,16 +175,30 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
             />
           </div>
           
-          {/* Weight at bottom - also black and bold */}
-          <div 
-            className="flex-shrink-0 text-center"
-            style={{ 
-              fontSize: '1.5rem', 
-              fontWeight: '900', 
-              color: '#000000'
-            }}
-          >
-            Weight: {item.weight}kg
+          {/* Bottom info - Weight, Quantity, LOT */}
+          <div className="flex-shrink-0 space-y-1">
+            <div 
+              className="text-center"
+              style={{ 
+                fontSize: '1rem', 
+                fontWeight: '700', 
+                color: '#000000'
+              }}
+            >
+              Weight: {item.weight}kg | Qty: {item.metadata?.quantity || 1}
+            </div>
+            {item.metadata?.lotNumber && (
+              <div 
+                className="text-center"
+                style={{ 
+                  fontSize: '1rem', 
+                  fontWeight: '700', 
+                  color: '#000000'
+                }}
+              >
+                LOT: {item.metadata.lotNumber}
+              </div>
+            )}
           </div>
           
           {/* Square corner indicators */}
@@ -169,7 +223,7 @@ export function BarcodePrint({ value }: BarcodePrintProps) {
       </Button>
       
       <div className="text-xs text-center text-muted-foreground">
-        ZPL label will be sent directly to the configured Zebra printer
+        Label will be printed using your configured print method
       </div>
     </div>
   );
