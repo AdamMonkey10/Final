@@ -55,7 +55,6 @@ import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type Pr
 import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw, Weight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
-import { getLevelMaxWeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import type { Location } from '@/types/warehouse';
 import type { User } from '@/lib/firebase/users';
 import type { Operator } from '@/lib/firebase/operators';
@@ -64,6 +63,20 @@ import type { Operator } from '@/lib/firebase/operators';
 const BAYS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 const LOCATIONS_PER_BAY = 4; // Changed from 3 to 4
 const MAX_LEVELS = 10; // Maximum possible levels
+
+// Default weight limits for levels
+const DEFAULT_LEVEL_WEIGHTS: Record<string, number> = {
+  '0': Infinity, // Ground level
+  '1': 1500,
+  '2': 1000,
+  '3': 750,
+  '4': 500,
+  '5': 400,
+  '6': 300,
+  '7': 250,
+  '8': 200,
+  '9': 150,
+};
 
 // Helper function to derive row from bay
 const getRowFromBay = (bay: string): string => {
@@ -75,7 +88,6 @@ export default function Setup() {
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
   const [maxLevel, setMaxLevel] = useState(4); // How many levels high to go (0-4 = 5 levels total)
-  const [rackType, setRackType] = useState('standard');
   const [customLevelWeights, setCustomLevelWeights] = useState<Record<string, number>>({});
   const [generatedLocations, setGeneratedLocations] = useState<Array<{
     code: string;
@@ -84,7 +96,6 @@ export default function Setup() {
     level: string;
     location: string;
     maxWeight: number;
-    rackType: string;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -113,7 +124,7 @@ export default function Setup() {
     return levels;
   };
 
-  // Initialize custom level weights when rack type or max level changes
+  // Initialize custom level weights when max level changes
   useEffect(() => {
     const levels = getLevelsArray();
     const newWeights: Record<string, number> = {};
@@ -123,12 +134,12 @@ export default function Setup() {
       if (customLevelWeights[levelStr] !== undefined) {
         newWeights[levelStr] = customLevelWeights[levelStr];
       } else {
-        newWeights[levelStr] = getLevelMaxWeight(levelStr, rackType);
+        newWeights[levelStr] = DEFAULT_LEVEL_WEIGHTS[levelStr] || 500;
       }
     });
     
     setCustomLevelWeights(newWeights);
-  }, [maxLevel, rackType]);
+  }, [maxLevel]);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -203,7 +214,7 @@ export default function Setup() {
         for (const level of levels) {
           const code = `${bay}-${level}-${position}`;
           const levelStr = level.toString();
-          const maxWeight = levelStr === '0' ? Infinity : (customLevelWeights[levelStr] || getLevelMaxWeight(levelStr, rackType));
+          const maxWeight = levelStr === '0' ? Infinity : (customLevelWeights[levelStr] || DEFAULT_LEVEL_WEIGHTS[levelStr] || 500);
           
           locations.push({
             code,
@@ -214,8 +225,7 @@ export default function Setup() {
             maxWeight,
             currentWeight: 0,
             available: true,
-            verified: true,
-            rackType
+            verified: true
           });
         }
       }
@@ -423,7 +433,7 @@ export default function Setup() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div className="space-y-2">
                     <Label>Start Bay (A-J)</Label>
                     <Input
@@ -460,21 +470,6 @@ export default function Setup() {
                         {Array.from({ length: MAX_LEVELS }, (_, i) => (
                           <SelectItem key={i} value={i.toString()}>
                             {i === 0 ? 'Ground only (Level 0)' : `${i + 1} levels high (0-${i})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Rack Type</Label>
-                    <Select value={rackType} onValueChange={setRackType}>
-                      <SelectTrigger className="h-12 text-base">
-                        <SelectValue placeholder="Select rack type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(RACK_TYPES).map(([key, config]) => (
-                          <SelectItem key={key} value={key}>
-                            {config.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -531,7 +526,7 @@ export default function Setup() {
                     <p>• This will create locations from ground level (0) up to level {maxLevel}</p>
                     <p>• Total levels: {maxLevel + 1} (0-{maxLevel})</p>
                     <p>• Each bay will have {LOCATIONS_PER_BAY} positions per level</p>
-                    <p>• Rack type: {RACK_TYPES[rackType as keyof typeof RACK_TYPES]?.name}</p>
+                    <p>• Ground level (0) has unlimited weight capacity</p>
                     <p>• Location codes will be in format: BAY-LEVEL-POSITION (e.g., A-0-1, F-2-3)</p>
                     <p>• Total locations to create: {bayStart && bayEnd ? (BAYS.indexOf(bayEnd) - BAYS.indexOf(bayStart) + 1) * LOCATIONS_PER_BAY * (maxLevel + 1) : 0}</p>
                   </div>
@@ -553,7 +548,6 @@ export default function Setup() {
                             <TableHead>Row</TableHead>
                             <TableHead>Level</TableHead>
                             <TableHead>Max Weight</TableHead>
-                            <TableHead>Rack Type</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -566,16 +560,11 @@ export default function Setup() {
                               <TableCell>{location.row}</TableCell>
                               <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
                               <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="text-xs">
-                                  {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType}
-                                </Badge>
-                              </TableCell>
                             </TableRow>
                           ))}
                           {generatedLocations.length > 20 && (
                             <TableRow>
-                              <TableCell colSpan={6} className="text-center text-muted-foreground">
+                              <TableCell colSpan={5} className="text-center text-muted-foreground">
                                 ... and {generatedLocations.length - 20} more locations
                               </TableCell>
                             </TableRow>
@@ -640,7 +629,6 @@ export default function Setup() {
                           <TableHead>Level</TableHead>
                           <TableHead>Weight Status</TableHead>
                           <TableHead>Max Weight</TableHead>
-                          <TableHead>Rack Type</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -662,11 +650,6 @@ export default function Setup() {
                             </TableCell>
                             <TableCell>
                               {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
-                              </Badge>
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -965,7 +948,7 @@ export default function Setup() {
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
     </div>
   );
