@@ -350,18 +350,18 @@ function sortLocationsInOrder(locations: LocationLabelData[]): LocationLabelData
 
 /**
  * Generate compact bulk HTML for location labels
- * 10 labels per A4 page in a 2x5 grid layout (2 columns, 5 rows)
- * Each label is approximately 85mm x 54mm (compact size)
+ * 24 labels per A4 page in a 3x8 grid layout (3 columns, 8 rows)
+ * Each label is approximately 62mm x 33mm (compact size)
  * Labels are sorted in order: A-J bays, then by level, then by position
  */
 export function generateBulkLocationHtml(locations: LocationLabelData[]): string {
   // Sort locations in proper order first
   const sortedLocations = sortLocationsInOrder(locations);
   
-  // Group sorted locations into chunks of 10 for each A4 page
+  // Group sorted locations into chunks of 24 for each A4 page
   const pages = [];
-  for (let i = 0; i < sortedLocations.length; i += 10) {
-    pages.push(sortedLocations.slice(i, i + 10));
+  for (let i = 0; i < sortedLocations.length; i += 24) {
+    pages.push(sortedLocations.slice(i, i + 24));
   }
 
   const generatePageContent = (pageLocations: LocationLabelData[], pageIndex: number) => {
@@ -379,8 +379,8 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       `);
     });
 
-    // Fill empty slots if less than 10 labels on the page
-    const emptySlots = 10 - pageLocations.length;
+    // Fill empty slots if less than 24 labels on the page
+    const emptySlots = 24 - pageLocations.length;
     for (let i = 0; i < emptySlots; i++) {
       labels.push('<div class="label empty-label"></div>');
     }
@@ -402,8 +402,8 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       try {
         JsBarcode("#barcode-${pageIndex}-${labelIndex}", "${location.code}", {
           format: "CODE128",
-          width: 1.5,
-          height: 30,
+          width: 1,
+          height: 20,
           displayValue: false,
           margin: 0,
           background: "#ffffff",
@@ -411,7 +411,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         });
       } catch (error) {
         console.error('Barcode generation failed for ${location.code}:', error);
-        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="black">${location.code}</text>';
+        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="black">${location.code}</text>';
       }
     `).join('\n')
   ).join('\n');
@@ -431,7 +431,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
   <style>
     @page {
       size: A4;
-      margin: 10mm;
+      margin: 8mm;
     }
     
     * {
@@ -448,20 +448,20 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     
     .page-header {
       text-align: center;
-      margin-bottom: 5mm;
-      font-size: 10pt;
+      margin-bottom: 3mm;
+      font-size: 9pt;
       color: #666;
       border-bottom: 1px solid #ddd;
       padding-bottom: 2mm;
     }
     
     .page {
-      width: 190mm; /* A4 width minus margins */
-      height: 277mm; /* A4 height minus margins */
+      width: 194mm; /* A4 width minus margins */
+      height: 281mm; /* A4 height minus margins */
       display: grid;
-      grid-template-columns: 1fr 1fr; /* 2 columns */
-      grid-template-rows: repeat(5, 1fr); /* 5 rows */
-      gap: 3mm;
+      grid-template-columns: repeat(3, 1fr); /* 3 columns */
+      grid-template-rows: repeat(8, 1fr); /* 8 rows */
+      gap: 2mm;
       page-break-after: always;
     }
     
@@ -472,7 +472,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     .label {
       width: 100%;
       height: 100%;
-      padding: 4mm;
+      padding: 2mm;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
@@ -481,6 +481,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       border: 1px solid #000000;
       background: white;
       text-align: center;
+      min-height: 33mm;
     }
     
     .empty-label {
@@ -489,10 +490,10 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     }
     
     .location-code {
-      font-size: 18pt;
+      font-size: 12pt;
       font-weight: 900;
       color: #000000;
-      margin-bottom: 3mm;
+      margin-bottom: 1mm;
       line-height: 1;
     }
     
@@ -501,7 +502,8 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       justify-content: center;
       align-items: center;
       width: 100%;
-      height: 35mm;
+      height: 22mm;
+      flex: 1;
     }
     
     @media print {
@@ -540,7 +542,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
   <div class="page-header">
     <strong>Location Labels</strong><br>
     ${totalLabels} labels sorted from ${firstLocation} to ${lastLocation}<br>
-    ${totalPages} page${totalPages > 1 ? 's' : ''} • 10 labels per page • A4 format
+    ${totalPages} page${totalPages > 1 ? 's' : ''} • 24 labels per page • 3×8 grid • A4 format
   </div>
   
   ${allPagesContent}
