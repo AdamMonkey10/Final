@@ -330,70 +330,108 @@ export function generateLocationHtml(data: LocationLabelData): string {
 
 /**
  * Generate bulk HTML for multiple location labels
- * Each label will be on a separate page
+ * 4 labels per A4 page in a 2x2 grid layout
  */
 export function generateBulkLocationHtml(locations: LocationLabelData[]): string {
-  const labelPages = locations.map((location, index) => `
-<div class="label-page" ${index > 0 ? 'style="page-break-before: always;"' : ''}>
-  <!-- Corner indicators -->
-  <div class="corner top-left"></div>
-  <div class="corner top-right"></div>
-  <div class="corner bottom-left"></div>
-  <div class="corner bottom-right"></div>
+  // Group locations into chunks of 4 for each A4 page
+  const pages = [];
+  for (let i = 0; i < locations.length; i += 4) {
+    pages.push(locations.slice(i, i + 4));
+  }
 
-  <div class="location-code">${location.code}</div>
-  
-  <div class="barcode-section">
-    <div class="barcode-container">
-      <svg id="barcode-${index}"></svg>
-    </div>
-    <div class="barcode-text">${location.code}</div>
-  </div>
-  
-  <div class="location-details">
-    Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
-  </div>
-</div>
-  `).join('\n');
+  const pageContent = pages.map((pageLocations, pageIndex) => {
+    const labels = pageLocations.map((location, labelIndex) => `
+      <div class="label" id="label-${pageIndex}-${labelIndex}">
+        <!-- Corner indicators -->
+        <div class="corner top-left"></div>
+        <div class="corner top-right"></div>
+        <div class="corner bottom-left"></div>
+        <div class="corner bottom-right"></div>
 
-  const barcodeScripts = locations.map((location, index) => `
-    try {
-      JsBarcode("#barcode-${index}", "${location.code}", {
-        format: "CODE128",
-        width: 2,
-        height: 40,
-        displayValue: false,
-        margin: 0,
-        background: "#ffffff",
-        lineColor: "#000000"
-      });
-    } catch (error) {
-      console.error('Barcode generation failed for ${location.code}:', error);
-      document.getElementById('barcode-${index}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="black">${location.code}</text>';
-    }
-  `).join('\n');
+        <div class="location-code">${location.code}</div>
+        
+        <div class="barcode-section">
+          <div class="barcode-container">
+            <svg id="barcode-${pageIndex}-${labelIndex}"></svg>
+          </div>
+          <div class="barcode-text">${location.code}</div>
+        </div>
+        
+        <div class="location-details">
+          Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
+        </div>
+      </div>
+    `).join('');
+
+    // Fill empty slots if less than 4 labels on the page
+    const emptySlots = 4 - pageLocations.length;
+    const emptyLabels = Array(emptySlots).fill(0).map((_, index) => `
+      <div class="label empty-label"></div>
+    `).join('');
+
+    return `
+      <div class="page" ${pageIndex > 0 ? 'style="page-break-before: always;"' : ''}>
+        ${labels}
+        ${emptyLabels}
+      </div>
+    `;
+  }).join('');
+
+  const barcodeScripts = pages.map((pageLocations, pageIndex) => 
+    pageLocations.map((location, labelIndex) => `
+      try {
+        JsBarcode("#barcode-${pageIndex}-${labelIndex}", "${location.code}", {
+          format: "CODE128",
+          width: 2,
+          height: 40,
+          displayValue: false,
+          margin: 0,
+          background: "#ffffff",
+          lineColor: "#000000"
+        });
+      } catch (error) {
+        console.error('Barcode generation failed for ${location.code}:', error);
+        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="black">${location.code}</text>';
+      }
+    `).join('\n')
+  ).join('\n');
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Bulk Location Labels</title>
+  <title>Bulk Location Labels - 4 per A4</title>
   <style>
     @page {
-      size: 103mm 103mm;
+      size: A4;
       margin: 0;
     }
     
     body {
       margin: 0;
-      padding: 0;
+      padding: 45.5mm 2mm;
       font-family: Arial, sans-serif;
       background: white;
       color: black;
+      display: grid;
+      grid-template-columns: repeat(2, 103mm);
+      grid-template-rows: repeat(2, 103mm);
+      gap: 0;
+      justify-content: center;
+      align-content: center;
     }
     
-    .label-page {
+    .page {
+      display: grid;
+      grid-template-columns: repeat(2, 103mm);
+      grid-template-rows: repeat(2, 103mm);
+      gap: 0;
+      justify-content: center;
+      align-content: center;
+    }
+    
+    .label {
       width: 103mm;
       height: 103mm;
       padding: 6mm;
@@ -402,6 +440,12 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       flex-direction: column;
       justify-content: space-between;
       position: relative;
+      border: 1px solid #e5e7eb;
+    }
+    
+    .empty-label {
+      border: 1px dashed #d1d5db;
+      background: #f9fafb;
     }
     
     /* Square corner indicators */
@@ -461,12 +505,21 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
+      
+      .label {
+        border: none;
+      }
+      
+      .empty-label {
+        border: none;
+        background: none;
+      }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  ${labelPages}
+  ${pageContent}
 
   <script>
     window.onload = function() {
