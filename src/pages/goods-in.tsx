@@ -31,7 +31,8 @@ import { ProductSelector } from '@/components/product-selector';
 import { LocationSelector } from '@/components/location-selector';
 import { WarehouseLayout } from '@/components/warehouse-layout';
 import { generateItemZPL, type ItemLabelData } from '@/lib/zpl-generator';
-import { sendZPL } from '@/lib/printer-service';
+import { generateItemHtml } from '@/lib/html-label-generator';
+import { sendZPL, getPrinterSettings } from '@/lib/printer-service';
 import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
 import { CameraScanner } from '@/components/camera-scanner';
@@ -184,20 +185,38 @@ export default function GoodsInPage() {
     setPrinting(true);
     
     try {
+      // Get printer settings to determine print method
+      const printerSettings = await getPrinterSettings();
+      
       const labelData: ItemLabelData = {
         systemCode: createdItem.systemCode,
         itemCode: createdItem.itemCode,
         description: createdItem.description,
         weight: createdItem.weight,
+        quantity: createdItem.quantity,
+        lotNumber: createdItem.lotNumber,
         location: '', // No location yet
         operator: getOperatorName(),
         date: new Date().toLocaleDateString(),
       };
 
-      const zpl = generateItemZPL(labelData);
-      await sendZPL(zpl);
-      
-      toast.success('Label printed successfully!');
+      if (printerSettings.useWindowsPrint) {
+        // Generate HTML and open in new window for printing
+        const html = generateItemHtml(labelData);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+          toast.success('Label opened in new window for printing');
+        } else {
+          toast.error('Failed to open print window. Please check popup blocker settings.');
+        }
+      } else {
+        // Generate ZPL and send directly to printer
+        const zpl = generateItemZPL(labelData);
+        await sendZPL(zpl);
+        toast.success('Label printed successfully!');
+      }
       
     } catch (error) {
       console.error('Print error:', error);
@@ -636,7 +655,7 @@ export default function GoodsInPage() {
                         className="h-14 text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Items &gt;1000kg automatically go to ground level
+                        Items >1000kg automatically go to ground level
                       </p>
                     </div>
 
