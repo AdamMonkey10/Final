@@ -27,6 +27,7 @@ interface CreateItemData {
     coilLength?: string;
     quantity?: number;
     location?: string;
+    lotNumber?: string;
   };
 }
 
@@ -141,21 +142,29 @@ export async function getItemBySystemCode(systemCode: string): Promise<Item | nu
       throw new Error('System code is required');
     }
 
+    console.log('Searching for item with systemCode:', systemCode.trim());
+
     const q = query(
       collection(db, COLLECTION),
       where('systemCode', '==', systemCode.trim())
     );
     const querySnapshot = await getDocs(q);
     
+    console.log('Query results:', querySnapshot.docs.length, 'documents found');
+    
     if (querySnapshot.empty) {
+      console.log('No item found with systemCode:', systemCode.trim());
       return null;
     }
 
     const doc = querySnapshot.docs[0];
-    return {
+    const item = {
       id: doc.id,
       ...doc.data(),
     } as Item;
+    
+    console.log('Found item:', item);
+    return item;
   } catch (error) {
     console.error('Error getting item by system code:', error);
     throw error;
@@ -168,15 +177,24 @@ export async function getItemsByLocation(location: string) {
       throw new Error('Location is required');
     }
 
+    console.log('Searching for items at location:', location.trim());
+
     const q = query(
       collection(db, COLLECTION),
-      where('location', '==', location.trim())
+      where('location', '==', location.trim()),
+      where('status', '==', 'placed')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
+    
+    console.log('Found', querySnapshot.docs.length, 'items at location:', location.trim());
+    
+    const items = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
     })) as Item[];
+    
+    console.log('Items at location:', items);
+    return items;
   } catch (error) {
     console.error('Error getting items by location:', error);
     throw error;

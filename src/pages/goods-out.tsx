@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine } from 'lucide-react';
+import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocationByCode, updateLocation } from '@/lib/firebase/locations';
 import { getItemsByLocation, updateItem } from '@/lib/firebase/items';
@@ -45,6 +45,7 @@ export default function GoodsOutPage() {
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [currentStep, setCurrentStep] = useState<'location' | 'item' | 'confirm' | 'complete'>('location');
   const [skipLocationScan, setSkipLocationScan] = useState(false);
+  const [useManualEntry, setUseManualEntry] = useState(false);
   const manualLocationInputRef = useRef<HTMLInputElement>(null);
   const manualItemInputRef = useRef<HTMLInputElement>(null);
 
@@ -149,7 +150,7 @@ export default function GoodsOutPage() {
       return;
     }
 
-    // Find the item in the location's items
+    // Find the item in the location's items by systemCode
     const item = locationItems.find(item => item.systemCode === itemCode);
     
     if (!item) {
@@ -260,6 +261,7 @@ export default function GoodsOutPage() {
     setManualItemInput('');
     setSearchStatus('idle');
     setSkipLocationScan(false);
+    setUseManualEntry(false);
     
     toast.success('Goods-out process completed!', {
       description: 'Ready to process another pickup',
@@ -279,6 +281,7 @@ export default function GoodsOutPage() {
     setShowItemScanDialog(false);
     setShowConfirmDialog(false);
     setSkipLocationScan(false);
+    setUseManualEntry(false);
   };
 
   const getStepIndicator = () => {
@@ -429,7 +432,7 @@ export default function GoodsOutPage() {
             {currentStep === 'complete' && 'Pickup Complete'}
           </CardTitle>
           <CardDescription>
-            {currentStep === 'location' && 'Scan the location barcode where you want to pick items from'}
+            {currentStep === 'location' && 'Scan the location barcode or enter location code manually'}
             {currentStep === 'item' && 'Scan the specific item barcode you want to remove'}
             {currentStep === 'confirm' && 'Review and confirm the pickup details'}
             {currentStep === 'complete' && 'Item successfully removed from stock'}
@@ -444,24 +447,43 @@ export default function GoodsOutPage() {
                 <p className="text-sm text-muted-foreground mb-6">
                   Scan or enter the location barcode first
                 </p>
-                <Button 
-                  onClick={() => setShowLocationScanDialog(true)}
-                  size="lg"
-                  className="w-full max-w-md"
-                  disabled={!selectedOperator || loading}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <MapPin className="h-5 w-5 mr-2" />
-                      Scan Location
-                    </>
-                  )}
-                </Button>
+                <div className="flex flex-col gap-3 max-w-md mx-auto">
+                  <Button 
+                    onClick={() => {
+                      setUseManualEntry(false);
+                      setShowLocationScanDialog(true);
+                    }}
+                    size="lg"
+                    className="w-full"
+                    disabled={!selectedOperator || loading}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="h-5 w-5 mr-2" />
+                        Scan Location Barcode
+                      </>
+                    )}
+                  </Button>
+                  
+                  <Button 
+                    onClick={() => {
+                      setUseManualEntry(true);
+                      setShowLocationScanDialog(true);
+                    }}
+                    size="lg"
+                    variant="outline"
+                    className="w-full"
+                    disabled={!selectedOperator || loading}
+                  >
+                    <Keyboard className="h-5 w-5 mr-2" />
+                    Enter Location Code
+                  </Button>
+                </div>
               </>
             )}
             
@@ -511,7 +533,9 @@ export default function GoodsOutPage() {
       <Dialog open={showLocationScanDialog} onOpenChange={setShowLocationScanDialog}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Scan Location Barcode</DialogTitle>
+            <DialogTitle>
+              {useManualEntry ? 'Enter Location Code' : 'Scan Location Barcode'}
+            </DialogTitle>
           </DialogHeader>
           
           <div className="space-y-6">
@@ -523,7 +547,7 @@ export default function GoodsOutPage() {
                   ref={manualLocationInputRef}
                   value={manualLocationInput}
                   onChange={(e) => setManualLocationInput(e.target.value)}
-                  placeholder="Enter location code or scan with camera..."
+                  placeholder={useManualEntry ? "Enter location code (e.g., A-0-1)" : "Enter location code or scan with camera..."}
                   className="pl-9 text-lg h-12"
                   autoComplete="off"
                   autoFocus
@@ -542,19 +566,21 @@ export default function GoodsOutPage() {
               </Button>
             </form>
             
-            {/* Camera Scanner Section */}
-            <div className="border-t pt-6">
-              <div className="text-sm text-muted-foreground mb-4 text-center">
-                Or use camera to scan:
+            {/* Camera Scanner Section - Only show if not using manual entry */}
+            {!useManualEntry && (
+              <div className="border-t pt-6">
+                <div className="text-sm text-muted-foreground mb-4 text-center">
+                  Or use camera to scan:
+                </div>
+                <CameraScanner
+                  onResult={handleLocationScanResult}
+                  onError={(error) => toast.error(`Camera error: ${error}`)}
+                  isActive={showLocationScanDialog && !useManualEntry}
+                  autoComplete={false}
+                  className="w-full"
+                />
               </div>
-              <CameraScanner
-                onResult={handleLocationScanResult}
-                onError={(error) => toast.error(`Camera error: ${error}`)}
-                isActive={showLocationScanDialog}
-                autoComplete={false}
-                className="w-full"
-              />
-            </div>
+            )}
             
             {selectedOperator && (
               <div className="text-xs text-center text-muted-foreground border-t pt-4">
@@ -649,6 +675,12 @@ export default function GoodsOutPage() {
                 <h3 className="font-medium">{selectedItem.itemCode}</h3>
                 <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
                 <p className="text-sm">Weight: {selectedItem.weight}kg</p>
+                {selectedItem.metadata?.quantity && (
+                  <p className="text-sm">Quantity: {selectedItem.metadata.quantity}</p>
+                )}
+                {selectedItem.metadata?.lotNumber && (
+                  <p className="text-sm">LOT: {selectedItem.metadata.lotNumber}</p>
+                )}
                 <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
                 <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
                 {skipLocationScan && (
