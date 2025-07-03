@@ -329,15 +329,39 @@ export function generateLocationHtml(data: LocationLabelData): string {
 }
 
 /**
+ * Sort locations in proper order: A-J bays, then by level (0-9), then by position (1-4)
+ */
+function sortLocationsInOrder(locations: LocationLabelData[]): LocationLabelData[] {
+  return [...locations].sort((a, b) => {
+    // First sort by bay (A-J)
+    const bayCompare = a.bay.localeCompare(b.bay);
+    if (bayCompare !== 0) return bayCompare;
+    
+    // Then by level (0-9)
+    const levelCompare = parseInt(a.level) - parseInt(b.level);
+    if (levelCompare !== 0) return levelCompare;
+    
+    // Finally by position (1-4) - extract from location code
+    const aPosition = parseInt(a.code.split('-')[2]);
+    const bPosition = parseInt(b.code.split('-')[2]);
+    return aPosition - bPosition;
+  });
+}
+
+/**
  * Generate compact bulk HTML for location labels
  * 10 labels per A4 page in a 2x5 grid layout (2 columns, 5 rows)
  * Each label is approximately 85mm x 54mm (compact size)
+ * Labels are sorted in order: A-J bays, then by level, then by position
  */
 export function generateBulkLocationHtml(locations: LocationLabelData[]): string {
-  // Group locations into chunks of 10 for each A4 page
+  // Sort locations in proper order first
+  const sortedLocations = sortLocationsInOrder(locations);
+  
+  // Group sorted locations into chunks of 10 for each A4 page
   const pages = [];
-  for (let i = 0; i < locations.length; i += 10) {
-    pages.push(locations.slice(i, i + 10));
+  for (let i = 0; i < sortedLocations.length; i += 10) {
+    pages.push(sortedLocations.slice(i, i + 10));
   }
 
   const generatePageContent = (pageLocations: LocationLabelData[], pageIndex: number) => {
@@ -392,12 +416,18 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     `).join('\n')
   ).join('\n');
 
+  // Generate summary for the first page header
+  const totalLabels = sortedLocations.length;
+  const totalPages = pages.length;
+  const firstLocation = sortedLocations[0]?.code || '';
+  const lastLocation = sortedLocations[sortedLocations.length - 1]?.code || '';
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Compact Location Labels - 10 per A4</title>
+  <title>Location Labels - ${firstLocation} to ${lastLocation} (${totalLabels} labels)</title>
   <style>
     @page {
       size: A4;
@@ -414,6 +444,15 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       font-family: Arial, sans-serif;
       background: white;
       color: black;
+    }
+    
+    .page-header {
+      text-align: center;
+      margin-bottom: 5mm;
+      font-size: 10pt;
+      color: #666;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 2mm;
     }
     
     .page {
@@ -471,6 +510,10 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         print-color-adjust: exact;
       }
       
+      .page-header {
+        display: none; /* Hide header when printing */
+      }
+      
       .page {
         page-break-after: always;
       }
@@ -484,10 +527,22 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         background: none;
       }
     }
+    
+    @media screen {
+      .page-header {
+        display: block;
+      }
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
+  <div class="page-header">
+    <strong>Location Labels</strong><br>
+    ${totalLabels} labels sorted from ${firstLocation} to ${lastLocation}<br>
+    ${totalPages} page${totalPages > 1 ? 's' : ''} • 10 labels per page • A4 format
+  </div>
+  
   ${allPagesContent}
 
   <script>
