@@ -329,10 +329,16 @@ export function generateLocationHtml(data: LocationLabelData): string {
 }
 
 /**
- * Sort locations in proper order: A-J bays, then by level (0-9), then by position (1-4)
+ * Remove duplicates and sort locations in proper order: A-J bays, then by level (0-9), then by position (1-4)
  */
-function sortLocationsInOrder(locations: LocationLabelData[]): LocationLabelData[] {
-  return [...locations].sort((a, b) => {
+function deduplicateAndSortLocations(locations: LocationLabelData[]): LocationLabelData[] {
+  // First, remove duplicates by location code
+  const uniqueLocations = locations.filter((location, index, array) => 
+    array.findIndex(l => l.code === location.code) === index
+  );
+  
+  // Then sort in proper order
+  return uniqueLocations.sort((a, b) => {
     // First sort by bay (A-J)
     const bayCompare = a.bay.localeCompare(b.bay);
     if (bayCompare !== 0) return bayCompare;
@@ -353,15 +359,16 @@ function sortLocationsInOrder(locations: LocationLabelData[]): LocationLabelData
  * 24 labels per A4 page in a 3x8 grid layout (3 columns, 8 rows)
  * Each label is approximately 62mm x 33mm (compact size)
  * Labels are sorted in order: A-J bays, then by level, then by position
+ * Duplicates are automatically removed
  */
 export function generateBulkLocationHtml(locations: LocationLabelData[]): string {
-  // Sort locations in proper order first
-  const sortedLocations = sortLocationsInOrder(locations);
+  // Remove duplicates and sort locations in proper order
+  const uniqueSortedLocations = deduplicateAndSortLocations(locations);
   
   // Group sorted locations into chunks of 24 for each A4 page
   const pages = [];
-  for (let i = 0; i < sortedLocations.length; i += 24) {
-    pages.push(sortedLocations.slice(i, i + 24));
+  for (let i = 0; i < uniqueSortedLocations.length; i += 24) {
+    pages.push(uniqueSortedLocations.slice(i, i + 24));
   }
 
   const generatePageContent = (pageLocations: LocationLabelData[], pageIndex: number) => {
@@ -402,8 +409,8 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       try {
         JsBarcode("#barcode-${pageIndex}-${labelIndex}", "${location.code}", {
           format: "CODE128",
-          width: 1,
-          height: 20,
+          width: 1.5,
+          height: 25,
           displayValue: false,
           margin: 0,
           background: "#ffffff",
@@ -411,16 +418,16 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         });
       } catch (error) {
         console.error('Barcode generation failed for ${location.code}:', error);
-        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="black">${location.code}</text>';
+        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="black">${location.code}</text>';
       }
     `).join('\n')
   ).join('\n');
 
   // Generate summary for the first page header
-  const totalLabels = sortedLocations.length;
+  const totalLabels = uniqueSortedLocations.length;
   const totalPages = pages.length;
-  const firstLocation = sortedLocations[0]?.code || '';
-  const lastLocation = sortedLocations[sortedLocations.length - 1]?.code || '';
+  const firstLocation = uniqueSortedLocations[0]?.code || '';
+  const lastLocation = uniqueSortedLocations[uniqueSortedLocations.length - 1]?.code || '';
 
   return `
 <!DOCTYPE html>
@@ -490,10 +497,10 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     }
     
     .location-code {
-      font-size: 12pt;
+      font-size: 14pt;
       font-weight: 900;
       color: #000000;
-      margin-bottom: 1mm;
+      margin-bottom: 2mm;
       line-height: 1;
     }
     
@@ -502,7 +509,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       justify-content: center;
       align-items: center;
       width: 100%;
-      height: 22mm;
+      height: 25mm;
       flex: 1;
     }
     
@@ -541,7 +548,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
 <body>
   <div class="page-header">
     <strong>Location Labels</strong><br>
-    ${totalLabels} labels sorted from ${firstLocation} to ${lastLocation}<br>
+    ${totalLabels} unique labels sorted from ${firstLocation} to ${lastLocation}<br>
     ${totalPages} page${totalPages > 1 ? 's' : ''} • 24 labels per page • 3×8 grid • A4 format
   </div>
   
