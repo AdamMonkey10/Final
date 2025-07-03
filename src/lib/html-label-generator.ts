@@ -339,40 +339,49 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     pages.push(locations.slice(i, i + 4));
   }
 
-  const pageContent = pages.map((pageLocations, pageIndex) => {
-    const labels = pageLocations.map((location, labelIndex) => `
-      <div class="label" id="label-${pageIndex}-${labelIndex}">
-        <!-- Corner indicators -->
-        <div class="corner top-left"></div>
-        <div class="corner top-right"></div>
-        <div class="corner bottom-left"></div>
-        <div class="corner bottom-right"></div>
+  const generatePageContent = (pageLocations: LocationLabelData[], pageIndex: number) => {
+    const labels = [];
+    
+    // Add actual labels
+    pageLocations.forEach((location, labelIndex) => {
+      labels.push(`
+        <div class="label">
+          <!-- Corner indicators -->
+          <div class="corner top-left"></div>
+          <div class="corner top-right"></div>
+          <div class="corner bottom-left"></div>
+          <div class="corner bottom-right"></div>
 
-        <div class="location-code">${location.code}</div>
-        
-        <div class="barcode-section">
-          <div class="barcode-container">
-            <svg id="barcode-${pageIndex}-${labelIndex}"></svg>
+          <div class="location-code">${location.code}</div>
+          
+          <div class="barcode-section">
+            <div class="barcode-container">
+              <svg id="barcode-${pageIndex}-${labelIndex}"></svg>
+            </div>
+            <div class="barcode-text">${location.code}</div>
           </div>
-          <div class="barcode-text">${location.code}</div>
+          
+          <div class="location-details">
+            Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
+          </div>
         </div>
-        
-        <div class="location-details">
-          Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
-        </div>
-      </div>
-    `).join('');
+      `);
+    });
 
     // Fill empty slots if less than 4 labels on the page
     const emptySlots = 4 - pageLocations.length;
-    const emptyLabels = Array(emptySlots).fill(0).map((_, index) => `
-      <div class="label empty-label"></div>
-    `).join('');
+    for (let i = 0; i < emptySlots; i++) {
+      labels.push('<div class="label empty-label"></div>');
+    }
 
+    return labels.join('');
+  };
+
+  const allPagesContent = pages.map((pageLocations, pageIndex) => {
+    const pageBreak = pageIndex > 0 ? 'page-break-before: always;' : '';
     return `
-      <div class="page" ${pageIndex > 0 ? 'style="page-break-before: always;"' : ''}>
-        ${labels}
-        ${emptyLabels}
+      <div class="page" style="${pageBreak}">
+        ${generatePageContent(pageLocations, pageIndex)}
       </div>
     `;
   }).join('');
@@ -408,27 +417,33 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       margin: 0;
     }
     
+    * {
+      box-sizing: border-box;
+    }
+    
     body {
       margin: 0;
-      padding: 45.5mm 2mm;
+      padding: 0;
       font-family: Arial, sans-serif;
       background: white;
       color: black;
-      display: grid;
-      grid-template-columns: repeat(2, 103mm);
-      grid-template-rows: repeat(2, 103mm);
-      gap: 0;
-      justify-content: center;
-      align-content: center;
     }
     
     .page {
+      width: 210mm;
+      height: 297mm;
+      padding: 45.5mm 2mm;
       display: grid;
-      grid-template-columns: repeat(2, 103mm);
-      grid-template-rows: repeat(2, 103mm);
+      grid-template-columns: 103mm 103mm;
+      grid-template-rows: 103mm 103mm;
       gap: 0;
       justify-content: center;
       align-content: center;
+      page-break-after: always;
+    }
+    
+    .page:last-child {
+      page-break-after: auto;
     }
     
     .label {
@@ -441,6 +456,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       justify-content: space-between;
       position: relative;
       border: 1px solid #e5e7eb;
+      background: white;
     }
     
     .empty-label {
@@ -514,12 +530,20 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         border: none;
         background: none;
       }
+      
+      .page {
+        page-break-after: always;
+      }
+      
+      .page:last-child {
+        page-break-after: auto;
+      }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
-  ${pageContent}
+  ${allPagesContent}
 
   <script>
     window.onload = function() {
