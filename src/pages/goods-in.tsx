@@ -652,7 +652,7 @@ export default function GoodsInPage() {
                         className="h-14 text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Items >1000kg automatically go to ground level
+                        Items &gt;1000kg automatically go to ground level
                       </p>
                     </div>
 
