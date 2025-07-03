@@ -329,14 +329,15 @@ export function generateLocationHtml(data: LocationLabelData): string {
 }
 
 /**
- * Generate bulk HTML for multiple location labels
- * 4 labels per A4 page in a 2x2 grid layout
+ * Generate compact bulk HTML for location labels
+ * 10 labels per A4 page in a 2x5 grid layout (2 columns, 5 rows)
+ * Each label is approximately 85mm x 54mm (compact size)
  */
 export function generateBulkLocationHtml(locations: LocationLabelData[]): string {
-  // Group locations into chunks of 4 for each A4 page
+  // Group locations into chunks of 10 for each A4 page
   const pages = [];
-  for (let i = 0; i < locations.length; i += 4) {
-    pages.push(locations.slice(i, i + 4));
+  for (let i = 0; i < locations.length; i += 10) {
+    pages.push(locations.slice(i, i + 10));
   }
 
   const generatePageContent = (pageLocations: LocationLabelData[], pageIndex: number) => {
@@ -346,30 +347,16 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     pageLocations.forEach((location, labelIndex) => {
       labels.push(`
         <div class="label">
-          <!-- Corner indicators -->
-          <div class="corner top-left"></div>
-          <div class="corner top-right"></div>
-          <div class="corner bottom-left"></div>
-          <div class="corner bottom-right"></div>
-
           <div class="location-code">${location.code}</div>
-          
-          <div class="barcode-section">
-            <div class="barcode-container">
-              <svg id="barcode-${pageIndex}-${labelIndex}"></svg>
-            </div>
-            <div class="barcode-text">${location.code}</div>
-          </div>
-          
-          <div class="location-details">
-            Row ${location.row} • Bay ${location.bay} • Level ${location.level === '0' ? 'Ground' : location.level}
+          <div class="barcode-container">
+            <svg id="barcode-${pageIndex}-${labelIndex}"></svg>
           </div>
         </div>
       `);
     });
 
-    // Fill empty slots if less than 4 labels on the page
-    const emptySlots = 4 - pageLocations.length;
+    // Fill empty slots if less than 10 labels on the page
+    const emptySlots = 10 - pageLocations.length;
     for (let i = 0; i < emptySlots; i++) {
       labels.push('<div class="label empty-label"></div>');
     }
@@ -391,8 +378,8 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       try {
         JsBarcode("#barcode-${pageIndex}-${labelIndex}", "${location.code}", {
           format: "CODE128",
-          width: 2,
-          height: 40,
+          width: 1.5,
+          height: 30,
           displayValue: false,
           margin: 0,
           background: "#ffffff",
@@ -400,7 +387,7 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         });
       } catch (error) {
         console.error('Barcode generation failed for ${location.code}:', error);
-        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="12" fill="black">${location.code}</text>';
+        document.getElementById('barcode-${pageIndex}-${labelIndex}').innerHTML = '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-size="10" fill="black">${location.code}</text>';
       }
     `).join('\n')
   ).join('\n');
@@ -410,11 +397,11 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Bulk Location Labels - 4 per A4</title>
+  <title>Compact Location Labels - 10 per A4</title>
   <style>
     @page {
       size: A4;
-      margin: 0;
+      margin: 10mm;
     }
     
     * {
@@ -430,15 +417,12 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     }
     
     .page {
-      width: 210mm;
-      height: 297mm;
-      padding: 45.5mm 2mm;
+      width: 190mm; /* A4 width minus margins */
+      height: 277mm; /* A4 height minus margins */
       display: grid;
-      grid-template-columns: 103mm 103mm;
-      grid-template-rows: 103mm 103mm;
-      gap: 0;
-      justify-content: center;
-      align-content: center;
+      grid-template-columns: 1fr 1fr; /* 2 columns */
+      grid-template-rows: repeat(5, 1fr); /* 5 rows */
+      gap: 3mm;
       page-break-after: always;
     }
     
@@ -447,16 +431,17 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
     }
     
     .label {
-      width: 103mm;
-      height: 103mm;
-      padding: 6mm;
+      width: 100%;
+      height: 100%;
+      padding: 4mm;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      position: relative;
-      border: 1px solid #e5e7eb;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid #000000;
       background: white;
+      text-align: center;
     }
     
     .empty-label {
@@ -464,56 +449,20 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
       background: #f9fafb;
     }
     
-    /* Square corner indicators */
-    .corner {
-      position: absolute;
-      width: 4mm;
-      height: 4mm;
-      border: 2px solid #3b82f6;
-    }
-    .corner.top-left { top: 2mm; left: 2mm; border-right: none; border-bottom: none; }
-    .corner.top-right { top: 2mm; right: 2mm; border-left: none; border-bottom: none; }
-    .corner.bottom-left { bottom: 2mm; left: 2mm; border-right: none; border-top: none; }
-    .corner.bottom-right { bottom: 2mm; right: 2mm; border-left: none; border-top: none; }
-    
     .location-code {
-      font-size: 32pt;
+      font-size: 18pt;
       font-weight: 900;
-      text-align: center;
-      line-height: 0.9;
-      margin-bottom: 4mm;
       color: #000000;
-    }
-    
-    .barcode-section {
-      text-align: center;
-      margin: 4mm 0;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
+      margin-bottom: 3mm;
+      line-height: 1;
     }
     
     .barcode-container {
       display: flex;
       justify-content: center;
       align-items: center;
-      margin: 2mm 0;
-    }
-    
-    .barcode-text {
-      font-size: 8pt;
-      font-weight: bold;
-      margin-top: 1mm;
-      color: #000000;
-    }
-    
-    .location-details {
-      font-size: 10pt;
-      font-weight: 700;
-      text-align: center;
-      line-height: 1.2;
-      color: #000000;
+      width: 100%;
+      height: 35mm;
     }
     
     @media print {
@@ -522,21 +471,17 @@ export function generateBulkLocationHtml(locations: LocationLabelData[]): string
         print-color-adjust: exact;
       }
       
-      .label {
-        border: none;
-      }
-      
-      .empty-label {
-        border: none;
-        background: none;
-      }
-      
       .page {
         page-break-after: always;
       }
       
       .page:last-child {
         page-break-after: auto;
+      }
+      
+      .empty-label {
+        border: none;
+        background: none;
       }
     }
   </style>
