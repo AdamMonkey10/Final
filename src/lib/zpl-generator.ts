@@ -29,7 +29,7 @@ export interface LocationLabelData {
 
 /**
  * Generate ZPL for item labels (103x103mm)
- * Updated to include quantity and LOT number
+ * Updated to include quantity and LOT number with centered barcode
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateItemZPL(data: ItemLabelData): string {
@@ -38,12 +38,19 @@ export function generateItemZPL(data: ItemLabelData): string {
     return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
   };
 
+  // Calculate barcode width and center position
+  // For CODE128, each character is approximately 11 units wide
+  // Add start/stop patterns and quiet zones
+  const barcodeWidth = (data.systemCode.length * 11 + 35) * 3; // 3 is the width multiplier
+  const centerX = 400; // Center of 800px width
+  const barcodeStartX = centerX - (barcodeWidth / 2);
+
   return `
 ^XA
 ^PW800
 ^FO0,50^FB800,1,0,C,0^A0N,60,60^FD${truncateText(data.itemCode, 20)}^FS
 ^FO0,150^FB800,3,0,C,0^A0N,40,40^FD${truncateText(data.description, 40)}^FS
-^FO50,350^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
+^FO${Math.max(50, barcodeStartX)},350^BY3,3,80^BCN,80,Y,N,N^FD${data.systemCode}^FS
 ^FO0,580^FB800,1,0,C,0^A0N,32,32^FDWeight: ${data.weight}kg | Qty: ${data.quantity}^FS
 ^FO0,650^FB800,1,0,C,0^A0N,32,32^FDLOT: ${data.lotNumber}^FS
 ^XZ
@@ -56,11 +63,16 @@ export function generateItemZPL(data: ItemLabelData): string {
  * Optimized for 203 DPI printer (approximately 800x800 dots)
  */
 export function generateLocationZPL(data: LocationLabelData): string {
+  // Calculate barcode width and center position for location code
+  const barcodeWidth = (data.code.length * 11 + 35) * 3; // 3 is the width multiplier
+  const centerX = 400; // Center of 800px width
+  const barcodeStartX = centerX - (barcodeWidth / 2);
+
   return `
 ^XA
 ^PW800
 ^FO0,150^FB800,1,0,C,0^A0N,120,120^FD${data.code}^FS
-^FO50,420^BY3,3,80^BCN,80,Y,N,N^FD${data.code}^FS
+^FO${Math.max(50, barcodeStartX)},420^BY3,3,80^BCN,80,Y,N,N^FD${data.code}^FS
 ^FO0,650^FB800,1,0,C,0^A0N,24,24^FDRow ${data.row} • Bay ${data.bay} • Level ${data.level === '0' ? 'Ground' : data.level}^FS
 ^XZ
 `.trim();
