@@ -61,7 +61,7 @@ import type { Operator } from '@/lib/firebase/operators';
 
 // Updated warehouse structure constants
 const BAYS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-const LOCATIONS_PER_BAY = 4; // Changed from 3 to 4
+const LOCATIONS_PER_BAY = 4; // Updated to 4 locations per bay
 const MAX_LEVELS = 10; // Maximum possible levels
 
 // Default weight limits for levels

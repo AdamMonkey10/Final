@@ -121,7 +121,7 @@ export function WarehouseLayout({
               <div className="text-sm font-medium text-center">
                 Level {level === '0' ? 'Ground' : level}
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {locationsByLevel[level].map((location) => {
                   const isSuggested = suggestedLocation?.code === location.code;
                   const canAccept = location.level === '0' || (location.currentWeight + itemWeight <= location.maxWeight);

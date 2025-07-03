@@ -35,10 +35,10 @@ export function BayVisualizer({ location, onConfirm, mode }: BayVisualizerProps)
         </Badge>
       </div>
 
-      {/* Compact 5x3 grid */}
-      <div className="grid grid-cols-3 gap-2 max-w-[320px] mx-auto">
+      {/* Updated 5x4 grid for 4 positions per level */}
+      <div className="grid grid-cols-4 gap-2 max-w-[400px] mx-auto">
         {[4, 3, 2, 1, 0].map((l) => (
-          Array.from({ length: 3 }, (_, p) => p + 1).map((p) => {
+          Array.from({ length: 4 }, (_, p) => p + 1).map((p) => {
             const isTarget = l.toString() === level && p.toString() === position;
             return (
               <div
