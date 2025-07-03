@@ -15,10 +15,25 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine, Keyboard } from 'lucide-react';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { QrCode, RefreshCw, Home, Loader2, CheckCircle, AlertCircle, Search, MapPin, Package, ArrowUpFromLine, Keyboard, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocationByCode, updateLocation } from '@/lib/firebase/locations';
-import { getItemsByLocation, updateItem } from '@/lib/firebase/items';
+import { getItemsByStatus, updateItem } from '@/lib/firebase/items';
 import { addMovement } from '@/lib/firebase/movements';
 import { CameraScanner } from '@/components/camera-scanner';
 import { BayVisualizer } from '@/components/bay-visualizer';
@@ -33,23 +48,35 @@ export default function GoodsOutPage() {
   const { user, authLoading } = useFirebase();
   const { selectedOperator } = useOperator();
   
+  // Items list state
+  const [items, setItems] = useState<Item[]>([]);
+  const [filteredItems, setFilteredItems] = useState<Item[]>([]);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState<'systemCode' | 'itemCode' | 'description' | 'location'>('itemCode');
+  const [loadingItems, setLoadingItems] = useState(true);
+  
+  // Process state
   const [loading, setLoading] = useState(false);
-  const [showLocationScanDialog, setShowLocationScanDialog] = useState(false);
   const [showItemScanDialog, setShowItemScanDialog] = useState(false);
+  const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [manualLocationInput, setManualLocationInput] = useState('');
   const [manualItemInput, setManualItemInput] = useState('');
-  const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'found' | 'not-found'>('idle');
-  const [scannedLocation, setScannedLocation] = useState<Location | null>(null);
-  const [locationItems, setLocationItems] = useState<Item[]>([]);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  const [currentStep, setCurrentStep] = useState<'location' | 'item' | 'confirm' | 'complete'>('location');
-  const [skipLocationScan, setSkipLocationScan] = useState(false);
-  const [useManualEntry, setUseManualEntry] = useState(false);
-  const manualLocationInputRef = useRef<HTMLInputElement>(null);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [currentStep, setCurrentStep] = useState<'select' | 'location' | 'scan' | 'complete'>('select');
   const manualItemInputRef = useRef<HTMLInputElement>(null);
 
-  // Check if we have pre-selected item and location from inventory
+  useEffect(() => {
+    if (user && !authLoading) {
+      loadItems();
+    }
+  }, [user, authLoading]);
+
+  useEffect(() => {
+    filterItems();
+  }, [search, filterType, items]);
+
+  // Check if we have pre-selected item from inventory
   useEffect(() => {
     const state = location.state as {
       preSelectedItem?: Item;
@@ -58,78 +85,98 @@ export default function GoodsOutPage() {
     };
 
     if (state?.preSelectedItem && state?.preSelectedLocation && state?.skipLocationScan) {
-      // Skip location scan and go directly to item scan
-      setScannedLocation(state.preSelectedLocation);
-      setLocationItems([state.preSelectedItem]);
-      setSkipLocationScan(true);
-      setCurrentStep('item');
+      // Skip to scan step with pre-selected item
+      setSelectedItem(state.preSelectedItem);
+      setSelectedLocation(state.preSelectedLocation);
+      setCurrentStep('scan');
       setShowItemScanDialog(true);
       
-      toast.success(`Ready to scan item at ${state.preSelectedLocation.code}`);
+      toast.success(`Ready to scan ${state.preSelectedItem.itemCode} at ${state.preSelectedLocation.code}`);
     }
   }, [location.state]);
+
+  const loadItems = async () => {
+    if (!user || authLoading) return;
+    
+    try {
+      setLoadingItems(true);
+      // Only fetch items with status 'placed'
+      const fetchedItems = await getItemsByStatus('placed');
+      setItems(fetchedItems);
+      setFilteredItems(fetchedItems);
+    } catch (error) {
+      console.error('Error loading items:', error);
+      toast.error('Failed to load inventory');
+    } finally {
+      setLoadingItems(false);
+    }
+  };
+
+  const filterItems = () => {
+    if (!search.trim()) {
+      setFilteredItems(items);
+      return;
+    }
+
+    const searchLower = search.toLowerCase();
+    const filtered = items.filter(item => {
+      switch (filterType) {
+        case 'systemCode':
+          return item.systemCode.toLowerCase().includes(searchLower);
+        case 'itemCode':
+          return item.itemCode.toLowerCase().includes(searchLower);
+        case 'description':
+          return item.description.toLowerCase().includes(searchLower);
+        case 'location':
+          return (item.location || '').toLowerCase().includes(searchLower);
+        default:
+          return false;
+      }
+    });
+
+    setFilteredItems(filtered);
+  };
 
   const getOperatorName = () => {
     return selectedOperator?.name || user?.email || 'System';
   };
 
-  const handleLocationScanResult = async (scannedCode: string) => {
-    console.log('Location scan result:', scannedCode);
-    
+  const handleItemSelect = async (item: Item) => {
     if (!selectedOperator) {
-      toast.error('Please select an operator before scanning');
+      toast.error('Please select an operator before picking items');
       return;
     }
 
-    if (!scannedCode.trim()) {
-      toast.error('Invalid location barcode scanned');
+    if (!item.location) {
+      toast.error('Item has no location assigned');
       return;
     }
 
-    setManualLocationInput(scannedCode.trim());
-    await processLocationCode(scannedCode.trim());
-  };
-
-  const processLocationCode = async (locationCode: string) => {
-    setSearchStatus('searching');
-    setLoading(true);
-
+    setSelectedItem(item);
+    setCurrentStep('location');
+    
     try {
-      const locationData = await getLocationByCode(locationCode);
+      const locationData = await getLocationByCode(item.location);
       
       if (!locationData) {
-        setSearchStatus('not-found');
-        toast.error(`Location not found: ${locationCode}`);
+        toast.error('Location not found');
         return;
       }
 
-      // Check if location has items
-      const items = await getItemsByLocation(locationCode);
+      setSelectedLocation(locationData);
+      setShowLocationDialog(true);
       
-      if (items.length === 0) {
-        setSearchStatus('not-found');
-        toast.error(`No items found at location: ${locationCode}`);
-        return;
-      }
-
-      setSearchStatus('found');
-      setScannedLocation(locationData);
-      setLocationItems(items);
-      setCurrentStep('item');
-      
-      toast.success(`Found location: ${locationCode} with ${items.length} item(s)`);
-      
-      // Close location dialog and show item dialog
-      setShowLocationScanDialog(false);
-      setShowItemScanDialog(true);
-      
+      toast.success(`Selected ${item.itemCode} at ${locationData.code}`);
     } catch (error) {
-      console.error('Error processing location:', error);
-      setSearchStatus('not-found');
-      toast.error('Failed to process location');
-    } finally {
-      setLoading(false);
+      console.error('Error loading location:', error);
+      toast.error('Failed to load location details');
     }
+  };
+
+  const handleProceedToScan = () => {
+    setCurrentStep('scan');
+    setShowLocationDialog(false);
+    setShowItemScanDialog(true);
   };
 
   const handleItemScanResult = async (scannedCode: string) => {
@@ -145,38 +192,20 @@ export default function GoodsOutPage() {
   };
 
   const processItemCode = async (itemCode: string) => {
-    if (!scannedLocation || !locationItems.length) {
-      toast.error('Please scan location first');
+    if (!selectedItem || !selectedLocation) {
+      toast.error('Please select an item first');
       return;
     }
 
-    // Find the item in the location's items by systemCode
-    const item = locationItems.find(item => item.systemCode === itemCode);
-    
-    if (!item) {
-      toast.error(`Item ${itemCode} not found at location ${scannedLocation.code}`);
+    // Validate the scanned code matches the selected item's system code
+    if (itemCode !== selectedItem.systemCode) {
+      toast.error(`Scanned code doesn't match selected item. Expected: ${selectedItem.systemCode}`);
       return;
     }
 
-    setSelectedItem(item);
-    setCurrentStep('confirm');
-    
-    toast.success(`Found item: ${item.itemCode}`);
-    
-    // Close item dialog and show confirmation
+    setCurrentStep('complete');
     setShowItemScanDialog(false);
     setShowConfirmDialog(true);
-  };
-
-  const handleManualLocationScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!manualLocationInput.trim()) {
-      toast.error('Please enter a location code');
-      return;
-    }
-
-    await processLocationCode(manualLocationInput.trim());
   };
 
   const handleManualItemScan = async (e: React.FormEvent) => {
@@ -191,19 +220,18 @@ export default function GoodsOutPage() {
   };
 
   const handleConfirmPickup = async () => {
-    if (!selectedItem || !scannedLocation) return;
+    if (!selectedItem || !selectedLocation) return;
 
     setLoading(true);
-    setCurrentStep('complete');
     
-    const pickingToast = toast.loading(`📤 Picking ${selectedItem.itemCode} from ${scannedLocation.code}...`, {
+    const pickingToast = toast.loading(`📤 Picking ${selectedItem.itemCode} from ${selectedLocation.code}...`, {
       duration: Infinity
     });
 
     try {
       // Update location weight
-      await updateLocation(scannedLocation.id, {
-        currentWeight: Math.max(0, scannedLocation.currentWeight - selectedItem.weight)
+      await updateLocation(selectedLocation.id, {
+        currentWeight: Math.max(0, selectedLocation.currentWeight - selectedItem.weight)
       });
 
       // Update item status
@@ -220,12 +248,12 @@ export default function GoodsOutPage() {
         weight: selectedItem.weight,
         operator: getOperatorName(),
         reference: selectedItem.itemCode,
-        notes: `Picked from ${scannedLocation.code} via goods-out process`
+        notes: `Picked from ${selectedLocation.code} via goods-out process`
       });
 
       toast.dismiss(pickingToast);
       toast.success(`🎉 Item picked successfully!`, {
-        description: `${selectedItem.itemCode} removed from ${scannedLocation.code}`,
+        description: `${selectedItem.itemCode} removed from ${selectedLocation.code}`,
         duration: 5000
       });
       
@@ -243,25 +271,22 @@ export default function GoodsOutPage() {
         description: 'Please try again or contact support',
         duration: 5000
       });
-      setCurrentStep('confirm');
     } finally {
       setLoading(false);
     }
   };
 
   const handleComplete = () => {
-    setShowLocationScanDialog(false);
+    setSelectedItem(null);
+    setSelectedLocation(null);
+    setCurrentStep('select');
+    setManualItemInput('');
+    setShowLocationDialog(false);
     setShowItemScanDialog(false);
     setShowConfirmDialog(false);
-    setScannedLocation(null);
-    setLocationItems([]);
-    setSelectedItem(null);
-    setCurrentStep('location');
-    setManualLocationInput('');
-    setManualItemInput('');
-    setSearchStatus('idle');
-    setSkipLocationScan(false);
-    setUseManualEntry(false);
+    
+    // Reload items to reflect the removed item
+    loadItems();
     
     toast.success('Goods-out process completed!', {
       description: 'Ready to process another pickup',
@@ -270,33 +295,24 @@ export default function GoodsOutPage() {
   };
 
   const resetState = () => {
-    setScannedLocation(null);
-    setLocationItems([]);
     setSelectedItem(null);
-    setCurrentStep('location');
-    setManualLocationInput('');
+    setSelectedLocation(null);
+    setCurrentStep('select');
     setManualItemInput('');
-    setSearchStatus('idle');
-    setShowLocationScanDialog(false);
+    setSearch('');
+    setShowLocationDialog(false);
     setShowItemScanDialog(false);
     setShowConfirmDialog(false);
-    setSkipLocationScan(false);
-    setUseManualEntry(false);
+    loadItems();
   };
 
   const getStepIndicator = () => {
-    const steps = skipLocationScan 
-      ? [
-          { key: 'item', label: 'Scan Item', icon: Package },
-          { key: 'confirm', label: 'Confirm Pickup', icon: ArrowUpFromLine },
-          { key: 'complete', label: 'Complete', icon: CheckCircle }
-        ]
-      : [
-          { key: 'location', label: 'Scan Location', icon: MapPin },
-          { key: 'item', label: 'Scan Item', icon: Package },
-          { key: 'confirm', label: 'Confirm Pickup', icon: ArrowUpFromLine },
-          { key: 'complete', label: 'Complete', icon: CheckCircle }
-        ];
+    const steps = [
+      { key: 'select', label: 'Select Item', icon: Package },
+      { key: 'location', label: 'View Location', icon: MapPin },
+      { key: 'scan', label: 'Scan Item', icon: QrCode },
+      { key: 'complete', label: 'Complete', icon: CheckCircle }
+    ];
 
     return (
       <div className="flex items-center justify-center space-x-2 mb-6">
@@ -326,17 +342,26 @@ export default function GoodsOutPage() {
     );
   };
 
-  const getSearchStatusIcon = () => {
-    switch (searchStatus) {
-      case 'searching':
-        return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
-      case 'found':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case 'not-found':
-        return <AlertCircle className="h-4 w-4 text-red-500" />;
-      default:
-        return <Search className="h-4 w-4 text-muted-foreground" />;
-    }
+  const getCategoryBadge = (category: string) => {
+    const styles = {
+      raw: 'bg-blue-100 text-blue-800',
+      finished: 'bg-green-100 text-green-800',
+      packaging: 'bg-yellow-100 text-yellow-800',
+      spare: 'bg-purple-100 text-purple-800',
+    }[category] || 'bg-gray-100 text-gray-800';
+
+    const labels = {
+      raw: 'Raw Materials',
+      finished: 'Finished Goods',
+      packaging: 'Packaging',
+      spare: 'Spare Parts',
+    }[category] || category;
+
+    return (
+      <Badge variant="outline" className={styles}>
+        {labels}
+      </Badge>
+    );
   };
 
   return (
@@ -344,10 +369,6 @@ export default function GoodsOutPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-bold">Goods Out</h1>
         <div className="flex gap-2">
-          <Button onClick={() => navigate('/scan')} variant="outline" size="sm" className="hidden md:flex">
-            <QrCode className="h-4 w-4 mr-2" />
-            Scan Items
-          </Button>
           <Button onClick={() => navigate('/')} variant="outline" size="sm">
             <Home className="h-4 w-4 mr-2" />
             Dashboard
@@ -376,35 +397,32 @@ export default function GoodsOutPage() {
       )}
 
       {/* Progress Status Card */}
-      {(scannedLocation || selectedItem || searchStatus !== 'idle') && (
+      {(selectedItem || selectedLocation) && (
         <Card className={`border-2 ${
           currentStep === 'complete' ? 'border-green-200 bg-green-50' :
-          searchStatus === 'found' ? 'border-blue-200 bg-blue-50' :
-          searchStatus === 'not-found' ? 'border-red-200 bg-red-50' :
-          'border-gray-200'
+          'border-orange-200 bg-orange-50'
         }`}>
           <CardContent className="pt-6">
             <div className="space-y-3">
-              {scannedLocation && (
+              {selectedItem && (
                 <div className="flex items-center gap-3">
-                  <MapPin className="h-5 w-5 text-blue-500" />
+                  <Package className="h-5 w-5 text-orange-500" />
                   <div>
-                    <div className="font-medium">Location: {scannedLocation.code}</div>
+                    <div className="font-medium">Selected: {selectedItem.itemCode}</div>
                     <div className="text-sm text-muted-foreground">
-                      {locationItems.length} item(s) available for pickup
-                      {skipLocationScan && <span className="text-blue-600"> • Pre-selected from inventory</span>}
+                      {selectedItem.description} ({selectedItem.weight}kg)
                     </div>
                   </div>
                 </div>
               )}
               
-              {selectedItem && (
+              {selectedLocation && (
                 <div className="flex items-center gap-3">
-                  <Package className="h-5 w-5 text-green-500" />
+                  <MapPin className="h-5 w-5 text-blue-500" />
                   <div>
-                    <div className="font-medium">Item: {selectedItem.itemCode}</div>
+                    <div className="font-medium">Location: {selectedLocation.code}</div>
                     <div className="text-sm text-muted-foreground">
-                      {selectedItem.description} ({selectedItem.weight}kg)
+                      Row {selectedLocation.row}, Bay {selectedLocation.bay}, Level {selectedLocation.level === '0' ? 'Ground' : selectedLocation.level}
                     </div>
                   </div>
                 </div>
@@ -421,173 +439,161 @@ export default function GoodsOutPage() {
         </Card>
       )}
 
-      {/* Main Action Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-            <ArrowUpFromLine className="h-5 w-5" />
-            {currentStep === 'location' && 'Scan Location'}
-            {currentStep === 'item' && 'Scan Item'}
-            {currentStep === 'confirm' && 'Confirm Pickup'}
-            {currentStep === 'complete' && 'Pickup Complete'}
-          </CardTitle>
-          <CardDescription>
-            {currentStep === 'location' && 'Scan the location barcode or enter location code manually'}
-            {currentStep === 'item' && 'Scan the specific item barcode you want to remove'}
-            {currentStep === 'confirm' && 'Review and confirm the pickup details'}
-            {currentStep === 'complete' && 'Item successfully removed from stock'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            {currentStep === 'location' && !skipLocationScan && (
-              <>
-                <MapPin className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                <p className="text-lg font-medium mb-2">Ready to Scan Location</p>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Scan or enter the location barcode first
-                </p>
-                <div className="flex flex-col gap-3 max-w-md mx-auto">
-                  <Button 
-                    onClick={() => {
-                      setUseManualEntry(false);
-                      setShowLocationScanDialog(true);
-                    }}
-                    size="lg"
-                    className="w-full"
-                    disabled={!selectedOperator || loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <QrCode className="h-5 w-5 mr-2" />
-                        Scan Location Barcode
-                      </>
-                    )}
-                  </Button>
-                  
-                  <Button 
-                    onClick={() => {
-                      setUseManualEntry(true);
-                      setShowLocationScanDialog(true);
-                    }}
-                    size="lg"
-                    variant="outline"
-                    className="w-full"
-                    disabled={!selectedOperator || loading}
-                  >
-                    <Keyboard className="h-5 w-5 mr-2" />
-                    Enter Location Code
-                  </Button>
-                </div>
-              </>
-            )}
-            
-            {currentStep === 'item' && (
-              <>
-                <Package className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                <p className="text-lg font-medium mb-2">Ready to Scan Item</p>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Scan the item you want to pick from {scannedLocation?.code}
-                  {skipLocationScan && <span className="block text-blue-600 mt-1">Pre-selected from inventory</span>}
-                </p>
-                <Button 
-                  onClick={() => setShowItemScanDialog(true)}
-                  size="lg"
-                  className="w-full max-w-md"
-                  disabled={loading}
-                >
-                  <Package className="h-5 w-5 mr-2" />
-                  Scan Item
-                </Button>
-              </>
-            )}
-            
-            {currentStep === 'complete' && (
-              <>
-                <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
-                <p className="text-lg font-medium text-green-800 mb-2">
-                  Pickup Completed!
-                </p>
-                <p className="text-sm text-muted-foreground mb-6">
-                  Item successfully removed from warehouse
-                </p>
-                <Button 
-                  onClick={handleComplete}
-                  size="lg"
-                  className="w-full max-w-md"
-                >
-                  Process Another Pickup
-                </Button>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Main Content */}
+      {currentStep === 'select' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+              <Package className="h-5 w-5" />
+              Select Item to Pick
+            </CardTitle>
+            <CardDescription>
+              Choose an item from the warehouse inventory to pick
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search items..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+                <SelectTrigger className="w-[180px]">
+                  <Filter className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Filter by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="itemCode">Product/SKU</SelectItem>
+                  <SelectItem value="systemCode">System Code</SelectItem>
+                  <SelectItem value="description">Description</SelectItem>
+                  <SelectItem value="location">Location</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-      {/* Location Scan Dialog */}
-      <Dialog open={showLocationScanDialog} onOpenChange={setShowLocationScanDialog}>
-        <DialogContent className="sm:max-w-[600px]">
+            {loadingItems ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                Loading inventory...
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                {items.length === 0 ? (
+                  <div>
+                    <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No items in warehouse</p>
+                    <p className="text-sm">Add items through Goods In to get started.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No items match your search</p>
+                    <p className="text-sm">Try adjusting your search terms or filter.</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="border rounded-md">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product/SKU</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Weight</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredItems.map((item) => (
+                      <TableRow 
+                        key={item.id}
+                        className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                          !selectedOperator ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        onClick={() => selectedOperator && handleItemSelect(item)}
+                      >
+                        <TableCell className="font-medium">{item.itemCode}</TableCell>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell>{getCategoryBadge(item.category)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {item.location}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{item.weight}kg</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleItemSelect(item);
+                            }}
+                            disabled={!selectedOperator}
+                            className="flex items-center gap-2"
+                          >
+                            <ArrowUpFromLine className="h-4 w-4" />
+                            Pick Item
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Location Display Dialog */}
+      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {useManualEntry ? 'Enter Location Code' : 'Scan Location Barcode'}
-            </DialogTitle>
+            <DialogTitle>Item Location</DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6">
-            {/* Manual Input Section */}
-            <form onSubmit={handleManualLocationScan} className="space-y-4">
-              <div className="relative">
-                <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  ref={manualLocationInputRef}
-                  value={manualLocationInput}
-                  onChange={(e) => setManualLocationInput(e.target.value)}
-                  placeholder={useManualEntry ? "Enter location code (e.g., A-0-1)" : "Enter location code or scan with camera..."}
-                  className="pl-9 text-lg h-12"
-                  autoComplete="off"
-                  autoFocus
-                  disabled={loading}
-                />
-              </div>
-              <Button type="submit" className="w-full h-12 text-lg" disabled={loading || !selectedOperator || !manualLocationInput.trim()}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  'Process Location'
+          {selectedItem && selectedLocation && (
+            <div className="space-y-4">
+              {/* Item Details */}
+              <div className="p-4 bg-muted rounded-lg">
+                <h3 className="font-medium">{selectedItem.itemCode}</h3>
+                <p className="text-sm text-muted-foreground">{selectedItem.description}</p>
+                <p className="text-sm">Weight: {selectedItem.weight}kg</p>
+                {selectedItem.metadata?.quantity && (
+                  <p className="text-sm">Quantity: {selectedItem.metadata.quantity}</p>
                 )}
-              </Button>
-            </form>
-            
-            {/* Camera Scanner Section - Only show if not using manual entry */}
-            {!useManualEntry && (
-              <div className="border-t pt-6">
-                <div className="text-sm text-muted-foreground mb-4 text-center">
-                  Or use camera to scan:
+                {selectedItem.metadata?.lotNumber && (
+                  <p className="text-sm">LOT: {selectedItem.metadata.lotNumber}</p>
+                )}
+                <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
+              </div>
+              
+              {/* Location Visualizer */}
+              <BayVisualizer
+                location={selectedLocation}
+                onConfirm={handleProceedToScan}
+                mode="view"
+              />
+              
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 text-blue-800">
+                  <QrCode className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    Next: Scan the item barcode to confirm pickup
+                  </span>
                 </div>
-                <CameraScanner
-                  onResult={handleLocationScanResult}
-                  onError={(error) => toast.error(`Camera error: ${error}`)}
-                  isActive={showLocationScanDialog && !useManualEntry}
-                  autoComplete={false}
-                  className="w-full"
-                />
               </div>
-            )}
-            
-            {selectedOperator && (
-              <div className="text-xs text-center text-muted-foreground border-t pt-4">
-                Operator: {selectedOperator.name}
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -595,24 +601,22 @@ export default function GoodsOutPage() {
       <Dialog open={showItemScanDialog} onOpenChange={setShowItemScanDialog}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Scan Item Barcode</DialogTitle>
+            <DialogTitle>Scan Item to Confirm Pickup</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-6">
-            {/* Location Info */}
-            {scannedLocation && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-800 mb-2">
-                  <MapPin className="h-5 w-5" />
-                  <span className="font-medium">Location: {scannedLocation.code}</span>
-                  {skipLocationScan && (
-                    <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-                      From Inventory
-                    </Badge>
-                  )}
+            {/* Item Info */}
+            {selectedItem && selectedLocation && (
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center gap-2 text-orange-800 mb-2">
+                  <Package className="h-5 w-5" />
+                  <span className="font-medium">Picking: {selectedItem.itemCode}</span>
                 </div>
-                <div className="text-sm text-blue-700">
-                  {locationItems.length} item(s) available for pickup
+                <div className="text-sm text-orange-700">
+                  From location: {selectedLocation.code}
+                </div>
+                <div className="text-xs text-orange-600 mt-1">
+                  Scan system code: {selectedItem.systemCode}
                 </div>
               </div>
             )}
@@ -639,7 +643,7 @@ export default function GoodsOutPage() {
                     Processing...
                   </>
                 ) : (
-                  'Process Item'
+                  'Confirm Pickup'
                 )}
               </Button>
             </form>
@@ -668,7 +672,7 @@ export default function GoodsOutPage() {
             <DialogTitle>Confirm Item Pickup</DialogTitle>
           </DialogHeader>
           
-          {selectedItem && scannedLocation && (
+          {selectedItem && selectedLocation && (
             <div className="space-y-4">
               {/* Item Details */}
               <div className="p-4 bg-muted rounded-lg">
@@ -683,23 +687,77 @@ export default function GoodsOutPage() {
                 )}
                 <p className="text-xs text-muted-foreground">System Code: {selectedItem.systemCode}</p>
                 <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
-                {skipLocationScan && (
-                  <Badge variant="outline" className="mt-2 bg-blue-100 text-blue-700 border-blue-300">
-                    Selected from Inventory
-                  </Badge>
-                )}
               </div>
               
-              {/* Location Visualizer */}
-              <BayVisualizer
-                location={scannedLocation}
-                onConfirm={handleConfirmPickup}
-                mode="pick"
-              />
+              {/* Location Details */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-800 mb-2">
+                  <MapPin className="h-5 w-5" />
+                  <span className="font-medium">Removing from: {selectedLocation.code}</span>
+                </div>
+                <div className="text-sm text-blue-700">
+                  Row {selectedLocation.row}, Bay {selectedLocation.bay}, Level {selectedLocation.level === '0' ? 'Ground' : selectedLocation.level}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button 
+                  onClick={handleConfirmPickup}
+                  className="flex-1 h-12 text-base"
+                  disabled={loading}
+                >
+                  {loading ? 'Processing...' : 'Confirm Pickup'}
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setShowConfirmDialog(false);
+                    setCurrentStep('scan');
+                    setShowItemScanDialog(true);
+                  }}
+                  disabled={loading}
+                  className="h-12 text-base"
+                >
+                  Back
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Completion Dialog */}
+      {currentStep === 'complete' && (
+        <Dialog open={true} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                Item Picked Successfully!
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="text-center py-6">
+              <CheckCircle className="h-16 w-16 mx-auto text-green-500 mb-4" />
+              <h3 className="text-lg font-medium text-green-800 mb-2">
+                Pickup Completed!
+              </h3>
+              {selectedItem && selectedLocation && (
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p><strong>{selectedItem.itemCode}</strong> removed from <strong>{selectedLocation.code}</strong></p>
+                  <p>Weight: {selectedItem.weight}kg</p>
+                  {selectedItem.metadata?.quantity && <p>Quantity: {selectedItem.metadata.quantity}</p>}
+                  {selectedItem.metadata?.lotNumber && <p>LOT: {selectedItem.metadata.lotNumber}</p>}
+                  <p>Operator: {getOperatorName()}</p>
+                </div>
+              )}
+              <div className="mt-6 text-sm text-muted-foreground">
+                Preparing for next pickup...
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
