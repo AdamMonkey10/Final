@@ -153,7 +153,7 @@ export function ProductSelector({
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-0">
+          <PopoverContent className="w-[800px] p-0" align="start">
             <Command>
               <CommandInput 
                 placeholder="Search products..." 
@@ -184,23 +184,23 @@ export function ProductSelector({
                       key={product.id}
                       value={product.sku}
                       onSelect={() => handleProductSelect(product)}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between p-4"
                     >
-                      <div className="flex items-center">
+                      <div className="flex items-center min-w-0 flex-1">
                         <Check
                           className={cn(
-                            "mr-2 h-4 w-4",
+                            "mr-3 h-4 w-4 flex-shrink-0",
                             value === product.sku ? "opacity-100" : "opacity-0"
                           )}
                         />
-                        <div>
-                          <div className="font-medium">{product.sku}</div>
-                          <div className="text-sm text-muted-foreground">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-base">{product.sku}</div>
+                          <div className="text-sm text-muted-foreground truncate">
                             {product.description}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                         {product.usageCount > 1 && (
                           <Badge variant="secondary" className="text-xs">
                             <Hash className="h-3 w-3 mr-1" />
