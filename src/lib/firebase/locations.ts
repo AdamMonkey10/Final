@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getCached, setCache, invalidateCache } from './cache';
-import { LEVEL_MAX_WEIGHTS, STANDARD_RACK_HEIGHTS } from '../warehouse-logic';
+import { getLevelMaxWeight, STANDARD_RACK_HEIGHTS } from '../warehouse-logic';
 import type { Location } from '@/types/warehouse';
 
 const COLLECTION = 'locations';
@@ -54,7 +54,10 @@ export async function getAvailableLocations(requiredWeight: number) {
 }
 
 export async function addLocation(location: Omit<Location, 'id'>) {
-  const maxWeight = location.level === '0' ? Infinity : LEVEL_MAX_WEIGHTS[location.level as keyof typeof LEVEL_MAX_WEIGHTS];
+  // Use custom max weight if provided, otherwise calculate based on level and rack type
+  const maxWeight = location.maxWeight !== undefined 
+    ? location.maxWeight 
+    : (location.level === '0' ? Infinity : getLevelMaxWeight(location.level, location.rackType));
   
   // Set default height if not provided
   const defaultHeight = location.height || STANDARD_RACK_HEIGHTS[location.level as keyof typeof STANDARD_RACK_HEIGHTS] || 0;

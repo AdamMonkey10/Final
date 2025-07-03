@@ -52,16 +52,17 @@ import { addLocation, getLocations, deleteLocation } from '@/lib/firebase/locati
 import { getUsers, addUser, deleteUser } from '@/lib/firebase/users';
 import { getOperators, addOperator, deactivateOperator } from '@/lib/firebase/operators';
 import { getPrinterSettings, savePrinterSettings, testPrinterConnection, type PrinterSettings } from '@/lib/printer-service';
-import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw } from 'lucide-react';
+import { Settings, Trash2, Plus, Users, Download, UserCheck, Layers, Printer, TestTube, RefreshCw, Weight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirebase } from '@/contexts/FirebaseContext';
+import { getLevelMaxWeight, RACK_TYPES } from '@/lib/warehouse-logic';
 import type { Location } from '@/types/warehouse';
 import type { User } from '@/lib/firebase/users';
 import type { Operator } from '@/lib/firebase/operators';
 
 // Updated warehouse structure constants
 const BAYS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-const LOCATIONS_PER_BAY = 3;
+const LOCATIONS_PER_BAY = 4; // Changed from 3 to 4
 const MAX_LEVELS = 10; // Maximum possible levels
 
 // Helper function to derive row from bay
@@ -74,6 +75,8 @@ export default function Setup() {
   const [bayStart, setBayStart] = useState('');
   const [bayEnd, setBayEnd] = useState('');
   const [maxLevel, setMaxLevel] = useState(4); // How many levels high to go (0-4 = 5 levels total)
+  const [rackType, setRackType] = useState('standard');
+  const [customLevelWeights, setCustomLevelWeights] = useState<Record<string, number>>({});
   const [generatedLocations, setGeneratedLocations] = useState<Array<{
     code: string;
     row: string;
@@ -81,6 +84,7 @@ export default function Setup() {
     level: string;
     location: string;
     maxWeight: number;
+    rackType: string;
   }>>([]);
   const [existingLocations, setExistingLocations] = useState<Location[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -108,6 +112,23 @@ export default function Setup() {
     }
     return levels;
   };
+
+  // Initialize custom level weights when rack type or max level changes
+  useEffect(() => {
+    const levels = getLevelsArray();
+    const newWeights: Record<string, number> = {};
+    
+    levels.forEach(level => {
+      const levelStr = level.toString();
+      if (customLevelWeights[levelStr] !== undefined) {
+        newWeights[levelStr] = customLevelWeights[levelStr];
+      } else {
+        newWeights[levelStr] = getLevelMaxWeight(levelStr, rackType);
+      }
+    });
+    
+    setCustomLevelWeights(newWeights);
+  }, [maxLevel, rackType]);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -181,17 +202,20 @@ export default function Setup() {
       for (let position = 1; position <= LOCATIONS_PER_BAY; position++) {
         for (const level of levels) {
           const code = `${bay}-${level}-${position}`;
+          const levelStr = level.toString();
+          const maxWeight = levelStr === '0' ? Infinity : (customLevelWeights[levelStr] || getLevelMaxWeight(levelStr, rackType));
           
           locations.push({
             code,
             row,
             bay,
-            level: level.toString(),
+            level: levelStr,
             location: position.toString(),
-            maxWeight: level === 0 ? Infinity : 1000, // Ground level unlimited, others 1000kg
+            maxWeight,
             currentWeight: 0,
             available: true,
-            verified: true
+            verified: true,
+            rackType
           });
         }
       }
@@ -362,6 +386,14 @@ export default function Setup() {
     }
   };
 
+  const handleLevelWeightChange = (level: string, weight: string) => {
+    const weightNum = parseInt(weight) || 0;
+    setCustomLevelWeights(prev => ({
+      ...prev,
+      [level]: weightNum
+    }));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -391,7 +423,7 @@ export default function Setup() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div className="space-y-2">
                     <Label>Start Bay (A-J)</Label>
                     <Input
@@ -419,7 +451,7 @@ export default function Setup() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Levels High (How many levels?)</Label>
+                    <Label>Levels High</Label>
                     <Select value={maxLevel.toString()} onValueChange={(value) => setMaxLevel(parseInt(value))}>
                       <SelectTrigger className="h-12 text-base">
                         <SelectValue placeholder="Select max level" />
@@ -433,6 +465,60 @@ export default function Setup() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Rack Type</Label>
+                    <Select value={rackType} onValueChange={setRackType}>
+                      <SelectTrigger className="h-12 text-base">
+                        <SelectValue placeholder="Select rack type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(RACK_TYPES).map(([key, config]) => (
+                          <SelectItem key={key} value={key}>
+                            {config.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Level Weight Configuration */}
+                <div className="mb-4 p-4 border rounded-lg">
+                  <h3 className="font-medium mb-3 flex items-center gap-2">
+                    <Weight className="h-4 w-4" />
+                    Level Weight Limits (kg)
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    {getLevelsArray().map(level => {
+                      const levelStr = level.toString();
+                      return (
+                        <div key={level} className="space-y-2">
+                          <Label className="text-sm">
+                            Level {level === 0 ? '0 (Ground)' : level}
+                          </Label>
+                          {level === 0 ? (
+                            <Input
+                              value="Unlimited"
+                              disabled
+                              className="h-10 text-sm bg-muted"
+                            />
+                          ) : (
+                            <Input
+                              type="number"
+                              min="1"
+                              value={customLevelWeights[levelStr] || ''}
+                              onChange={(e) => handleLevelWeightChange(levelStr, e.target.value)}
+                              placeholder="Weight limit"
+                              className="h-10 text-sm"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Ground level (0) has unlimited weight capacity. Set weight limits for upper levels.
+                  </p>
                 </div>
 
                 <div className="mb-4 p-4 border rounded-lg">
@@ -445,9 +531,9 @@ export default function Setup() {
                     <p>• This will create locations from ground level (0) up to level {maxLevel}</p>
                     <p>• Total levels: {maxLevel + 1} (0-{maxLevel})</p>
                     <p>• Each bay will have {LOCATIONS_PER_BAY} positions per level</p>
-                    <p>• Ground level (0) has unlimited weight capacity</p>
-                    <p>• Upper levels (1-{maxLevel}) have 1000kg weight limit each</p>
+                    <p>• Rack type: {RACK_TYPES[rackType as keyof typeof RACK_TYPES]?.name}</p>
                     <p>• Location codes will be in format: BAY-LEVEL-POSITION (e.g., A-0-1, F-2-3)</p>
+                    <p>• Total locations to create: {bayStart && bayEnd ? (BAYS.indexOf(bayEnd) - BAYS.indexOf(bayStart) + 1) * LOCATIONS_PER_BAY * (maxLevel + 1) : 0}</p>
                   </div>
                 </div>
 
@@ -467,6 +553,7 @@ export default function Setup() {
                             <TableHead>Row</TableHead>
                             <TableHead>Level</TableHead>
                             <TableHead>Max Weight</TableHead>
+                            <TableHead>Rack Type</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -479,11 +566,16 @@ export default function Setup() {
                               <TableCell>{location.row}</TableCell>
                               <TableCell>{location.level === '0' ? 'Ground' : location.level}</TableCell>
                               <TableCell>{location.maxWeight === Infinity ? 'Unlimited' : `${location.maxWeight}kg`}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs">
+                                  {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType}
+                                </Badge>
+                              </TableCell>
                             </TableRow>
                           ))}
                           {generatedLocations.length > 20 && (
                             <TableRow>
-                              <TableCell colSpan={5} className="text-center text-muted-foreground">
+                              <TableCell colSpan={6} className="text-center text-muted-foreground">
                                 ... and {generatedLocations.length - 20} more locations
                               </TableCell>
                             </TableRow>
@@ -495,6 +587,7 @@ export default function Setup() {
                       <p className="text-sm text-muted-foreground">
                         <strong>Summary:</strong> {generatedLocations.length} locations will be created across {maxLevel + 1} levels (0-{maxLevel}).
                         Bays {bayStart}-{bayEnd} spanning Row {getRowFromBay(bayStart)} to Row {getRowFromBay(bayEnd)}.
+                        Each bay has {LOCATIONS_PER_BAY} positions per level.
                       </p>
                     </div>
                     <Button
@@ -547,6 +640,7 @@ export default function Setup() {
                           <TableHead>Level</TableHead>
                           <TableHead>Weight Status</TableHead>
                           <TableHead>Max Weight</TableHead>
+                          <TableHead>Rack Type</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -568,6 +662,11 @@ export default function Setup() {
                             </TableCell>
                             <TableCell>
                               {location.level === '0' ? 'Unlimited' : `${location.maxWeight}kg`}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {RACK_TYPES[location.rackType as keyof typeof RACK_TYPES]?.name || location.rackType || 'Standard'}
+                              </Badge>
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -866,7 +965,7 @@ export default function Setup() {
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
+        </AlertDialogFooter>
       </AlertDialog>
     </div>
   );

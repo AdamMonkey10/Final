@@ -1,12 +1,17 @@
 import type { Location } from '@/types/warehouse';
 
-// Weight limits per level (in kg)
+// Weight limits per level (in kg) - now configurable
 export const LEVEL_MAX_WEIGHTS = {
   '0': Infinity, // Ground level - no weight limit for stacking
   '1': 1500,     // First level
   '2': 1000,     // Second level
   '3': 750,      // Third level
   '4': 500,      // Fourth level
+  '5': 400,      // Fifth level
+  '6': 300,      // Sixth level
+  '7': 250,      // Seventh level
+  '8': 200,      // Eighth level
+  '9': 150,      // Ninth level
 };
 
 // Standard rack heights per level (in meters)
@@ -16,6 +21,11 @@ export const STANDARD_RACK_HEIGHTS = {
   '2': 5.0,      // Second level - 5.0m
   '3': 7.5,      // Third level - 7.5m
   '4': 10.0,     // Fourth level - 10.0m
+  '5': 12.5,     // Fifth level - 12.5m
+  '6': 15.0,     // Sixth level - 15.0m
+  '7': 17.5,     // Seventh level - 17.5m
+  '8': 20.0,     // Eighth level - 20.0m
+  '9': 22.5,     // Ninth level - 22.5m
 };
 
 // Rack type configurations
@@ -24,7 +34,8 @@ export const RACK_TYPES = {
     name: 'Standard Rack',
     description: 'Standard warehouse racking system',
     maxHeight: 12.0,
-    levelHeights: STANDARD_RACK_HEIGHTS
+    levelHeights: STANDARD_RACK_HEIGHTS,
+    levelWeights: LEVEL_MAX_WEIGHTS
   },
   'heavy-duty': {
     name: 'Heavy Duty Rack',
@@ -36,6 +47,15 @@ export const RACK_TYPES = {
       '2': 6.0,
       '3': 9.0,
       '4': 12.0,
+      '5': 15.0,
+    },
+    levelWeights: {
+      '0': Infinity,
+      '1': 2000,
+      '2': 1500,
+      '3': 1000,
+      '4': 750,
+      '5': 500,
     }
   },
   'cantilever': {
@@ -48,13 +68,21 @@ export const RACK_TYPES = {
       '2': 4.0,
       '3': 6.0,
       '4': 8.0,
+    },
+    levelWeights: {
+      '0': Infinity,
+      '1': 800,
+      '2': 600,
+      '3': 400,
+      '4': 300,
     }
   },
   'custom': {
     name: 'Custom Rack',
-    description: 'Custom height configuration',
-    maxHeight: 20.0,
-    levelHeights: STANDARD_RACK_HEIGHTS
+    description: 'Custom height and weight configuration',
+    maxHeight: 25.0,
+    levelHeights: STANDARD_RACK_HEIGHTS,
+    levelWeights: LEVEL_MAX_WEIGHTS
   }
 };
 
@@ -64,6 +92,14 @@ export function getLevelId(location: Location): string {
 
 export function getLevelWeight(locations: Location[]): number {
   return locations.reduce((total, loc) => total + (loc.currentWeight || 0), 0);
+}
+
+export function getLevelMaxWeight(level: string, rackType: string = 'standard'): number {
+  const rackConfig = RACK_TYPES[rackType as keyof typeof RACK_TYPES];
+  if (rackConfig && rackConfig.levelWeights[level as keyof typeof rackConfig.levelWeights] !== undefined) {
+    return rackConfig.levelWeights[level as keyof typeof rackConfig.levelWeights];
+  }
+  return LEVEL_MAX_WEIGHTS[level as keyof typeof LEVEL_MAX_WEIGHTS] || 500;
 }
 
 export function canAcceptWeight(location: Location, weight: number, levelLocations: Location[], isGroundLevel: boolean): boolean {
@@ -86,8 +122,8 @@ export function canAcceptWeight(location: Location, weight: number, levelLocatio
   const currentLevelWeight = getLevelWeight(levelLocations);
   const newLevelWeight = currentLevelWeight + weight;
 
-  // Check level weight limit
-  const levelMaxWeight = LEVEL_MAX_WEIGHTS[location.level as keyof typeof LEVEL_MAX_WEIGHTS];
+  // Check level weight limit based on rack type
+  const levelMaxWeight = getLevelMaxWeight(location.level, location.rackType);
   if (newLevelWeight > levelMaxWeight) {
     return false;
   }
@@ -107,9 +143,9 @@ function calculateDistanceScore(row: string, bay: string): number {
 }
 
 // Calculate weight suitability score (lower is better)
-function calculateWeightScore(weight: number, level: string, levelLocations: Location[]): number {
+function calculateWeightScore(weight: number, level: string, levelLocations: Location[], rackType: string = 'standard'): number {
   const levelNum = parseInt(level);
-  const levelMaxWeight = LEVEL_MAX_WEIGHTS[level as keyof typeof LEVEL_MAX_WEIGHTS];
+  const levelMaxWeight = getLevelMaxWeight(level, rackType);
   
   // Calculate current level weight
   const currentLevelWeight = getLevelWeight(levelLocations);
@@ -198,7 +234,7 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
     const levelKey = `${location.row}${location.bay}-${location.level}`;
     const levelLocations = levelGroups[levelKey];
     const distanceScore = calculateDistanceScore(location.row, location.bay);
-    const weightScore = calculateWeightScore(weight, location.level, levelLocations);
+    const weightScore = calculateWeightScore(weight, location.level, levelLocations, location.rackType);
     
     return {
       location,
@@ -260,8 +296,8 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
     const levelLocationsA = levelGroups[levelKeyA];
     const levelLocationsB = levelGroups[levelKeyB];
     
-    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA);
-    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB);
+    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA, a.rackType);
+    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB, b.rackType);
     
     return scoreA - scoreB;
   });
