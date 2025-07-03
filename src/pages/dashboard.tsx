@@ -2,16 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Package, Warehouse, QrCode, MapPin, ArrowDownToLine, ArrowUpFromLine, PackagePlus } from 'lucide-react';
+import { Package, Warehouse, ArrowDownToLine, ArrowUpFromLine, PackagePlus } from 'lucide-react';
 import { getItems, getItemsByStatus } from '@/lib/firebase/items';
-import { getLocations, getLocationByCode } from '@/lib/firebase/locations';
+import { getLocations } from '@/lib/firebase/locations';
 import { getMovements } from '@/lib/firebase/movements';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { FullscreenToggle } from '@/components/fullscreen-toggle';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { toast } from 'sonner';
-import { BayVisualizer } from '@/components/bay-visualizer';
 import { startOfHour, startOfDay, startOfWeek, isWithinInterval, subHours, subDays, subWeeks } from 'date-fns';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import type { Item, Location, Movement } from '@/types/warehouse';
@@ -48,9 +44,6 @@ export default function Dashboard() {
     occupied: 0,
     occupancyRate: 0
   });
-  const [showScanDialog, setShowScanDialog] = useState(false);
-  const [showLocationDialog, setShowLocationDialog] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [movementMetrics, setMovementMetrics] = useState<MovementMetrics>({
     hourly: { in: 0, out: 0 },
     daily: { in: 0, out: 0 },
@@ -125,29 +118,6 @@ export default function Dashboard() {
     fetchData();
   }, [user]);
 
-  const handleScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const form = e.target as HTMLFormElement;
-    const input = form.elements.namedItem('scanInput') as HTMLInputElement;
-    const scannedCode = input.value.trim();
-    form.reset();
-
-    const item = items.find(i => i.systemCode === scannedCode);
-    
-    if (item?.location) {
-      const location = await getLocationByCode(item.location);
-      if (location) {
-        setSelectedLocation(location);
-        setShowScanDialog(false);
-        setShowLocationDialog(true);
-      } else {
-        toast.error('Location not found');
-      }
-    } else {
-      toast.error('Item location not found');
-    }
-  };
-
   const placedItems = items.length;
 
   return (
@@ -168,24 +138,25 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Quick Action Buttons - Direct to Goods In/Out */}
         <div className="grid gap-4 md:grid-cols-2">
           <Button 
             size="lg" 
             className="h-16 text-lg flex items-center justify-center gap-2"
-            onClick={() => setShowScanDialog(true)}
+            onClick={() => navigate('/goods-in')}
           >
-            <MapPin className="h-6 w-6" />
-            Find Item Location
+            <PackagePlus className="h-6 w-6" />
+            Goods In
           </Button>
           
           <Button 
             size="lg" 
             variant="outline"
             className="h-16 text-lg flex items-center justify-center gap-2"
-            onClick={() => navigate('/scan')}
+            onClick={() => navigate('/goods-out')}
           >
-            <QrCode className="h-6 w-6" />
-            Scan Items
+            <ArrowUpFromLine className="h-6 w-6" />
+            Goods Out
           </Button>
         </div>
       </div>
@@ -318,46 +289,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Scan Dialog */}
-      <Dialog open={showScanDialog} onOpenChange={setShowScanDialog}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Find Item Location</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleScan} className="space-y-4">
-            <div className="relative">
-              <QrCode className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                name="scanInput"
-                placeholder="Scan item barcode..."
-                className="pl-9"
-                autoComplete="off"
-                autoFocus
-              />
-            </div>
-            <Button type="submit" className="w-full">
-              Find Location
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Location Dialog */}
-      <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Item Location</DialogTitle>
-          </DialogHeader>
-          {selectedLocation && (
-            <BayVisualizer
-              location={selectedLocation}
-              onConfirm={() => setShowLocationDialog(false)}
-              mode="view"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
