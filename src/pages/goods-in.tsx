@@ -652,7 +652,7 @@ export default function GoodsInPage() {
                         className="h-14 text-base"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Items &gt;1000kg automatically go to ground level
+                        Items >1000kg automatically go to ground level
                       </p>
                     </div>
 
@@ -1110,7 +1110,7 @@ export default function GoodsInPage() {
             <DialogTitle>Confirm Item Placement</DialogTitle>
           </DialogHeader>
           
-          {selectedItem && suggestedLocation && (
+          {createdItem && suggestedLocation && (
             <div className="space-y-4">
               {/* Item Details */}
               <div className="p-4 bg-muted rounded-lg">
