@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { addItem } from '@/lib/firebase/items';
+import { addItem, updateItem } from '@/lib/firebase/items';
 import { getLocations, updateLocation } from '@/lib/firebase/locations';
 import { addMovement } from '@/lib/firebase/movements';
 import { saveProduct } from '@/lib/firebase/products';
@@ -35,9 +35,8 @@ import { generateItemHtml } from '@/lib/html-label-generator';
 import { sendZPL, getPrinterSettings } from '@/lib/printer-service';
 import { Barcode } from '@/components/barcode';
 import { BayVisualizer } from '@/components/bay-visualizer';
-import { CameraScanner } from '@/components/camera-scanner';
 import { findOptimalLocation, getSuitableLocations } from '@/lib/warehouse-logic';
-import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, Scan, RefreshCw, ArrowLeft, X, Star, List, Grid3X3, Upload, FileText, Download, Hash, Keyboard } from 'lucide-react';
+import { PackagePlus, Printer, CheckCircle, Package, QrCode, Home, MapPin, RefreshCw, ArrowLeft, X, Star, List, Grid3X3, Upload, FileText, Download, Hash } from 'lucide-react';
 import { useFirebase } from '@/contexts/FirebaseContext';
 import { useOperator } from '@/contexts/OperatorContext';
 import { useNavigate } from 'react-router-dom';
@@ -62,7 +61,7 @@ export default function GoodsInPage() {
   const [showLabelDialog, setShowLabelDialog] = useState(false);
   const [showLocationDialog, setShowLocationDialog] = useState(false);
   const [showLocationGraphicDialog, setShowLocationGraphicDialog] = useState(false);
-  const [showScanLocationDialog, setShowScanLocationDialog] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showCsvImportDialog, setShowCsvImportDialog] = useState(false);
   const [createdItem, setCreatedItem] = useState<{
     id: string;
@@ -76,10 +75,8 @@ export default function GoodsInPage() {
   const [suggestedLocation, setSuggestedLocation] = useState<Location | null>(null);
   const [suitableLocations, setSuitableLocations] = useState<Location[]>([]);
   const [printing, setPrinting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'graphic' | 'scan' | 'complete'>('form');
+  const [currentStep, setCurrentStep] = useState<'form' | 'label' | 'location' | 'graphic' | 'confirm' | 'complete'>('form');
   const [locationViewMode, setLocationViewMode] = useState<'list' | 'graphic'>('list');
-  const [useManualLocationEntry, setUseManualLocationEntry] = useState(false);
-  const [manualLocationInput, setManualLocationInput] = useState('');
   
   // CSV Import state
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -294,48 +291,15 @@ export default function GoodsInPage() {
     setShowLocationGraphicDialog(true);
   };
 
-  const handleScanToPlace = () => {
+  const handleConfirmPlacement = () => {
     if (!suggestedLocation) return;
     
-    setCurrentStep('scan');
+    setCurrentStep('confirm');
     setShowLocationGraphicDialog(false);
-    setShowScanLocationDialog(true);
+    setShowConfirmDialog(true);
   };
 
-  const handleLocationScan = async (scannedCode: string) => {
-    if (!suggestedLocation || !createdItem) {
-      return;
-    }
-    
-    // Verify the scanned location matches the selected location
-    if (scannedCode !== suggestedLocation.code) {
-      toast.error(`Wrong location scanned. Expected: ${suggestedLocation.code}, Got: ${scannedCode}`);
-      return;
-    }
-    
-    await completeItemPlacement();
-  };
-
-  const handleManualLocationConfirm = async () => {
-    if (!manualLocationInput.trim()) {
-      toast.error('Please enter a location code');
-      return;
-    }
-
-    if (!suggestedLocation || !createdItem) {
-      return;
-    }
-    
-    // Verify the manual input matches the selected location
-    if (manualLocationInput.trim() !== suggestedLocation.code) {
-      toast.error(`Wrong location entered. Expected: ${suggestedLocation.code}, Got: ${manualLocationInput.trim()}`);
-      return;
-    }
-    
-    await completeItemPlacement();
-  };
-
-  const completeItemPlacement = async () => {
+  const handleFinalConfirm = async () => {
     if (!suggestedLocation || !createdItem) return;
 
     setLoading(true);
@@ -385,7 +349,7 @@ export default function GoodsInPage() {
         duration: 5000
       });
       
-      setShowScanLocationDialog(false);
+      setShowConfirmDialog(false);
       
       // Auto-complete after delay
       setTimeout(() => {
@@ -395,7 +359,7 @@ export default function GoodsInPage() {
     } catch (error) {
       console.error('Error placing item:', error);
       toast.error('❌ Failed to place item in stock');
-      setCurrentStep('scan');
+      setCurrentStep('confirm');
     } finally {
       setLoading(false);
     }
@@ -408,8 +372,6 @@ export default function GoodsInPage() {
     setSuitableLocations([]);
     setCurrentStep('form');
     setLocationViewMode('list');
-    setUseManualLocationEntry(false);
-    setManualLocationInput('');
     
     // Reset form
     setFormData({
@@ -427,13 +389,13 @@ export default function GoodsInPage() {
   };
 
   const handleBackToLocationSelection = () => {
-    setShowScanLocationDialog(false);
+    setShowConfirmDialog(false);
     setCurrentStep('location');
     setShowLocationDialog(true);
   };
 
   const handleBackToLocationGraphic = () => {
-    setShowScanLocationDialog(false);
+    setShowConfirmDialog(false);
     setCurrentStep('graphic');
     setShowLocationGraphicDialog(true);
   };
@@ -565,7 +527,7 @@ export default function GoodsInPage() {
       { key: 'label', label: 'Generate Label', icon: Printer },
       { key: 'location', label: 'Choose Location', icon: MapPin },
       { key: 'graphic', label: 'Location View', icon: Star },
-      { key: 'scan', label: 'Confirm Location', icon: Scan },
+      { key: 'confirm', label: 'Confirm Placement', icon: CheckCircle },
       { key: 'complete', label: 'In Stock', icon: CheckCircle }
     ];
 
@@ -1133,7 +1095,7 @@ export default function GoodsInPage() {
               {/* Bay Visualizer */}
               <BayVisualizer
                 location={suggestedLocation}
-                onConfirm={handleScanToPlace}
+                onConfirm={handleConfirmPlacement}
                 mode="place"
               />
             </div>
@@ -1141,119 +1103,51 @@ export default function GoodsInPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Scan Location Dialog */}
-      <Dialog open={showScanLocationDialog} onOpenChange={(open) => {
-        if (!open) {
-          handleBackToLocationGraphic();
-        }
-      }}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      {/* Final Confirmation Dialog */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent>
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-2">
-                <Scan className="h-5 w-5" />
-                Confirm Location to Place Item
-              </DialogTitle>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBackToLocationGraphic}
-                  className="flex items-center gap-2"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Back
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleBackToLocationGraphic}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+            <DialogTitle>Confirm Item Placement</DialogTitle>
           </DialogHeader>
           
-          {suggestedLocation && createdItem && (
-            <div className="space-y-6">
-              {/* Location Instructions */}
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-center gap-2 text-green-800 mb-2">
+          {selectedItem && suggestedLocation && (
+            <div className="space-y-4">
+              {/* Item Details */}
+              <div className="p-4 bg-muted rounded-lg">
+                <h3 className="font-medium">{createdItem?.itemCode}</h3>
+                <p className="text-sm text-muted-foreground">{createdItem?.description}</p>
+                <p className="text-sm">Weight: {createdItem?.weight}kg | Qty: {createdItem?.quantity} | LOT: {createdItem?.lotNumber}</p>
+                <p className="text-xs text-muted-foreground">System Code: {createdItem?.systemCode}</p>
+                <p className="text-xs text-muted-foreground">Operator: {getOperatorName()}</p>
+              </div>
+              
+              {/* Location Details */}
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-800 mb-2">
                   <MapPin className="h-5 w-5" />
-                  <span className="font-medium">Confirm Location: {suggestedLocation.code}</span>
+                  <span className="font-medium">Placing at: {suggestedLocation.code}</span>
                 </div>
-                <div className="text-sm text-green-700">
+                <div className="text-sm text-blue-700">
                   Row {suggestedLocation.row}, Bay {suggestedLocation.bay}, Level {suggestedLocation.level === '0' ? 'Ground' : suggestedLocation.level}
                 </div>
-                <div className="text-xs text-green-600 mt-1">
-                  Scan the location barcode or enter the location code manually to confirm placement
-                </div>
               </div>
 
-              {/* Method Selection */}
-              <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
                 <Button 
-                  onClick={() => {
-                    setUseManualLocationEntry(false);
-                  }}
-                  variant={!useManualLocationEntry ? "default" : "outline"}
-                  className="w-full h-12 text-base"
+                  onClick={handleFinalConfirm}
+                  className="flex-1 h-12 text-base"
+                  disabled={loading}
                 >
-                  <QrCode className="h-5 w-5 mr-2" />
-                  Scan Location Barcode
+                  {loading ? 'Placing Item...' : 'Confirm Placement'}
                 </Button>
-                
                 <Button 
-                  onClick={() => {
-                    setUseManualLocationEntry(true);
-                  }}
-                  variant={useManualLocationEntry ? "default" : "outline"}
-                  className="w-full h-12 text-base"
+                  variant="outline"
+                  onClick={handleBackToLocationGraphic}
+                  disabled={loading}
+                  className="h-12 text-base"
                 >
-                  <Keyboard className="h-5 w-5 mr-2" />
-                  Enter Location Code
+                  Back
                 </Button>
-              </div>
-
-              {/* Manual Entry Section */}
-              {useManualLocationEntry && (
-                <div className="space-y-4 p-4 border rounded-lg">
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      value={manualLocationInput}
-                      onChange={(e) => setManualLocationInput(e.target.value)}
-                      placeholder={`Enter location code: ${suggestedLocation.code}`}
-                      className="pl-9 text-lg h-12"
-                      autoComplete="off"
-                      autoFocus
-                    />
-                  </div>
-                  <Button 
-                    onClick={handleManualLocationConfirm}
-                    className="w-full h-12 text-base"
-                    disabled={!manualLocationInput.trim()}
-                  >
-                    Confirm Location
-                  </Button>
-                </div>
-              )}
-
-              {/* Camera Scanner Section */}
-              {!useManualLocationEntry && (
-                <CameraScanner
-                  onResult={handleLocationScan}
-                  onError={(error) => toast.error(`Scanner error: ${error}`)}
-                  isActive={showScanLocationDialog && !useManualLocationEntry}
-                  autoComplete={true}
-                  className="w-full"
-                />
-              )}
-
-              <div className="text-xs text-center text-muted-foreground">
-                <p>Confirm the location to place the item into stock.</p>
-                <p>Expected location: <strong>{suggestedLocation.code}</strong></p>
               </div>
             </div>
           )}
