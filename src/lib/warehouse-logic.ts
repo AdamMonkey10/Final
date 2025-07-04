@@ -299,13 +299,17 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
 
   // Sort by suitability (optimal locations first)
   return validLocations.sort((a, b) => {
-    const levelKeyA = `${a.row}${a.bay}-${a.level}`;
-    const levelKeyB = `${b.row}${b.bay}-${b.level}`;
-    const levelLocationsA = levelGroups[levelKeyA] || [];
-    const levelLocationsB = levelGroups[levelKeyB] || [];
+    // For ground level, just use distance scoring
+    if (a.level === '0' && b.level === '0') {
+      return calculateDistanceScore(a.row, a.bay) - calculateDistanceScore(b.row, b.bay);
+    }
     
-    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA, a.rackType);
-    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB, b.rackType);
+    // For non-ground levels, use both distance and weight scoring
+    const levelLocationsA = levelGroups[`${a.row}${a.bay}-${a.level}`] || [];
+    const levelLocationsB = levelGroups[`${b.row}${b.bay}-${b.level}`] || [];
+    
+    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA, a.rackType || 'standard');
+    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB, b.rackType || 'standard');
     
     return scoreA - scoreB;
   });
