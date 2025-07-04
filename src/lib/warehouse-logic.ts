@@ -118,13 +118,9 @@ export function canAcceptWeight(location: Location, weight: number, levelLocatio
     return !location.isGroundFull;
   }
 
-  // Calculate current level weight including the new weight
-  const currentLevelWeight = getLevelWeight(levelLocations);
-  const newLevelWeight = currentLevelWeight + weight;
-
-  // Check level weight limit based on rack type
-  const levelMaxWeight = getLevelMaxWeight(location.level, location.rackType);
-  if (newLevelWeight > levelMaxWeight) {
+  // For non-ground levels, check the specific location's weight capacity
+  const newLocationWeight = location.currentWeight + weight;
+  if (newLocationWeight > location.maxWeight) {
     return false;
   }
 
@@ -284,20 +280,13 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
 
   // Filter locations that can accept the weight based on level capacity
   const validLocations = filteredLocations.filter(location => {
-    const levelKey = `${location.row}${location.bay}-${location.level}`;
-    const levelLocations = levelGroups[levelKey];
-    return canAcceptWeight(location, weight, levelLocations, location.level === '0');
+    return canAcceptWeight(location, weight, [], location.level === '0');
   });
 
   // Sort by suitability (optimal locations first)
   return validLocations.sort((a, b) => {
-    const levelKeyA = `${a.row}${a.bay}-${a.level}`;
-    const levelKeyB = `${b.row}${b.bay}-${b.level}`;
-    const levelLocationsA = levelGroups[levelKeyA];
-    const levelLocationsB = levelGroups[levelKeyB];
-    
-    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA, a.rackType);
-    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB, b.rackType);
+    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a);
+    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b);
     
     return scoreA - scoreB;
   });
