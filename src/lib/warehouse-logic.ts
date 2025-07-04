@@ -299,8 +299,13 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
 
   // Sort by suitability (optimal locations first)
   return validLocations.sort((a, b) => {
-    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a);
-    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b);
+    const levelKeyA = `${a.row}${a.bay}-${a.level}`;
+    const levelKeyB = `${b.row}${b.bay}-${b.level}`;
+    const levelLocationsA = levelGroups[levelKeyA] || [];
+    const levelLocationsB = levelGroups[levelKeyB] || [];
+    
+    const scoreA = calculateDistanceScore(a.row, a.bay) + calculateWeightScore(weight, a.level, levelLocationsA, a.rackType);
+    const scoreB = calculateDistanceScore(b.row, b.bay) + calculateWeightScore(weight, b.level, levelLocationsB, b.rackType);
     
     return scoreA - scoreB;
   });
