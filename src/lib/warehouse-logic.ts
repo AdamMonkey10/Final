@@ -188,6 +188,11 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
     (loc.level === '0') === isGroundLevel
   );
 
+  // Defensive check to ensure filteredLocations is always an array
+  if (!filteredLocations || !Array.isArray(filteredLocations)) {
+    return null;
+  }
+
   if (filteredLocations.length === 0) {
     return null;
   }
