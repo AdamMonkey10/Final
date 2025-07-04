@@ -233,9 +233,9 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
   // Score each location based on multiple factors
   const scoredLocations = validLocations.map(location => {
     const levelKey = `${location.row}${location.bay}-${location.level}`;
-    const levelLocations = levelGroups[levelKey];
+    const levelLocations = levelGroups[levelKey] || [];
     const distanceScore = calculateDistanceScore(location.row, location.bay);
-    const weightScore = calculateWeightScore(weight, location.level, levelLocations, location.rackType);
+    const weightScore = calculateWeightScore(weight, location.level, levelLocations, location.rackType || 'standard');
     
     return {
       location,
