@@ -102,14 +102,10 @@ export function getLevelMaxWeight(level: string, rackType: string = 'standard'):
   return LEVEL_MAX_WEIGHTS[level as keyof typeof LEVEL_MAX_WEIGHTS] || 500;
 }
 
-export function canAcceptWeight(location: Location, weight: number, levelLocations: Location[], isGroundLevel: boolean): boolean {
+// Simplified function - only checks availability and verification
+export function canAcceptWeight(location: Location, weight: number): boolean {
   // Check if location is available and verified
   if (!location.available || !location.verified) {
-    return false;
-  }
-
-  // Only allow ground level items in level 0 and vice versa
-  if ((location.level === '0') !== isGroundLevel) {
     return false;
   }
 
@@ -118,12 +114,7 @@ export function canAcceptWeight(location: Location, weight: number, levelLocatio
     return !location.isGroundFull;
   }
 
-  // For non-ground levels, check the specific location's weight capacity
-  const newLocationWeight = location.currentWeight + weight;
-  if (newLocationWeight > location.maxWeight) {
-    return false;
-  }
-
+  // All other levels can accept any weight - no restrictions
   return true;
 }
 
@@ -138,39 +129,22 @@ function calculateDistanceScore(row: string, bay: string): number {
   return rowScore + bayScore;
 }
 
-// Calculate weight suitability score (lower is better)
-function calculateWeightScore(weight: number, level: string, levelLocations: Location[], rackType: string = 'standard'): number {
+// Simplified weight scoring - only considers height penalty for heavy items
+function calculateWeightScore(weight: number, level: string): number {
   const levelNum = parseInt(level);
-  const levelMaxWeight = getLevelMaxWeight(level, rackType);
   
-  // Calculate current level weight
-  const currentLevelWeight = getLevelWeight(levelLocations);
-  const newLevelWeight = currentLevelWeight + weight;
-
-  // Heavy penalty for exceeding level weight limits
-  if (newLevelWeight > levelMaxWeight) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
   // For ground level, no weight scoring needed
   if (level === '0') {
     return 0;
   }
 
-  // Penalize putting heavy items on higher levels
+  // Only penalize putting heavy items on higher levels (suggestion, not restriction)
   const heightPenalty = weight * levelNum * 2;
   
-  // Penalize inefficient use of weight capacity
-  const capacityScore = Math.abs(levelMaxWeight - newLevelWeight);
-  
-  // Additional penalty for nearly full levels
-  const levelUtilization = newLevelWeight / levelMaxWeight;
-  const levelPenalty = levelUtilization * 1000;
-
-  return heightPenalty + capacityScore + levelPenalty;
+  return heightPenalty;
 }
 
-export function findOptimalLocation(locations: Location[], weight: number, isGroundLevel: boolean = false): Location | null {
+export function findOptimalLocation(locations: Location[], weight: number): Location | null {
   // Add defensive checks and warnings
   if (!locations || !Array.isArray(locations)) {
     console.warn('findOptimalLocation: locations is not an array:', locations);
@@ -190,38 +164,23 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
     return null;
   }
 
-  // For heavy items (>1000kg), force ground level
-  if (weight > 1000) {
-    isGroundLevel = true;
-  }
+  // Filter locations that can accept the weight (no weight restrictions, just availability)
+  const validLocations = availableLocations.filter(location => {
+    return canAcceptWeight(location, weight);
+  });
 
-  // Filter locations based on ground level requirement
-  const filteredLocations = availableLocations.filter(loc => 
-    (loc.level === '0') === isGroundLevel
-  );
-
-  // Defensive check to ensure filteredLocations is always an array
-  if (!filteredLocations || !Array.isArray(filteredLocations)) {
+  if (validLocations.length === 0) {
+    console.warn('findOptimalLocation: no valid locations found');
     return null;
   }
 
-  if (filteredLocations.length === 0) {
-    return null;
-  }
+  // For ground level locations, prioritize those with fewer stacked items
+  const groundLocations = validLocations.filter(loc => loc.level === '0');
+  const rackLocations = validLocations.filter(loc => loc.level !== '0');
 
-  // For ground level, prioritize locations with fewer stacked items
-  if (isGroundLevel) {
-    // Filter ground level locations that can accept the weight
-    const validGroundLocations = filteredLocations.filter(location => {
-      return canAcceptWeight(location, weight, [], true);
-    });
-
-    if (validGroundLocations.length === 0) {
-      console.warn('findOptimalLocation: no valid ground level locations found');
-      return null;
-    }
-
-    return validGroundLocations.sort((a, b) => {
+  // If we have ground locations, prefer them for heavy items
+  if (groundLocations.length > 0 && weight > 1000) {
+    return groundLocations.sort((a, b) => {
       const aStacked = a.stackedItems?.length || 0;
       const bStacked = b.stackedItems?.length || 0;
       if (aStacked !== bStacked) {
@@ -231,25 +190,14 @@ export function findOptimalLocation(locations: Location[], weight: number, isGro
     })[0];
   }
 
-  // For non-ground level, filter locations that can accept the weight
-  const validRackLocations = filteredLocations.filter(location => {
-    return canAcceptWeight(location, weight, [], false);
-  });
-
-  if (validRackLocations.length === 0) {
-    console.warn('findOptimalLocation: no valid rack locations found');
-    return null;
-  }
-
-  // Score each location based on distance and weight suitability
-  const scoredLocations = validRackLocations.map(location => {
+  // Score all valid locations based on distance and weight suitability
+  const scoredLocations = validLocations.map(location => {
     const distanceScore = calculateDistanceScore(location.row, location.bay);
-    // Simplified weight score - just penalize putting heavy items on high levels
-    const heightPenalty = weight * parseInt(location.level) * 2;
+    const weightScore = calculateWeightScore(weight, location.level);
     
     return {
       location,
-      score: distanceScore + heightPenalty
+      score: distanceScore + weightScore
     };
   });
 
@@ -274,34 +222,13 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
     return [];
   }
 
-  // For heavy items (>1000kg), only show ground level
-  const isGroundLevel = weight > 1000;
-  
-  // Filter locations based on ground level requirement
-  let filteredLocations = availableLocations.filter(loc => {
-    if (isGroundLevel) {
-      return loc.level === '0';
-    }
-    // For lighter items, show all levels that can handle the weight
-    return true;
-  });
-
-  // Defensive check to ensure filteredLocations is always an array
-  if (!filteredLocations || !Array.isArray(filteredLocations)) {
-    filteredLocations = [];
-  }
-
-  if (filteredLocations.length === 0) {
-    return [];
-  }
-
-  // Filter locations that can accept the weight based on level capacity
-  const validLocations = filteredLocations.filter(location => {
-    return canAcceptWeight(location, weight, [], location.level === '0');
+  // Filter locations that can accept the weight (no weight restrictions, just availability)
+  const validLocations = availableLocations.filter(location => {
+    return canAcceptWeight(location, weight);
   });
 
   if (validLocations.length === 0) {
-    console.warn('getSuitableLocations: no valid locations found for weight:', weight);
+    console.warn('getSuitableLocations: no valid locations found');
     return [];
   }
 
@@ -309,10 +236,10 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
   return validLocations.sort((a, b) => {
     const distanceScoreA = calculateDistanceScore(a.row, a.bay);
     const distanceScoreB = calculateDistanceScore(b.row, b.bay);
-    const heightPenaltyA = weight * parseInt(a.level) * 2;
-    const heightPenaltyB = weight * parseInt(b.level) * 2;
+    const weightScoreA = calculateWeightScore(weight, a.level);
+    const weightScoreB = calculateWeightScore(weight, b.level);
     
-    return (distanceScoreA + heightPenaltyA) - (distanceScoreB + heightPenaltyB);
+    return (distanceScoreA + weightScoreA) - (distanceScoreB + weightScoreB);
   });
 }
 

@@ -232,7 +232,7 @@ export default function GoodsInPage() {
     
     try {
       // Find optimal location and all suitable locations
-      const optimalLocation = findOptimalLocation(locations, createdItem.weight, false);
+      const optimalLocation = findOptimalLocation(locations, createdItem.weight);
       const allSuitableLocations = getSuitableLocations(locations, createdItem.weight);
       
       if (allSuitableLocations.length === 0) {
@@ -243,7 +243,7 @@ export default function GoodsInPage() {
       setSuggestedLocation(optimalLocation);
       setSuitableLocations(allSuitableLocations);
 
-      const weightInfo = createdItem.weight > 1000 ? ' (Heavy item - ground level only)' : '';
+      const weightInfo = createdItem.weight > 1000 ? ' (Heavy item - ground level recommended)' : '';
       
       toast.success('Locations found!', {
         description: `${allSuitableLocations.length} suitable locations available${weightInfo}`,
@@ -272,15 +272,14 @@ export default function GoodsInPage() {
   const handleLocationSelect = (location: Location) => {
     if (!createdItem) return;
     
-    // Check if location can accept the item weight
-    if (location.level !== '0') {
-      const newWeight = location.currentWeight + createdItem.weight;
-      if (newWeight > location.maxWeight) {
-        toast.error('❌ Location weight capacity exceeded', {
-          description: `${newWeight}kg would exceed ${location.maxWeight}kg limit`,
+    // Show warning for heavy items on high levels but allow placement
+    if (location.level !== '0' && createdItem.weight > 500) {
+      const levelNum = parseInt(location.level);
+      if (levelNum > 2) {
+        toast.warning('⚠️ Heavy item on high level', {
+          description: `${createdItem.weight}kg item being placed on level ${location.level}. Consider ground level for safety.`,
           duration: 5000
         });
-        return;
       }
     }
 
