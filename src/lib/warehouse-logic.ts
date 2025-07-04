@@ -260,13 +260,22 @@ export function getSuitableLocations(locations: Location[], weight: number): Loc
   const isGroundLevel = weight > 1000;
   
   // Filter locations based on ground level requirement
-  const filteredLocations = availableLocations.filter(loc => {
+  let filteredLocations = availableLocations.filter(loc => {
     if (isGroundLevel) {
       return loc.level === '0';
     }
     // For lighter items, show all levels that can handle the weight
     return true;
   });
+
+  // Defensive check to ensure filteredLocations is always an array
+  if (!filteredLocations || !Array.isArray(filteredLocations)) {
+    filteredLocations = [];
+  }
+
+  if (filteredLocations.length === 0) {
+    return [];
+  }
 
   // Group locations by level
   const levelGroups = filteredLocations.reduce((groups, loc) => {
