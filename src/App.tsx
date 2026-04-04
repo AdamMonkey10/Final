@@ -18,16 +18,22 @@ import Inventory from './components/Inventory';
 import LevelUpModal from './components/LevelUpModal';
 import SettingsPanel from './components/SettingsPanel';
 import MapScreen from './components/MapScreen';
+import TutorialHelper, { shouldShowTutorial } from './components/TutorialHelper';
 
 export default function App() {
   const game = useGameState();
   const { state } = game;
   const [_tradeMode, setTradeMode] = useState<'shop' | 'trade'>('shop');
+  // Show tutorial only for brand-new games (not continued saves)
+  const [showTutorial, setShowTutorial] = useState(false);
 
   if (state.screen === 'start') {
     return (
       <StartScreen
-        onNewGame={game.startNewGame}
+        onNewGame={name => {
+          game.startNewGame(name);
+          if (shouldShowTutorial()) setShowTutorial(true);
+        }}
         onContinue={game.continueGame}
       />
     );
@@ -58,7 +64,6 @@ export default function App() {
         break;
       case 'start_quest':
         game.addLog(`📜 New quest started: ${action.questId.replace(/_/g, ' ')}!`);
-        // Trigger boss fight immediately for final quest
         if (action.questId === 'final_confrontation') {
           const boss = { ...ENEMIES.von_dooooom_boss };
           const combatState: CombatState = {
@@ -74,9 +79,7 @@ export default function App() {
             bossPhaseIndex: 0,
           };
           game.openOverlay('none');
-          setTimeout(() => {
-            game.startBossFight(combatState);
-          }, 100);
+          setTimeout(() => game.startBossFight(combatState), 100);
         }
         break;
       case 'complete_quest':
@@ -122,24 +125,26 @@ export default function App() {
         />
       </main>
 
-      {state.pendingLevelUp && state.overlay !== 'combat' && (
+      {/* Tutorial — rendered above everything else when active */}
+      {showTutorial && (
+        <TutorialHelper
+          playerName={state.playerName}
+          onFinish={() => setShowTutorial(false)}
+        />
+      )}
+
+      {state.pendingLevelUp && state.overlay !== 'combat' && !showTutorial && (
         <LevelUpModal state={state} onClose={game.clearLevelUp} />
       )}
 
-      {state.overlay === 'npc' && state.activeNpcId && (
+      {state.overlay === 'npc' && state.activeNpcId && !showTutorial && (
         <NPCDialog
           state={state}
           npcId={state.activeNpcId}
           onClose={game.closeOverlay}
           onAction={handleNpcAction}
-          onOpenShop={() => {
-            setTradeMode('shop');
-            game.openOverlay('shop');
-          }}
-          onOpenTrade={() => {
-            setTradeMode('trade');
-            game.openOverlay('trade');
-          }}
+          onOpenShop={() => { setTradeMode('shop'); game.openOverlay('shop'); }}
+          onOpenTrade={() => { setTradeMode('trade'); game.openOverlay('trade'); }}
         />
       )}
 
@@ -183,6 +188,7 @@ export default function App() {
           onToggleSound={game.toggleSound}
           onManualSave={game.manualSave}
           onRestart={game.restartGame}
+          onReplayTutorial={() => setShowTutorial(true)}
         />
       )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { GameState } from '../types/game';
 
 interface SettingsPanelProps {
@@ -7,9 +7,10 @@ interface SettingsPanelProps {
   onToggleSound: () => void;
   onManualSave: () => void;
   onRestart: () => void;
+  onReplayTutorial: () => void;
 }
 
-export default function SettingsPanel({ state, onClose, onToggleSound, onManualSave, onRestart }: SettingsPanelProps) {
+export default function SettingsPanel({ state, onClose, onToggleSound, onManualSave, onRestart, onReplayTutorial }: SettingsPanelProps) {
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [savedMessage, setSavedMessage] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -116,6 +117,19 @@ export default function SettingsPanel({ state, onClose, onToggleSound, onManualS
           </div>
         </button>
 
+        {/* Replay tutorial */}
+        <button
+          onClick={() => { onReplayTutorial(); onClose(); }}
+          className="w-full bg-spooky-card border-2 border-spooky-purple rounded-xl p-4 flex items-center gap-4 active:scale-95 transition-transform"
+        >
+          <span className="text-3xl">👻</span>
+          <div className="text-left flex-1">
+            <p className="font-game font-bold text-spooky-text text-base">Gerald's Tour</p>
+            <p className="font-game text-gray-400 text-sm">Replay the intro guide</p>
+          </div>
+          <span className="text-spooky-purple text-xl">→</span>
+        </button>
+
         {/* How to play */}
         <button
           onClick={() => setShowRules(true)}
@@ -124,7 +138,7 @@ export default function SettingsPanel({ state, onClose, onToggleSound, onManualS
           <span className="text-3xl">📖</span>
           <div className="text-left flex-1">
             <p className="font-game font-bold text-spooky-text text-base">How to Play</p>
-            <p className="font-game text-gray-400 text-sm">Rules and tips for new players</p>
+            <p className="font-game text-gray-400 text-sm">Quick rules reference</p>
           </div>
           <span className="text-spooky-purple text-xl">→</span>
         </button>
