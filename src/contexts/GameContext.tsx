@@ -4,8 +4,9 @@ import {
   createNewGame, initializePlanets, generateMarket, generateMissions, getSolarSystems,
   rollEncounter, rollGoodEncounter, resolveCombatRound, getCargoUsed, getShipEffectiveStats,
   getUpgradeCost, getTravelDistance, getTravelDuration, isSameSystem,
-  makeNotification, generateBountyEnemy,
+  makeNotification, generateBountyEnemy, exploreLocation,
 } from '@/lib/game-engine';
+import { SPACEPORT_LOCATIONS } from '@/data/game-data';
 import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
 
 const SAVE_KEY = 'space_rpg_save_v2';
@@ -53,7 +54,8 @@ type Action =
   | { type: 'DISMISS_NOTIFICATION'; id: string }
   | { type: 'REFILL_SHIELDS' }
   | { type: 'STAMP_LOG' }
-  | { type: 'BUY_INSURANCE' };
+  | { type: 'BUY_INSURANCE' }
+  | { type: 'EXPLORE_LOCATION'; locationId: string };
 
 function notify(state: GameState, message: string, type: GameState['notifications'][0]['type']): GameState {
   return { ...state, notifications: [...state.notifications.slice(-4), makeNotification(message, type)] };
@@ -410,6 +412,73 @@ function gameReducer(state: GameState, action: Action): GameState {
         ...state,
         player: { ...state.player, credits: state.player.credits - cost },
       }, 'Emergency beacon registered. Rescue penalty reduced by 20%.', 'info');
+    }
+
+    case 'EXPLORE_LOCATION': {
+      const { locationId } = action;
+      // Find location definition across all spaceports
+      const allLocs = Object.values(SPACEPORT_LOCATIONS).flat();
+      const loc = allLocs.find(l => l.id === locationId);
+      if (!loc) return state;
+
+      // Mark as explored this day
+      const exploredLocations = { ...state.player.exploredLocations, [locationId]: state.gameDay };
+
+      const { result, mission } = exploreLocation(
+        locationId,
+        loc.type,
+        state.player.currentPlanetId,
+        state.planets,
+        state.systems,
+        state.gameDay,
+        state.player.reputation,
+      );
+
+      // Apply cargo reward
+      let ship = { ...state.player.ship };
+      if (result.cargoReward) {
+        const effective = getShipEffectiveStats(ship);
+        const free = effective.cargoCapacity - getCargoUsed(ship);
+        const canTake = Math.min(result.cargoReward.quantity, Math.floor(free));
+        if (canTake > 0) {
+          const idx = ship.cargo.findIndex(c => c.good === result.cargoReward!.good);
+          const newCargo = [...ship.cargo];
+          if (idx >= 0) {
+            newCargo[idx] = { ...newCargo[idx], quantity: newCargo[idx].quantity + canTake };
+          } else {
+            newCargo.push({ good: result.cargoReward.good, quantity: canTake, avgPurchasePrice: 0 });
+          }
+          ship = { ...ship, cargo: newCargo };
+        }
+      }
+
+      // Apply hull repair
+      if (result.hullRepair) {
+        ship = { ...ship, hull: Math.min(ship.maxHull, ship.hull + result.hullRepair) };
+      }
+
+      const newMissions = mission ? [...state.player.missions, mission] : state.player.missions;
+
+      let newState: GameState = {
+        ...state,
+        lastLocationResult: result,
+        player: {
+          ...state.player,
+          exploredLocations,
+          ship,
+          credits: state.player.credits + (result.creditBonus ?? 0),
+          reputation: state.player.reputation + (result.reputationBonus ?? 0),
+          missions: newMissions,
+        },
+      };
+
+      // Notification
+      if (result.creditBonus) newState = notify(newState, `${loc.name}: +${result.creditBonus}cr`, 'success');
+      else if (result.cargoReward) newState = notify(newState, `${loc.name}: +${result.cargoReward.quantity}× ${GOODS[result.cargoReward.good].name}`, 'success');
+      else if (result.reputationBonus) newState = notify(newState, `${loc.name}: +${result.reputationBonus} reputation`, 'success');
+      else if (result.hullRepair) newState = notify(newState, `${loc.name}: +${result.hullRepair} hull repaired`, 'success');
+      else if (result.missionId) newState = notify(newState, `${loc.name}: New mission available!`, 'success');
+      return newState;
     }
 
     default:

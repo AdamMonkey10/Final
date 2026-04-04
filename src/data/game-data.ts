@@ -1,4 +1,4 @@
-import type { Good, GoodType, ShipTemplate, Planet, SolarSystem } from '@/types/game';
+import type { Good, GoodType, ShipTemplate, Planet, SolarSystem, SpaceportLocation } from '@/types/game';
 
 export const GOODS: Record<GoodType, Good> = {
   food:       { type: 'food',       name: 'Food Rations',   basePrice: 30,  weight: 1, icon: '🌾' },
@@ -211,4 +211,39 @@ export const UPGRADE_COSTS: Record<string, number[]> = {
 
 export const UPGRADE_LABELS: Record<string, string> = {
   cargo: 'Cargo Bay', engine: 'Engine', shields: 'Shield Generator', weapons: 'Weapons',
+};
+
+// ── Spaceport Locations ────────────────────────────────────────────────────────
+
+export const SPACEPORT_LOCATIONS: Record<string, SpaceportLocation[]> = {
+  nova_gate: [
+    { id: 'nova_gate_cantina',  name: "Drifter's Cantina",   icon: '🍺', type: 'cantina',     description: 'A dimly lit bar where pilots share routes and whisper about contracts. Someone always needs a favour.' },
+    { id: 'nova_gate_supply',   name: 'Supply Depot',        icon: '📦', type: 'supply_depot', description: 'Federation-stocked shelves. Sometimes surplus goods go unclaimed.' },
+    { id: 'nova_gate_broker',   name: 'Info Broker',         icon: '📡', type: 'info_broker',  description: 'A shady dealer who trades in market secrets and route tips for the right price — or occasionally for free.' },
+    { id: 'nova_gate_storage',  name: 'Overflow Storage',    icon: '🏚', type: 'storage',      description: "Unclaimed cargo bays from pilots who never came back. Management looks the other way." },
+  ],
+  fuel_depot: [
+    { id: 'fuel_depot_hangar',  name: 'Repair Hangar',       icon: '🔩', type: 'hangar',       description: 'Grease-covered mechanics fix ships around the clock. Offcuts and spare parts are free if you ask nicely.' },
+    { id: 'fuel_depot_workshop',name: 'Parts Workshop',      icon: '⚙️', type: 'workshop',     description: 'Surplus engine components and used machinery pile up here. Builders leave bits behind.' },
+    { id: 'fuel_depot_storage', name: 'Fuel Reserve',        icon: '🛢', type: 'storage',      description: 'Overflow fuel drums and uncatalogued parts. Worth a look.' },
+    { id: 'fuel_depot_market',  name: 'Black Market Stall',  icon: '🤫', type: 'black_market', description: 'No official signage, but everyone knows. Illegal goods and off-books work for trusted pilots.' },
+  ],
+  trade_nexus: [
+    { id: 'trade_nexus_lounge', name: 'Merchant Lounge',     icon: '🥂', type: 'lounge',       description: 'Guild members network over drinks. Introductions can be worth more than credits.' },
+    { id: 'trade_nexus_broker', name: 'Trade Intelligence',  icon: '📊', type: 'info_broker',  description: 'Live price feeds and insider tips. The Guild sells information but sometimes leaks it.' },
+    { id: 'trade_nexus_supply', name: 'Guild Warehouse',     icon: '🏬', type: 'supply_depot', description: 'Mislabelled and misrouted crates accumulate here. Finders keepers.' },
+    { id: 'trade_nexus_market', name: 'Back-Alley Exchange', icon: '🕵️', type: 'black_market', description: 'The Nexus officially bans contraband. Unofficially, this alley does brisk business.' },
+  ],
+  fort_kestrel: [
+    { id: 'fort_kestrel_armory',name: 'Surplus Armory',      icon: '🔫', type: 'armory',       description: 'Decommissioned weapons and excess ordnance. Soldiers sometimes sell off surplus.' },
+    { id: 'fort_kestrel_medbay',name: 'Field Medbay',        icon: '💊', type: 'medbay',       description: 'Military medics patch up civilians on quiet days. Supplies sometimes go spare.' },
+    { id: 'fort_kestrel_cantina',name: "Soldiers' Mess",     icon: '🍺', type: 'cantina',      description: 'Off-duty troopers gamble and gossip. Bounty leads surface here regularly.' },
+    { id: 'fort_kestrel_hangar',name: 'Salvage Yard',        icon: '🔩', type: 'hangar',       description: 'Wrecked ships stripped for parts. If you know what you want, you can find it.' },
+  ],
+  green_haven: [
+    { id: 'green_haven_supply', name: 'Farm Co-op',          icon: '🌾', type: 'supply_depot', description: 'Colonist-run food co-op. They often have excess stock they are glad to share with friendly pilots.' },
+    { id: 'green_haven_medbay', name: 'Clinic',              icon: '💊', type: 'medbay',       description: 'A small but well-stocked frontier clinic. The doctor patches ships as well as people.' },
+    { id: 'green_haven_cantina',name: 'Settlers Tavern',     icon: '🍺', type: 'cantina',      description: "Frontier folk share news from the edge. There's always someone with a job needing done." },
+    { id: 'green_haven_storage',name: 'Abandoned Homestead', icon: '🏚', type: 'storage',      description: 'A settler who left in a hurry. Their shed is still full of supplies.' },
+  ],
 };

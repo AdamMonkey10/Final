@@ -12,6 +12,29 @@ export interface GoodEncounter {
   cargoReward?: { good: GoodType; quantity: number };
 }
 
+export type SpaceportLocationType =
+  | 'cantina' | 'black_market' | 'hangar' | 'storage'
+  | 'info_broker' | 'supply_depot' | 'workshop' | 'medbay'
+  | 'lounge' | 'armory';
+
+export interface SpaceportLocation {
+  id: string;       // unique, e.g. "nova_gate_cantina"
+  name: string;
+  icon: string;
+  description: string;
+  type: SpaceportLocationType;
+}
+
+export interface LocationResult {
+  locationId: string;
+  flavor: string;           // narrative blurb shown in UI
+  creditBonus?: number;
+  cargoReward?: { good: GoodType; quantity: number };
+  reputationBonus?: number;
+  hullRepair?: number;
+  missionId?: string;       // if a mission was spawned
+}
+
 export type GoodType = 'food' | 'minerals' | 'electronics' | 'fuel' | 'medicine' | 'weapons' | 'luxury' | 'machinery' | 'rare_metals' | 'contraband';
 
 export type ShipClass = 'scout' | 'trader' | 'gunship' | 'freighter';
@@ -155,6 +178,7 @@ export interface PlayerState {
   reputation: number;
   totalProfit: number;
   tripsCompleted: number;
+  exploredLocations: Record<string, number>; // locationId -> gameDay last explored
 }
 
 export interface GameState {
@@ -172,4 +196,5 @@ export interface GameState {
   marketLastRefresh: number;
   initialized: boolean;
   pendingGoodEncounter?: GoodEncounter;
+  lastLocationResult?: LocationResult;
 }

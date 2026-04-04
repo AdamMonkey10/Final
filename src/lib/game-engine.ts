@@ -1,7 +1,7 @@
 import type {
   Planet, PlayerState, MarketListing, GoodType, CombatEnemy,
   Mission, MissionType, GameNotification, PlayerShip, ShipUpgrades, SolarSystem,
-  GoodEncounter,
+  GoodEncounter, SpaceportLocationType, LocationResult,
 } from '@/types/game';
 import { GOODS, PLANET_TEMPLATES, SOLAR_SYSTEMS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
 
@@ -412,6 +412,7 @@ export function createNewGame(): { player: PlayerState; planets: Planet[]; syste
     reputation: 0,
     totalProfit: 0,
     tripsCompleted: 0,
+    exploredLocations: {},
   };
 
   return { player, planets, systems };
@@ -419,4 +420,124 @@ export function createNewGame(): { player: PlayerState; planets: Planet[]; syste
 
 export function makeNotification(message: string, type: GameNotification['type'] = 'info'): GameNotification {
   return { id: `n_${Date.now()}_${Math.random()}`, message, type, timestamp: Date.now() };
+}
+
+// ── Location exploration ──────────────────────────────────────────────────────
+
+type OutcomeWeighted =
+  | { kind: 'credits'; amount: number; flavor: string }
+  | { kind: 'cargo'; good: GoodType; quantity: number; flavor: string }
+  | { kind: 'rep'; amount: number; flavor: string }
+  | { kind: 'repair'; hp: number; flavor: string }
+  | { kind: 'mission'; flavor: string }
+  | { kind: 'nothing'; flavor: string };
+
+function pickWeighted<T>(options: Array<[T, number]>): T {
+  const total = options.reduce((s, [, w]) => s + w, 0);
+  let r = Math.random() * total;
+  for (const [v, w] of options) { r -= w; if (r <= 0) return v; }
+  return options[options.length - 1][0];
+}
+
+const LOCATION_OUTCOMES: Record<SpaceportLocationType, () => OutcomeWeighted> = {
+  cantina: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'mission', flavor: 'A hooded figure slides a data chip across the bar. "I heard you take jobs." A new contract is waiting.' }, 40],
+    [{ kind: 'credits', amount: 100 + Math.floor(Math.random() * 150), flavor: 'You win a round of cards with some off-duty dockworkers.' }, 35],
+    [{ kind: 'rep', amount: 2, flavor: 'You buy a round for the bar. Word gets around — you\'re good people.' }, 15],
+    [{ kind: 'nothing', flavor: 'Quiet tonight. The bartender just shrugs. Nothing doing.' }, 10],
+  ]),
+  black_market: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: 'contraband', quantity: 1 + Math.floor(Math.random() * 2), flavor: 'A vendor palms you a parcel. "On the house — spread the word."' }, 35],
+    [{ kind: 'cargo', good: 'weapons', quantity: 1, flavor: 'Someone left in a hurry. Their merchandise is your gain.' }, 30],
+    [{ kind: 'mission', flavor: 'A hooded contact needs an off-the-books delivery. The pay is very good.' }, 25],
+    [{ kind: 'nothing', flavor: 'Everyone clams up when you approach. Not your day.' }, 10],
+  ]),
+  hangar: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: 'fuel', quantity: 2 + Math.floor(Math.random() * 2), flavor: 'Leftover fuel canisters from a cancelled job. Help yourself.' }, 35],
+    [{ kind: 'cargo', good: 'machinery', quantity: 1, flavor: 'A mechanic gives you a working part they were about to bin.' }, 30],
+    [{ kind: 'repair', hp: 15 + Math.floor(Math.random() * 15), flavor: 'A friendly mechanic spots your dents and patches them up during their break.' }, 25],
+    [{ kind: 'nothing', flavor: 'The hangar is locked down for maintenance. Nothing to find.' }, 10],
+  ]),
+  storage: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: (['minerals', 'food', 'electronics', 'fuel', 'machinery'] as GoodType[])[Math.floor(Math.random() * 5)], quantity: 1 + Math.floor(Math.random() * 3), flavor: 'An unlabelled crate with no manifest. You load it up.' }, 50],
+    [{ kind: 'credits', amount: 150 + Math.floor(Math.random() * 200), flavor: 'A forgotten lockbox behind some crates. Finders keepers.' }, 35],
+    [{ kind: 'nothing', flavor: 'Just dust and empty shelves in here.' }, 15],
+  ]),
+  info_broker: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'credits', amount: 250 + Math.floor(Math.random() * 350), flavor: 'Hot market intel puts you ahead of the competition. You pocket the edge.' }, 45],
+    [{ kind: 'rep', amount: 3, flavor: 'The broker introduces you to a Guild contact. Your reputation gets a boost.' }, 35],
+    [{ kind: 'mission', flavor: 'The broker has a well-paying data collection job — right up your alley.' }, 15],
+    [{ kind: 'nothing', flavor: 'All the broker\'s leads are stale today. Waste of time.' }, 5],
+  ]),
+  supply_depot: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: 'food', quantity: 2 + Math.floor(Math.random() * 3), flavor: 'Surplus rations past their "sell by" date but still perfectly good.' }, 35],
+    [{ kind: 'cargo', good: 'medicine', quantity: 1 + Math.floor(Math.random() * 2), flavor: 'Overstocked medical supplies. The quartermaster waves you through.' }, 35],
+    [{ kind: 'credits', amount: 100 + Math.floor(Math.random() * 100), flavor: 'You trade a favour for a store credit voucher.' }, 20],
+    [{ kind: 'nothing', flavor: 'Inventory day. Everything is locked and counted.' }, 10],
+  ]),
+  workshop: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'repair', hp: 20 + Math.floor(Math.random() * 20), flavor: 'An apprentice needs practice hours. Your hull panels are now as good as new.' }, 40],
+    [{ kind: 'cargo', good: 'machinery', quantity: 1, flavor: 'A half-built machine someone abandoned. The parts are useful.' }, 35],
+    [{ kind: 'credits', amount: 100 + Math.floor(Math.random() * 150), flavor: 'You help weld a tricky joint. The lead engineer tips you for your trouble.' }, 15],
+    [{ kind: 'nothing', flavor: 'The workshop is full but nobody wants to chat.' }, 10],
+  ]),
+  medbay: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: 'medicine', quantity: 2 + Math.floor(Math.random() * 2), flavor: 'The medic has more supplies than patients today. Take some.' }, 40],
+    [{ kind: 'repair', hp: 15 + Math.floor(Math.random() * 10), flavor: 'The doctor patches your minor hull breach, muttering about "biomechanical empathy".' }, 35],
+    [{ kind: 'mission', flavor: 'The doctor needs an urgent supply run — critical medicine to a remote colony.' }, 15],
+    [{ kind: 'nothing', flavor: 'Busy with patients. Come back another day.' }, 10],
+  ]),
+  lounge: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'rep', amount: 3, flavor: 'You network with three Guild captains over dinner. Word travels fast in these circles.' }, 40],
+    [{ kind: 'credits', amount: 200 + Math.floor(Math.random() * 300), flavor: 'A merchant tips you for a route recommendation.' }, 30],
+    [{ kind: 'mission', flavor: 'A Guild broker pulls you aside with a lucrative courier job.' }, 20],
+    [{ kind: 'nothing', flavor: 'Everyone\'s too busy talking about the markets to notice you.' }, 10],
+  ]),
+  armory: () => pickWeighted<OutcomeWeighted>([
+    [{ kind: 'cargo', good: 'weapons', quantity: 1 + Math.floor(Math.random() * 2), flavor: 'Decommissioned stock getting sold off cheap. You grab what you can carry.' }, 40],
+    [{ kind: 'mission', flavor: 'A sergeant is looking for a reliable pilot for a bounty contract.' }, 35],
+    [{ kind: 'credits', amount: 150 + Math.floor(Math.random() * 200), flavor: 'You sell a tip about recent pirate activity. The quartermaster pays well for intel.' }, 15],
+    [{ kind: 'nothing', flavor: 'Audit day. Everything is locked down tight.' }, 10],
+  ]),
+};
+
+export function exploreLocation(
+  locationId: string,
+  locationType: SpaceportLocationType,
+  currentPlanetId: string,
+  planets: Planet[],
+  systems: SolarSystem[],
+  gameDay: number,
+  playerRep: number,
+): { result: LocationResult; mission?: Mission } {
+  const outcome = LOCATION_OUTCOMES[locationType]();
+
+  const result: LocationResult = {
+    locationId,
+    flavor: outcome.flavor,
+    creditBonus:       outcome.kind === 'credits' ? outcome.amount  : undefined,
+    cargoReward:       outcome.kind === 'cargo'   ? { good: outcome.good, quantity: outcome.quantity } : undefined,
+    reputationBonus:   outcome.kind === 'rep'     ? outcome.amount  : undefined,
+    hullRepair:        outcome.kind === 'repair'  ? outcome.hp      : undefined,
+  };
+
+  let mission: Mission | undefined;
+  if (outcome.kind === 'mission') {
+    // Generate a single mission appropriate to this location type
+    const missionType: MissionType =
+      locationType === 'armory'       ? 'bounty'   :
+      locationType === 'black_market' ? 'smuggle'  :
+      locationType === 'medbay'       ? 'emergency':
+      locationType === 'cantina'      ? (Math.random() > 0.5 ? 'delivery' : 'courier') :
+      locationType === 'lounge'       ? 'courier'  :
+      locationType === 'info_broker'  ? 'survey'   :
+      'delivery';
+
+    const generated = generateMissions(currentPlanetId, planets, systems, gameDay, playerRep)
+      .filter(m => m.type === missionType);
+    mission = generated[0] ?? generateMissions(currentPlanetId, planets, systems, gameDay, playerRep)[0];
+    if (mission) result.missionId = mission.id;
+  }
+
+  return { result, mission };
 }
