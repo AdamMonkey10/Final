@@ -6,6 +6,18 @@ export type ShipClass = 'scout' | 'trader' | 'gunship' | 'freighter';
 
 export type GameScreen = 'planet' | 'galaxy_map' | 'travel' | 'combat';
 
+export type MissionType = 'delivery' | 'courier' | 'bounty' | 'survey' | 'smuggle' | 'emergency';
+
+export interface SolarSystem {
+  id: string;
+  name: string;
+  color: string;
+  centerX: number;
+  centerY: number;
+  planetIds: string[];
+  description: string;
+}
+
 export interface Good {
   type: GoodType;
   name: string;
@@ -27,6 +39,7 @@ export interface Planet {
   id: string;
   name: string;
   economy: EconomyType;
+  systemId: string;
   x: number;
   y: number;
   market: MarketListing[];
@@ -80,16 +93,21 @@ export interface PlayerShip {
 
 export interface Mission {
   id: string;
+  type: MissionType;
   title: string;
   description: string;
   targetPlanetId: string;
   targetPlanetName: string;
+  targetSystemName?: string;
   reward: number;
+  bonusReward?: number;
   cargoType?: GoodType;
   cargoAmount?: number;
-  isDelivery: boolean;
+  expiresOnDay: number;
+  reputationRequired: number;
   isActive: boolean;
   isComplete: boolean;
+  isFailed: boolean;
 }
 
 export interface CombatEnemy {
@@ -104,6 +122,8 @@ export interface CombatEnemy {
   isEscapable: boolean;
   accuracy: number;
   evasion: number;
+  isBountyTarget?: boolean;
+  bountyMissionId?: string;
 }
 
 export interface GameNotification {
@@ -127,6 +147,7 @@ export interface PlayerState {
 export interface GameState {
   player: PlayerState;
   planets: Planet[];
+  systems: SolarSystem[];
   screen: GameScreen;
   travelDestinationId?: string;
   travelProgress: number;
