@@ -3,11 +3,12 @@ import { useGame } from '@/contexts/GameContext';
 import { MarketTab } from './MarketTab';
 import { DockTab } from './DockTab';
 import { MissionsTab } from './MissionsTab';
+import { SpaceportTab } from './SpaceportTab';
 import { StarField } from './StarField';
 
-type Tab = 'market' | 'dock' | 'missions';
+type Tab = 'market' | 'dock' | 'missions' | 'spaceport';
 
-const TAB_CONFIG: { id: Tab; label: string; icon: string }[] = [
+const BASE_TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'market', label: 'Market', icon: '🏪' },
   { id: 'dock', label: 'Dock', icon: '🔧' },
   { id: 'missions', label: 'Missions', icon: '📋' },
@@ -32,6 +33,10 @@ export function PlanetView() {
   const [activeTab, setActiveTab] = useState<Tab>('market');
   const planet = state.planets.find(p => p.id === state.player.currentPlanetId)!;
 
+  const TAB_CONFIG = planet.isSpaceport
+    ? [...BASE_TABS, { id: 'spaceport' as Tab, label: 'Port', icon: '⚓' }]
+    : BASE_TABS;
+
   const gradientClass = ECONOMY_COLORS[planet.economy] ?? 'from-gray-900/40';
 
   return (
@@ -55,6 +60,13 @@ export function PlanetView() {
               )}
             </div>
             <div className="text-xs text-gray-500 mt-0.5 leading-snug">{planet.description}</div>
+            {planet.isSpaceport && (
+              <div className="mt-1">
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-yellow-900/50 border border-yellow-700/50 text-yellow-400 uppercase tracking-wider">
+                  ⚓ Spaceport
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -82,6 +94,7 @@ export function PlanetView() {
         {activeTab === 'market' && <MarketTab />}
         {activeTab === 'dock' && <DockTab />}
         {activeTab === 'missions' && <MissionsTab />}
+        {activeTab === 'spaceport' && <SpaceportTab />}
       </div>
 
       {/* Galaxy map button */}

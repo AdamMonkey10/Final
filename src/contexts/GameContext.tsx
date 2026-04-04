@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
-import type { GameState, GoodType, CombatEnemy, Mission, SolarSystem } from '@/types/game';
+import type { GameState, GoodType, CombatEnemy, Mission, SolarSystem, GoodEncounter } from '@/types/game';
 import {
   createNewGame, initializePlanets, generateMarket, generateMissions, getSolarSystems,
-  rollEncounter, resolveCombatRound, getCargoUsed, getShipEffectiveStats,
+  rollEncounter, rollGoodEncounter, resolveCombatRound, getCargoUsed, getShipEffectiveStats,
   getUpgradeCost, getTravelDistance, getTravelDuration, isSameSystem,
   makeNotification, generateBountyEnemy,
 } from '@/lib/game-engine';
@@ -39,7 +39,7 @@ type Action =
   | { type: 'SET_SCREEN'; screen: GameState['screen'] }
   | { type: 'START_TRAVEL'; destinationId: string; duration: number }
   | { type: 'UPDATE_TRAVEL'; progress: number }
-  | { type: 'ARRIVE_AT_PLANET'; encounteredEnemy?: CombatEnemy }
+  | { type: 'ARRIVE_AT_PLANET'; encounteredEnemy?: CombatEnemy; goodEncounter?: GoodEncounter }
   | { type: 'COMBAT_ATTACK' }
   | { type: 'FLEE_COMBAT' }
   | { type: 'END_COMBAT_WIN' }
@@ -50,7 +50,10 @@ type Action =
   | { type: 'BUY_SHIP'; shipClass: string }
   | { type: 'REPAIR_HULL' }
   | { type: 'ACCEPT_MISSION'; mission: Mission }
-  | { type: 'DISMISS_NOTIFICATION'; id: string };
+  | { type: 'DISMISS_NOTIFICATION'; id: string }
+  | { type: 'REFILL_SHIELDS' }
+  | { type: 'STAMP_LOG' }
+  | { type: 'BUY_INSURANCE' };
 
 function notify(state: GameState, message: string, type: GameState['notifications'][0]['type']): GameState {
   return { ...state, notifications: [...state.notifications.slice(-4), makeNotification(message, type)] };
@@ -125,6 +128,36 @@ function gameReducer(state: GameState, action: Action): GameState {
       const existingActive = updatedMissions.filter(m => m.isActive && !m.isComplete);
       const newMissions = generateMissions(destId, planets, state.systems, newDay, state.player.reputation);
 
+      // Apply good encounter effects
+      const ge = action.goodEncounter;
+      let geCredits = ge?.creditBonus ?? 0;
+      let geRep = ge?.reputationBonus ?? 0;
+      let geShieldRestore = ge?.shieldRestore ?? 0;
+      let geCargo = ge?.cargoReward;
+
+      // Add cargo from derelict if there's room
+      let shipAfterGE = { ...state.player.ship };
+      if (geCargo) {
+        const effective = getShipEffectiveStats(shipAfterGE);
+        const cargoFree = effective.cargoCapacity - getCargoUsed(shipAfterGE);
+        const canTake = Math.min(geCargo.quantity, Math.floor(cargoFree));
+        if (canTake > 0) {
+          const existing = shipAfterGE.cargo.findIndex(c => c.good === geCargo!.good);
+          const newCargo = [...shipAfterGE.cargo];
+          if (existing >= 0) {
+            newCargo[existing] = { ...newCargo[existing], quantity: newCargo[existing].quantity + canTake };
+          } else {
+            newCargo.push({ good: geCargo.good, quantity: canTake, avgPurchasePrice: 0 });
+          }
+          shipAfterGE = { ...shipAfterGE, cargo: newCargo };
+        } else {
+          geCredits += 100; // compensate with credits if no room
+        }
+      }
+      if (geShieldRestore > 0) {
+        shipAfterGE = { ...shipAfterGE, shields: shipAfterGE.maxShields };
+      }
+
       let newState: GameState = {
         ...state,
         screen: action.encounteredEnemy ? 'combat' : 'planet',
@@ -137,8 +170,9 @@ function gameReducer(state: GameState, action: Action): GameState {
           currentPlanetId: destId,
           visitedPlanets: visited,
           tripsCompleted: state.player.tripsCompleted + 1,
-          credits: state.player.credits + missionReward,
-          reputation: state.player.reputation + repGain,
+          credits: state.player.credits + missionReward + geCredits,
+          reputation: state.player.reputation + repGain + geRep,
+          ship: shipAfterGE,
           missions: [...existingActive, ...updatedMissions.filter(m => m.isComplete), ...newMissions],
         },
       };
@@ -147,6 +181,10 @@ function gameReducer(state: GameState, action: Action): GameState {
         newState = notify(newState, `Arrived at ${destPlanet.name}.`, 'info');
       }
       missionMsgs.forEach(msg => { newState = notify(newState, msg, 'success'); });
+      if (ge) {
+        const detail = ge.creditBonus ? ` +${ge.creditBonus}cr` : ge.shieldRestore ? ' Shields restored!' : ge.cargoReward ? ` +${ge.cargoReward.quantity} cargo` : '';
+        newState = notify(newState, `${ge.title}${detail}`, 'success');
+      }
       if (expiredIds.length > 0) {
         newState = notify(newState, `${expiredIds.length} mission(s) expired.`, 'warning');
       }
@@ -329,12 +367,14 @@ function gameReducer(state: GameState, action: Action): GameState {
     case 'REPAIR_HULL': {
       const damage = state.player.ship.maxHull - state.player.ship.hull;
       if (damage <= 0) return state;
-      const cost = damage * 5;
+      const currentPlanet = state.planets.find(p => p.id === state.player.currentPlanetId);
+      const ratePerHp = currentPlanet?.isSpaceport ? 3 : 5;
+      const cost = damage * ratePerHp;
       if (state.player.credits < cost) return state;
       return notify({
         ...state,
         player: { ...state.player, credits: state.player.credits - cost, ship: { ...state.player.ship, hull: state.player.ship.maxHull } },
-      }, `Hull repaired for ${cost}cr`, 'success');
+      }, `Hull repaired for ${cost}cr${currentPlanet?.isSpaceport ? ' (spaceport rate)' : ''}`, 'success');
     }
 
     case 'ACCEPT_MISSION': {
@@ -350,6 +390,27 @@ function gameReducer(state: GameState, action: Action): GameState {
 
     case 'DISMISS_NOTIFICATION':
       return { ...state, notifications: state.notifications.filter(n => n.id !== action.id) };
+
+    case 'REFILL_SHIELDS':
+      return notify({
+        ...state,
+        player: { ...state.player, ship: { ...state.player.ship, shields: state.player.ship.maxShields } },
+      }, 'Shields fully recharged — free of charge!', 'success');
+
+    case 'STAMP_LOG':
+      return notify({
+        ...state,
+        player: { ...state.player, reputation: state.player.reputation + 2 },
+      }, 'Pilot log stamped. +2 reputation with the Merchant Guild.', 'success');
+
+    case 'BUY_INSURANCE': {
+      const cost = 500;
+      if (state.player.credits < cost) return state;
+      return notify({
+        ...state,
+        player: { ...state.player, credits: state.player.credits - cost },
+      }, 'Emergency beacon registered. Rescue penalty reduced by 20%.', 'info');
+    }
 
     default:
       return state;
@@ -415,7 +476,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           ? generateBountyEnemy(bountyMission.reward)
           : rollEncounter(dist, state.player, crossSystem);
 
-        dispatch({ type: 'ARRIVE_AT_PLANET', encounteredEnemy: enemy ?? undefined });
+        // Only roll good encounter if no bad one
+        const goodEncounter = !enemy ? rollGoodEncounter(crossSystem) : null;
+
+        dispatch({ type: 'ARRIVE_AT_PLANET', encounteredEnemy: enemy ?? undefined, goodEncounter: goodEncounter ?? undefined });
       }
     }, 50);
     return () => clearInterval(interval);

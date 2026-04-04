@@ -73,9 +73,10 @@ export const PLANET_TEMPLATES: Omit<Planet, 'market'>[] = [
   {
     id: 'nova_gate', name: 'Nova Gate', economy: 'trading', systemId: 'sol',
     x: 400, y: 360,
-    description: 'A busy waypoint station connecting the inner and outer systems.',
+    description: 'A busy waypoint station connecting the inner and outer systems. Full spaceport facilities available.',
     faction: 'Federation', dangerLevel: 1, color: '#10b981', icon: '🌟',
     produces: ['luxury', 'food'], consumes: ['minerals', 'weapons', 'contraband'],
+    isSpaceport: true,
   },
   {
     id: 'capital_reach', name: 'Capital Reach', economy: 'trading', systemId: 'sol',
@@ -102,9 +103,10 @@ export const PLANET_TEMPLATES: Omit<Planet, 'market'>[] = [
   {
     id: 'fuel_depot', name: 'Fuel Depot Alpha', economy: 'industrial', systemId: 'iron_belt',
     x: 265, y: 360,
-    description: "The galaxy's largest fuel refinery. Cheap energy for all.",
+    description: "The galaxy's largest fuel refinery. Spaceport services available for passing pilots.",
     faction: 'Independent', dangerLevel: 0, color: '#eab308', icon: '⚡',
     produces: ['fuel', 'machinery'], consumes: ['minerals', 'food', 'electronics'],
+    isSpaceport: true,
   },
   // ── Nexus Cluster ────────────────────────────────────────────
   {
@@ -124,17 +126,19 @@ export const PLANET_TEMPLATES: Omit<Planet, 'market'>[] = [
   {
     id: 'trade_nexus', name: 'Trade Nexus', economy: 'trading', systemId: 'nexus',
     x: 800, y: 330,
-    description: "The crossroads of the galaxy. Every good passes through here.",
+    description: "The crossroads of the galaxy. Every good passes through here. Premier spaceport of the Nexus Cluster.",
     faction: 'Merchant Guild', dangerLevel: 0, color: '#f59e0b', icon: '🏪',
     produces: ['luxury'], consumes: ['machinery', 'minerals', 'contraband'],
+    isSpaceport: true,
   },
   // ── Outer Rim ────────────────────────────────────────────────
   {
     id: 'fort_kestrel', name: 'Fort Kestrel', economy: 'military', systemId: 'outer_rim',
     x: 820, y: 580,
-    description: 'A heavily fortified military outpost at the edge of contested space.',
+    description: 'A heavily fortified military outpost at the edge of contested space. Military spaceport with combat repairs.',
     faction: 'Imperial Fleet', dangerLevel: 1, color: '#ef4444', icon: '🛡️',
     produces: ['weapons'], consumes: ['food', 'fuel', 'machinery', 'minerals'],
+    isSpaceport: true,
   },
   {
     id: 'crystal_point', name: 'Crystal Point', economy: 'mining', systemId: 'outer_rim',
@@ -154,9 +158,10 @@ export const PLANET_TEMPLATES: Omit<Planet, 'market'>[] = [
   {
     id: 'green_haven', name: 'Green Haven', economy: 'agricultural', systemId: 'frontier',
     x: 200, y: 570,
-    description: 'An agricultural paradise specialising in organic goods and pharmaceuticals.',
+    description: 'An agricultural paradise specialising in organic goods and pharmaceuticals. The safest port in the Frontier.',
     faction: 'Federation', dangerLevel: 0, color: '#84cc16', icon: '🌿',
     produces: ['food', 'medicine'], consumes: ['electronics', 'fuel', 'machinery'],
+    isSpaceport: true,
   },
   {
     id: 'frontier_post', name: 'Frontier Post', economy: 'frontier', systemId: 'frontier',

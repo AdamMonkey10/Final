@@ -1,5 +1,17 @@
 export type EconomyType = 'mining' | 'tech' | 'agricultural' | 'military' | 'blackmarket' | 'industrial' | 'research' | 'frontier' | 'trading';
 
+export type GoodEncounterType = 'salvage' | 'patrol_assist' | 'trader_tip' | 'abandoned_cache' | 'anomaly' | 'derelict';
+
+export interface GoodEncounter {
+  type: GoodEncounterType;
+  title: string;
+  description: string;
+  creditBonus?: number;
+  shieldRestore?: number;
+  reputationBonus?: number;
+  cargoReward?: { good: GoodType; quantity: number };
+}
+
 export type GoodType = 'food' | 'minerals' | 'electronics' | 'fuel' | 'medicine' | 'weapons' | 'luxury' | 'machinery' | 'rare_metals' | 'contraband';
 
 export type ShipClass = 'scout' | 'trader' | 'gunship' | 'freighter';
@@ -50,6 +62,7 @@ export interface Planet {
   icon: string;
   produces: GoodType[];
   consumes: GoodType[];
+  isSpaceport?: boolean;
 }
 
 export interface ShipTemplate {
@@ -158,4 +171,5 @@ export interface GameState {
   gameDay: number;
   marketLastRefresh: number;
   initialized: boolean;
+  pendingGoodEncounter?: GoodEncounter;
 }

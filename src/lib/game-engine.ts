@@ -1,6 +1,7 @@
 import type {
   Planet, PlayerState, MarketListing, GoodType, CombatEnemy,
   Mission, MissionType, GameNotification, PlayerShip, ShipUpgrades, SolarSystem,
+  GoodEncounter,
 } from '@/types/game';
 import { GOODS, PLANET_TEMPLATES, SOLAR_SYSTEMS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
 
@@ -94,6 +95,60 @@ export function rollEncounter(distance: number, player: PlayerState, isCrossSyst
     isEscapable: Math.random() > 0.3,
     accuracy: 0.5 + tier * 0.08, evasion: 0.1 + tier * 0.05,
   };
+}
+
+// ── Good Encounters ───────────────────────────────────────────────────────────
+
+const GOOD_ENCOUNTER_POOL: Array<() => GoodEncounter> = [
+  () => ({
+    type: 'salvage',
+    title: 'Floating Salvage Detected',
+    description: 'Your sensors pick up a drifting cargo pod. You haul it aboard and find supplies worth selling.',
+    creditBonus: 200 + Math.floor(Math.random() * 300),
+  }),
+  () => ({
+    type: 'patrol_assist',
+    title: 'Federation Escort',
+    description: 'A Federation patrol vessel hails you and offers assistance. They top up your shields free of charge.',
+    shieldRestore: 999, // will be capped to max
+  }),
+  () => ({
+    type: 'trader_tip',
+    title: 'Friendly Trader Signal',
+    description: 'A passing merchant ship shares profitable market intelligence. You pocket their referral bonus.',
+    creditBonus: 150 + Math.floor(Math.random() * 200),
+    reputationBonus: 1,
+  }),
+  () => ({
+    type: 'abandoned_cache',
+    title: 'Abandoned Supply Cache',
+    description: 'You locate an unregistered supply depot. The previous owner is nowhere to be found.',
+    creditBonus: 350 + Math.floor(Math.random() * 500),
+  }),
+  () => ({
+    type: 'anomaly',
+    title: 'Spatial Anomaly',
+    description: 'A rare gravitational anomaly bends spacetime in your favour, shaving time off your route. The discovery earns a Guild commendation.',
+    reputationBonus: 3,
+    creditBonus: 100,
+  }),
+  () => ({
+    type: 'derelict',
+    title: 'Derelict Ship Found',
+    description: 'A drifting hulk yields salvageable cargo. You strip what you can carry.',
+    cargoReward: {
+      good: (['minerals', 'electronics', 'machinery', 'fuel'] as GoodType[])[Math.floor(Math.random() * 4)],
+      quantity: 1 + Math.floor(Math.random() * 3),
+    },
+  }),
+];
+
+export function rollGoodEncounter(isCrossSystem: boolean): GoodEncounter | null {
+  // 22% intra-system, 30% cross-system
+  const chance = isCrossSystem ? 0.30 : 0.22;
+  if (Math.random() > chance) return null;
+  const factory = GOOD_ENCOUNTER_POOL[Math.floor(Math.random() * GOOD_ENCOUNTER_POOL.length)];
+  return factory();
 }
 
 export function generateBountyEnemy(reward: number): CombatEnemy {

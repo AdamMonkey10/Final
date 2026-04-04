@@ -74,11 +74,23 @@ export function TravelScreen() {
           <span>📦 {player.ship.cargo.reduce((s, c) => s + c.quantity, 0)} cargo</span>
         </div>
 
-        {/* Warning for dangerous zones */}
+        {/* Zone hints */}
         {dest && dest.dangerLevel >= 2 && (
           <div className="flex items-center gap-2 text-red-400 text-xs bg-red-950/30 border border-red-900/50 rounded-lg px-3 py-2">
             <span>⚠</span>
             <span>Entering dangerous space — pirates likely</span>
+          </div>
+        )}
+        {dest && dest.dangerLevel < 2 && pct >= 40 && pct < 80 && (
+          <div className="flex items-center gap-2 text-cyan-500 text-xs bg-cyan-950/20 border border-cyan-900/40 rounded-lg px-3 py-2 animate-pulse">
+            <span>📡</span>
+            <span>Scanning sector for signals...</span>
+          </div>
+        )}
+        {dest?.isSpaceport && (
+          <div className="flex items-center gap-2 text-yellow-400 text-xs bg-yellow-950/20 border border-yellow-900/40 rounded-lg px-3 py-2">
+            <span>⚓</span>
+            <span>Destination is a Spaceport — repairs & services available</span>
           </div>
         )}
       </div>
