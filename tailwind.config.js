@@ -55,6 +55,14 @@ export default {
           4: 'hsl(var(--chart-4))',
           5: 'hsl(var(--chart-5))',
         },
+        // Spooky Quest custom palette
+        'spooky-dark': '#0d0720',
+        'spooky-darker': '#06040f',
+        'spooky-card': '#1e1035',
+        'spooky-purple': '#6b21a8',
+        'spooky-orange': '#f97316',
+        'spooky-green': '#22c55e',
+        'spooky-text': '#e8e0f0',
       },
       keyframes: {
         'accordion-down': {

@@ -2,99 +2,145 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-@layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    
-    --radius: 0.5rem;
-
-    /* Chart colors - Modern blue theme */
-    --chart-1: 221 83% 53%;  /* Primary blue */
-    --chart-2: 199 89% 48%;  /* Bright blue */
-    --chart-3: 213 94% 68%;  /* Light blue */
-    --chart-4: 232 51% 36%;  /* Dark blue */
-    --chart-5: 206 100% 40%; /* Ocean blue */
-  }
-
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
-    
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
-    
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    
-    --secondary: 217 19% 27%;
-    --secondary-foreground: 210 40% 98%;
-    
-    --muted: 217 19% 27%;
-    --muted-foreground: 215 20% 65%;
-    
-    --accent: 217 19% 27%;
-    --accent-foreground: 210 40% 98%;
-    
-    --destructive: 0 62% 30%;
-    --destructive-foreground: 210 40% 98%;
-    
-    --border: 217 19% 27%;
-    --input: 217 19% 27%;
-    --ring: 224 76% 48%;
-
-    /* Chart colors - Dark mode */
-    --chart-1: 217 91% 60%;  /* Bright blue */
-    --chart-2: 213 94% 68%;  /* Light blue */
-    --chart-3: 199 89% 48%;  /* Sky blue */
-    --chart-4: 206 100% 40%; /* Deep blue */
-    --chart-5: 232 51% 36%;  /* Navy blue */
-  }
-}
-
+/* ── Base ── */
 @layer base {
   * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
     @apply border-border;
   }
+
+  html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+  }
+
   body {
+    background-color: #0d0720;
+    color: #e8e0f0;
+    font-family: 'Nunito', 'Inter', system-ui, sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
     @apply bg-background text-foreground;
+  }
+
+  button, a {
+    touch-action: manipulation;
+  }
+}
+
+/* ── Animations ── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  10% { opacity: 0.9; }
+  20% { opacity: 1; }
+  50% { opacity: 0.8; }
+  60% { opacity: 1; }
+  80% { opacity: 0.95; }
+}
+
+@keyframes candlePulse {
+  0%, 100% { box-shadow: 0 0 8px 2px rgba(255, 140, 0, 0.3), inset 0 0 8px rgba(255, 140, 0, 0.1); }
+  50% { box-shadow: 0 0 16px 4px rgba(255, 140, 0, 0.5), inset 0 0 16px rgba(255, 140, 0, 0.15); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes typewriter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Utility animation classes ── */
+.float-anim {
+  animation: float 3s ease-in-out infinite;
+  display: inline-block;
+}
+
+.flicker {
+  animation: flicker 4s linear infinite;
+}
+
+.candle-border {
+  animation: candlePulse 2.5s ease-in-out infinite;
+}
+
+.shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+.typewriter {
+  animation: typewriter 0.3s ease-out forwards;
+}
+
+/* ── Momentum scroll ── */
+.momentum-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+/* ── Overlay ── */
+.overlay-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background-color: #0d0720;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Components ── */
+@layer components {
+  .font-pixel {
+    font-family: 'Press Start 2P', monospace;
+  }
+
+  .font-game {
+    font-family: 'Nunito', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+  }
+
+  .game-btn {
+    @apply font-bold rounded-xl active:scale-95 transition-transform min-h-[48px] px-4;
+    font-family: 'Nunito', 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    color: #e8e0f0;
+  }
+
+  .game-btn-green {
+    @apply game-btn bg-green-500 text-black;
+  }
+
+  .game-btn-orange {
+    @apply game-btn bg-orange-500 text-black;
+  }
+
+  .hud-btn {
+    @apply flex items-center justify-center min-w-[48px] min-h-[48px] rounded-xl text-xl active:scale-95 transition-transform relative px-3;
+    background: #1e1035;
+    border: 1px solid #6b21a8;
+  }
+
+  .overlay-close-btn {
+    @apply flex items-center justify-center min-w-[48px] min-h-[48px] rounded-xl text-xl font-bold active:scale-95 transition-transform;
+    background: #1e1035;
+    border: 1px solid #374151;
+    color: #d1d5db;
+  }
+
+  .combat-btn {
+    @apply flex flex-col items-center justify-center p-4 rounded-xl min-h-[80px] transition-transform;
   }
 }

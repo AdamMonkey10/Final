@@ -1,217 +1,188 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from '@/components/ui/sonner';
-import { MainNav } from '@/components/main-nav';
-import Dashboard from '@/pages/dashboard';
-import GoodsIn from '@/pages/goods-in';
-import GoodsOut from '@/pages/goods-out';
-import Scan from '@/pages/scan';
-import ProcessScan from '@/pages/process-scan';
-import Setup from '@/pages/setup';
-import Inventory from '@/pages/inventory';
-import Locations from '@/pages/locations';
-import Movements from '@/pages/movements';
-import Login from '@/pages/login';
-import { Package2 } from 'lucide-react';
-import { verifySetupUser } from '@/lib/firebase/users';
-import { useState, useEffect } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import { useFirebase } from '@/contexts/FirebaseContext';
-import { FirebaseProvider } from '@/contexts/FirebaseContext';
-import { OperatorProvider } from '@/contexts/OperatorContext';
-import { InstructionsProvider } from '@/contexts/InstructionsContext';
-import { OperatorSelector } from '@/components/operator-selector';
-import { InstructionToggle } from '@/components/instruction-toggle';
+import { useState } from 'react';
+import { useGameState } from './hooks/useGameState';
+import type { NpcId, ItemId, DialogueAction, CombatState } from './types/game';
+import { LOCATIONS } from './data/locations';
+import { ITEMS } from './data/items';
+import { ENEMIES } from './data/enemies';
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user, authLoading } = useFirebase();
-  
-  if (authLoading) {
+import StartScreen from './components/StartScreen';
+import WinScreen from './components/WinScreen';
+import GameHUD from './components/GameHUD';
+import GameLog from './components/GameLog';
+import LocationView from './components/LocationView';
+import NPCDialog from './components/NPCDialog';
+import TradeScreen from './components/TradeScreen';
+import CombatScreen from './components/CombatScreen';
+import QuestLog from './components/QuestLog';
+import Inventory from './components/Inventory';
+import LevelUpModal from './components/LevelUpModal';
+import SettingsPanel from './components/SettingsPanel';
+
+export default function App() {
+  const game = useGameState();
+  const { state } = game;
+  const [_tradeMode, setTradeMode] = useState<'shop' | 'trade'>('shop');
+
+  if (state.screen === 'start') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
-        </div>
-      </div>
+      <StartScreen
+        onNewGame={game.startNewGame}
+        onContinue={game.continueGame}
+      />
     );
   }
-  
-  return user ? <>{children}</> : <Navigate to="/login" />;
-}
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { user, authLoading } = useFirebase();
-  const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
-  const [verified, setVerified] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [checkingAdminAccess, setCheckingAdminAccess] = useState(true);
+  if (state.screen === 'win') {
+    return (
+      <WinScreen
+        state={state}
+        onRestart={game.restartGame}
+      />
+    );
+  }
 
-  // Automatically check if the current user has admin access
-  useEffect(() => {
-    const checkAdminAccess = async () => {
-      if (!user || authLoading) {
-        setCheckingAdminAccess(false);
-        return;
-      }
-
-      try {
-        console.log('Checking automatic admin access for:', user.email);
-        const isAdmin = await verifySetupUser('', '', user);
-        if (isAdmin) {
-          console.log('Automatic admin access granted for:', user.email);
-          setVerified(true);
-          toast.success('Admin access granted automatically');
+  const handleNpcAction = (action: DialogueAction) => {
+    switch (action.type) {
+      case 'give_item':
+        game.addItem(action.itemId, action.quantity);
+        game.addLog(`📦 Received ${ITEMS[action.itemId].emoji} ${ITEMS[action.itemId].name} ×${action.quantity}!`);
+        break;
+      case 'give_gold':
+        game.addGold(action.amount);
+        game.addLog(`💰 Received ${action.amount} gold!`);
+        break;
+      case 'give_xp':
+        game.gainXp(action.amount);
+        game.addLog(`⭐ Gained ${action.amount} XP!`);
+        break;
+      case 'start_quest':
+        game.addLog(`📜 New quest started: ${action.questId.replace(/_/g, ' ')}!`);
+        // Trigger boss fight immediately for final quest
+        if (action.questId === 'final_confrontation') {
+          const boss = { ...ENEMIES.von_dooooom_boss };
+          const combatState: CombatState = {
+            enemy: boss,
+            playerHp: state.stats.hp,
+            log: [
+              '😱 Lord Von Dooooom takes a deep breath.',
+              '"PREPARE FOR DOOOOOM!" he shouts.',
+              '"...I am fine. This is fine. I am definitely not scared."',
+              '⚔️ The Final Battle begins!',
+            ],
+            phase: 'player_turn',
+            bossPhaseIndex: 0,
+          };
+          game.openOverlay('none');
+          setTimeout(() => {
+            game.startBossFight(combatState);
+          }, 100);
         }
-      } catch (error) {
-        console.error('Error checking admin access:', error);
-      } finally {
-        setCheckingAdminAccess(false);
-      }
-    };
-
-    checkAdminAccess();
-  }, [user, authLoading]);
-
-  const handleVerify = async () => {
-    setLoading(true);
-    try {
-      const isValid = await verifySetupUser(username, password, user);
-      if (isValid) {
-        setVerified(true);
-        toast.success('Setup access granted');
-      } else {
-        toast.error('Invalid setup credentials');
-      }
-    } catch (error) {
-      console.error('Setup verification error:', error);
-      toast.error('Setup verification failed');
-    } finally {
-      setLoading(false);
+        break;
+      case 'complete_quest':
+        game.completeQuest(action.questId);
+        break;
     }
   };
 
-  // Show loading while checking admin access
-  if (checkingAdminAccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-sm text-muted-foreground">Checking admin access...</p>
-        </div>
-      </div>
-    );
-  }
+  const handleTrade = (
+    give: { itemId: ItemId; quantity: number },
+    receive: { itemId: ItemId; quantity: number }
+  ): boolean => {
+    const hasItems = state.inventory.find(i => i.itemId === give.itemId)?.quantity ?? 0;
+    if (hasItems < give.quantity) return false;
+    game.removeItem(give.itemId, give.quantity);
+    game.addItem(receive.itemId, receive.quantity);
+    game.addLog(`🔄 Traded ${ITEMS[give.itemId].emoji} for ${ITEMS[receive.itemId].emoji}!`);
+    return true;
+  };
 
-  if (!verified) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-full max-w-md space-y-4">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold">Setup Access Required</h2>
-            <p className="text-sm text-muted-foreground">Enter setup credentials to continue</p>
-            {user && (
-              <p className="text-xs text-blue-600 mt-2">
-                Logged in as: {user.email}
-              </p>
-            )}
-          </div>
-          <div className="space-y-4">
-            <Input
-              type="text"
-              placeholder="Username (try 'Team2')"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-            <Input
-              type="password"
-              placeholder="Password (try 'Team2')"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <Button 
-              onClick={handleVerify} 
-              className="w-full"
-              disabled={loading}
-            >
-              {loading ? 'Verifying...' : 'Verify'}
-            </Button>
-          </div>
-          <div className="text-center text-xs text-muted-foreground">
-            <p>Try username: Team2, password: Team2</p>
-            <p>Or use admin email: Carl.Jukes@dakin-flathers.com</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const currentLocation = LOCATIONS[state.currentLocation];
+  const currentNpcId = currentLocation?.npcId as NpcId | undefined;
 
-  return <>{children}</>;
-}
-
-function AppContent() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/*"
-          element={
-            <PrivateRoute>
-              <OperatorProvider>
-                <InstructionsProvider>
-                  <div className="min-h-screen bg-background">
-                    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                      <div className="container flex h-14 items-center">
-                        <div className="hidden lg:flex items-center space-x-2">
-                          <Package2 className="h-6 w-6" />
-                          <span className="font-bold">WareFlow</span>
-                        </div>
-                        <MainNav />
-                        <div className="ml-auto flex items-center gap-2">
-                          <InstructionToggle />
-                          <OperatorSelector />
-                        </div>
-                      </div>
-                    </header>
-                    <main className="container py-6 px-4 lg:px-6">
-                      <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/goods-in" element={<GoodsIn />} />
-                        <Route path="/goods-out" element={<GoodsOut />} />
-                        <Route path="/scan" element={<Scan />} />
-                        <Route path="/process-scan" element={<ProcessScan />} />
-                        <Route
-                          path="/setup"
-                          element={
-                            <AdminRoute>
-                              <Setup />
-                            </AdminRoute>
-                          }
-                        />
-                        <Route path="/inventory" element={<Inventory />} />
-                        <Route path="/locations" element={<Locations />} />
-                        <Route path="/movements" element={<Movements />} />
-                      </Routes>
-                    </main>
-                    <Toaster />
-                  </div>
-                </InstructionsProvider>
-              </OperatorProvider>
-            </PrivateRoute>
-          }
+    <div className="min-h-screen bg-spooky-dark text-spooky-text flex flex-col md:flex-row">
+      <GameHUD
+        state={state}
+        onOpenQuests={() => game.openOverlay('quest_log')}
+        onOpenInventory={() => game.openOverlay('inventory')}
+        onOpenSettings={() => game.openOverlay('settings')}
+      />
+
+      <main className="flex-1 flex flex-col gap-4 p-4 max-w-2xl mx-auto w-full pb-8">
+        <GameLog entries={state.gameLog} />
+        <LocationView
+          state={state}
+          onTravel={game.travelTo}
+          onTalkToNpc={() => {
+            if (currentNpcId) game.openNpcDialog(currentNpcId);
+          }}
+          onExplore={game.exploreArea}
         />
-      </Routes>
-    </Router>
-  );
-}
+      </main>
 
-export default function App() {
-  return (
-    <FirebaseProvider>
-      <AppContent />
-    </FirebaseProvider>
+      {state.pendingLevelUp && state.overlay !== 'combat' && (
+        <LevelUpModal state={state} onClose={game.clearLevelUp} />
+      )}
+
+      {state.overlay === 'npc' && state.activeNpcId && (
+        <NPCDialog
+          state={state}
+          npcId={state.activeNpcId}
+          onClose={game.closeOverlay}
+          onAction={handleNpcAction}
+          onOpenShop={() => {
+            setTradeMode('shop');
+            game.openOverlay('shop');
+          }}
+          onOpenTrade={() => {
+            setTradeMode('trade');
+            game.openOverlay('trade');
+          }}
+        />
+      )}
+
+      {(state.overlay === 'shop' || state.overlay === 'trade') && state.activeNpcId && (
+        <TradeScreen
+          state={state}
+          npcId={state.activeNpcId}
+          mode={state.overlay === 'shop' ? 'shop' : 'trade'}
+          onClose={() => game.openOverlay('npc')}
+          onBuy={game.buyItem}
+          onTrade={handleTrade}
+        />
+      )}
+
+      {state.overlay === 'combat' && state.combat && (
+        <CombatScreen
+          state={state}
+          onAttack={game.attackEnemy}
+          onUseItem={game.useItemInCombat}
+          onRun={game.runFromCombat}
+          onEndCombat={game.endCombat}
+        />
+      )}
+
+      {state.overlay === 'quest_log' && (
+        <QuestLog state={state} onClose={game.closeOverlay} />
+      )}
+
+      {state.overlay === 'inventory' && (
+        <Inventory
+          state={state}
+          onClose={game.closeOverlay}
+          onUseItem={game.useHealItem}
+        />
+      )}
+
+      {state.overlay === 'settings' && (
+        <SettingsPanel
+          state={state}
+          onClose={game.closeOverlay}
+          onToggleSound={game.toggleSound}
+          onManualSave={game.manualSave}
+          onRestart={game.restartGame}
+        />
+      )}
+    </div>
   );
 }
