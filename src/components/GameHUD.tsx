@@ -1,4 +1,3 @@
-import React from 'react';
 import type { GameState } from '../types/game';
 import { XP_THRESHOLDS } from '../hooks/useGameState';
 
@@ -7,9 +6,10 @@ interface GameHUDProps {
   onOpenQuests: () => void;
   onOpenInventory: () => void;
   onOpenSettings: () => void;
+  onOpenMap: () => void;
 }
 
-export default function GameHUD({ state, onOpenQuests, onOpenInventory, onOpenSettings }: GameHUDProps) {
+export default function GameHUD({ state, onOpenQuests, onOpenInventory, onOpenSettings, onOpenMap }: GameHUDProps) {
   const { stats, gold, inventory, questStates } = state;
   const activeQuestCount = Object.values(questStates).filter(s => s === 'active').length;
   const hpPercent = Math.max(0, Math.min(100, (stats.hp / stats.maxHp) * 100));
@@ -82,6 +82,15 @@ export default function GameHUD({ state, onOpenQuests, onOpenInventory, onOpenSe
 
       {/* Action buttons */}
       <div className="flex gap-2 md:flex-col md:w-full md:gap-3 ml-auto md:ml-0">
+        <button
+          onClick={onOpenMap}
+          className="hud-btn"
+          aria-label="World Map"
+        >
+          🗺️
+          <span className="hidden md:inline font-game text-xs ml-2">Map</span>
+        </button>
+
         <button
           onClick={onOpenInventory}
           className="hud-btn relative"

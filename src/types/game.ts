@@ -205,7 +205,8 @@ export type OverlayType =
   | 'inventory'
   | 'level_up'
   | 'settings'
-  | 'shop';
+  | 'shop'
+  | 'map';
 
 export interface CombatState {
   enemy: Enemy;

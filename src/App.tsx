@@ -17,6 +17,7 @@ import QuestLog from './components/QuestLog';
 import Inventory from './components/Inventory';
 import LevelUpModal from './components/LevelUpModal';
 import SettingsPanel from './components/SettingsPanel';
+import MapScreen from './components/MapScreen';
 
 export default function App() {
   const game = useGameState();
@@ -106,6 +107,7 @@ export default function App() {
         onOpenQuests={() => game.openOverlay('quest_log')}
         onOpenInventory={() => game.openOverlay('inventory')}
         onOpenSettings={() => game.openOverlay('settings')}
+        onOpenMap={() => game.openOverlay('map')}
       />
 
       <main className="flex-1 flex flex-col gap-4 p-4 max-w-2xl mx-auto w-full pb-8">
@@ -181,6 +183,14 @@ export default function App() {
           onToggleSound={game.toggleSound}
           onManualSave={game.manualSave}
           onRestart={game.restartGame}
+        />
+      )}
+
+      {state.overlay === 'map' && (
+        <MapScreen
+          state={state}
+          onClose={game.closeOverlay}
+          onTravel={loc => { game.travelTo(loc); game.closeOverlay(); }}
         />
       )}
     </div>
