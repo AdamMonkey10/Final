@@ -11,6 +11,7 @@ import Inventory from '@/pages/inventory';
 import Locations from '@/pages/locations';
 import Movements from '@/pages/movements';
 import Login from '@/pages/login';
+import Quiz from '@/pages/quiz';
 import { Package2 } from 'lucide-react';
 import { verifySetupUser } from '@/lib/firebase/users';
 import { useState, useEffect } from 'react';
@@ -156,6 +157,7 @@ function AppContent() {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/quiz" element={<Quiz />} />
         <Route
           path="/*"
           element={

@@ -8,10 +8,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import { 
-  PackagePlus, 
-  Settings, 
-  LayoutDashboard, 
+import {
+  PackagePlus,
+  Settings,
+  LayoutDashboard,
   Grid2X2,
   ArrowDownUp,
   Menu,
@@ -19,7 +19,8 @@ import {
   LogOut,
   QrCode,
   ExternalLink,
-  ArrowUpFromLine
+  ArrowUpFromLine,
+  Brain
 } from 'lucide-react';
 import { logout } from '@/lib/firebase/users';
 
@@ -58,6 +59,11 @@ const routes = [
     title: 'Setup',
     href: '/setup',
     icon: Settings,
+  },
+  {
+    title: 'Family Quiz',
+    href: '/quiz',
+    icon: Brain,
   },
 ];
 
