@@ -1,5 +1,4 @@
 import { useGame } from '@/contexts/GameContext';
-import { SPACEPORT_LOCATIONS } from '@/data/game-data';
 import type { SpaceportLocation } from '@/types/game';
 
 function LocationCard({ loc }: { loc: SpaceportLocation }) {
@@ -48,7 +47,7 @@ export function SpaceportTab() {
   const { player } = state;
   const ship = player.ship;
   const planet = state.planets.find(p => p.id === player.currentPlanetId);
-  const locations = planet ? (SPACEPORT_LOCATIONS[planet.id] ?? []) : [];
+  const locations: SpaceportLocation[] = planet?.spaceportLocations ?? [];
 
   const hullDamage = ship.maxHull - ship.hull;
   const repairCost = hullDamage * 3;

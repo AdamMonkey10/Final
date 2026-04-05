@@ -3,7 +3,8 @@ import type {
   Mission, MissionType, GameNotification, PlayerShip, ShipUpgrades, SolarSystem,
   GoodEncounter, SpaceportLocationType, LocationResult, MarketEvent,
 } from '@/types/game';
-import { GOODS, PLANET_TEMPLATES, SOLAR_SYSTEMS, SHIP_TEMPLATES, UPGRADE_COSTS, MARKET_EVENT_TEMPLATES } from '@/data/game-data';
+import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS, MARKET_EVENT_TEMPLATES } from '@/data/game-data';
+import { generateGalaxy, planetSeed } from '@/lib/galaxy-gen';
 
 // ── Market ────────────────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ function seededRandom(seed: number): number {
 // ── Market events ─────────────────────────────────────────────────────────────
 
 export function generateMarketEvents(planetId: string, economy: string, gameDay: number): MarketEvent[] {
-  const seed = planetId.charCodeAt(0) * 13 + gameDay * 7;
+  const seed = (planetSeed(planetId, 0, gameDay) + gameDay * 7) & 0x7fffffff;
   if (seededRandom(seed) > 0.28) return []; // ~28% chance of an event
 
   // Filter templates relevant to this economy
@@ -64,8 +65,8 @@ export function generateMarket(
 
     // Price variance uses good volatility: high volatility = wider swing
     const swing = 0.15 + good.volatility * 0.5;
-    const seed     = planet.id.charCodeAt(0) + idx * 17 + gameDay * 3;
-    const prevSeed = planet.id.charCodeAt(0) + idx * 17 + (gameDay - 1) * 3;
+    const seed     = planetSeed(planet.id, idx, gameDay);
+    const prevSeed = planetSeed(planet.id, idx, gameDay - 1);
     const variance     = 0.85 + seededRandom(seed)     * swing;
     const prevVariance = 0.85 + seededRandom(prevSeed) * swing;
 
@@ -102,8 +103,8 @@ export function generateMarket(
   });
 }
 
-export function initializePlanets(gameDay: number): Planet[] {
-  return PLANET_TEMPLATES.map(t => {
+export function initializePlanets(gameDay: number, basePlanets: Planet[]): Planet[] {
+  return basePlanets.map(t => {
     const activeEvents = generateMarketEvents(t.id, t.economy, gameDay);
     return { ...t, activeEvents, market: generateMarket(t, gameDay, activeEvents) };
   });
@@ -149,9 +150,8 @@ export function getBestSellHint(
   return best;
 }
 
-export function getSolarSystems(): SolarSystem[] {
-  return SOLAR_SYSTEMS;
-}
+// kept for compatibility — no longer used directly
+export function getSolarSystems(): SolarSystem[] { return []; }
 
 // ── Travel ────────────────────────────────────────────────────────────────────
 
@@ -483,15 +483,23 @@ export function getUpgradeCost(component: keyof ShipUpgrades, currentLevel: numb
 
 // ── New game ──────────────────────────────────────────────────────────────────
 
-export function createNewGame(): { player: PlayerState; planets: Planet[]; systems: SolarSystem[] } {
+export function createNewGame(seed?: number): {
+  player: PlayerState; planets: Planet[]; systems: SolarSystem[]; galaxySeed: number;
+} {
   const startTemplate = SHIP_TEMPLATES.scout;
   const gameDay = 1;
-  const planets = initializePlanets(gameDay);
-  const systems = getSolarSystems();
+  const galaxySeed = seed ?? (Date.now() & 0x7fffffff);
+
+  const { systems: rawSystems, planets: rawPlanets } = generateGalaxy(galaxySeed);
+  const planets = initializePlanets(gameDay, rawPlanets);
+  const systems = rawSystems;
+
+  // Starting planet = first planet of system_0 (always generated as core/spaceport)
+  const startPlanetId = systems[0]?.planetIds[0] ?? planets[0]?.id ?? 'unknown';
 
   const player: PlayerState = {
-    credits: 1000,
-    currentPlanetId: 'new_terra',
+    credits: 1200,
+    currentPlanetId: startPlanetId,
     ship: {
       class: 'scout',
       cargoCapacity: startTemplate.cargoCapacity,
@@ -504,15 +512,15 @@ export function createNewGame(): { player: PlayerState; planets: Planet[]; syste
       upgrades: { cargo: 0, engine: 0, shields: 0, weapons: 0 },
       cargo: [],
     },
-    visitedPlanets: ['new_terra'],
-    missions: generateMissions('new_terra', planets, systems, gameDay, 0),
+    visitedPlanets: [startPlanetId],
+    missions: generateMissions(startPlanetId, planets, systems, gameDay, 0),
     reputation: 0,
     totalProfit: 0,
     tripsCompleted: 0,
     exploredLocations: {},
   };
 
-  return { player, planets, systems };
+  return { player, planets, systems, galaxySeed };
 }
 
 export function makeNotification(message: string, type: GameNotification['type'] = 'info'): GameNotification {

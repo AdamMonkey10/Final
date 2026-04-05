@@ -1,4 +1,6 @@
 export type EconomyType = 'mining' | 'tech' | 'agricultural' | 'military' | 'blackmarket' | 'industrial' | 'research' | 'frontier' | 'trading';
+export type StarType = 'yellow' | 'red_dwarf' | 'blue_giant' | 'binary' | 'neutron' | 'white_dwarf';
+export type GalaxyRegion = 'core' | 'mid_rim' | 'outer_rim' | 'deep_frontier';
 
 export type GoodEncounterType = 'salvage' | 'patrol_assist' | 'trader_tip' | 'abandoned_cache' | 'anomaly' | 'derelict';
 
@@ -51,6 +53,10 @@ export interface SolarSystem {
   centerY: number;
   planetIds: string[];
   description: string;
+  starType: StarType;
+  region: GalaxyRegion;
+  jumpLanes: string[];   // connected system IDs
+  discovered: boolean;
 }
 
 export interface Good {
@@ -102,6 +108,7 @@ export interface Planet {
   produces: GoodType[];
   consumes: GoodType[];
   isSpaceport?: boolean;
+  spaceportLocations?: SpaceportLocation[];
 }
 
 export interface ShipTemplate {
@@ -211,6 +218,7 @@ export interface GameState {
   gameDay: number;
   marketLastRefresh: number;
   initialized: boolean;
+  galaxySeed: number;
   pendingGoodEncounter?: GoodEncounter;
   lastLocationResult?: LocationResult;
 }

@@ -8,9 +8,9 @@ import {
   getTravelFuelCost, getRepPriceMultiplier, getRepSellMultiplier,
   generateMarketEvents,
 } from '@/lib/game-engine';
-import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS, SPACEPORT_LOCATIONS } from '@/data/game-data';
+import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
 
-const SAVE_KEY = 'space_rpg_save_v2';
+const SAVE_KEY = 'space_rpg_save_v3';
 const MARKET_REFRESH_DAYS = 3;
 
 // ── Initial state ─────────────────────────────────────────────────────────────
@@ -20,16 +20,16 @@ function getInitialState(): GameState {
     const saved = localStorage.getItem(SAVE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as GameState;
-      if (parsed.initialized && parsed.systems) return parsed;
+      if (parsed.initialized && parsed.systems?.[0]?.starType) return parsed;
     }
   } catch { /* ignore */ }
 
-  const { player, planets, systems } = createNewGame();
+  const { player, planets, systems, galaxySeed } = createNewGame();
   return {
-    player, planets, systems,
+    player, planets, systems, galaxySeed,
     screen: 'planet', travelProgress: 0, travelDuration: 3000,
     combat: undefined, combatLog: [],
-    notifications: [makeNotification('Welcome, pilot. Good luck out there!', 'info')],
+    notifications: [makeNotification('Welcome, pilot. A new galaxy awaits.', 'info')],
     gameDay: 1, marketLastRefresh: 1, initialized: true,
   };
 }
@@ -66,12 +66,12 @@ function gameReducer(state: GameState, action: Action): GameState {
   switch (action.type) {
 
     case 'NEW_GAME': {
-      const { player, planets, systems } = createNewGame();
+      const { player, planets, systems, galaxySeed } = createNewGame();
       return {
-        player, planets, systems,
+        player, planets, systems, galaxySeed,
         screen: 'planet', travelProgress: 0, travelDuration: 3000,
         combat: undefined, combatLog: [],
-        notifications: [makeNotification('New game started. Good luck, pilot!', 'info')],
+        notifications: [makeNotification('New galaxy generated. Good luck, pilot!', 'info')],
         gameDay: 1, marketLastRefresh: 1, initialized: true,
       };
     }
@@ -102,6 +102,17 @@ function gameReducer(state: GameState, action: Action): GameState {
       const destId = state.travelDestinationId!;
       const destPlanet = state.planets.find(p => p.id === destId)!;
       const newDay = state.gameDay + 1;
+
+      // Discover arrived system + all its jump-lane neighbours
+      const arrivedSystem = state.systems.find(s => s.planetIds.includes(destId));
+      const toDiscover = new Set<string>();
+      if (arrivedSystem) {
+        toDiscover.add(arrivedSystem.id);
+        arrivedSystem.jumpLanes.forEach(id => toDiscover.add(id));
+      }
+      const updatedSystems = state.systems.map(s =>
+        toDiscover.has(s.id) ? { ...s, discovered: true } : s
+      );
       const visited = state.player.visitedPlanets.includes(destId)
         ? state.player.visitedPlanets
         : [...state.player.visitedPlanets, destId];
@@ -132,7 +143,7 @@ function gameReducer(state: GameState, action: Action): GameState {
       let planets = state.planets;
       let marketLastRefresh = state.marketLastRefresh;
       if (newDay - state.marketLastRefresh >= MARKET_REFRESH_DAYS) {
-        planets = initializePlanets(newDay);
+        planets = initializePlanets(newDay, state.planets);
         marketLastRefresh = newDay;
       }
 
@@ -176,6 +187,7 @@ function gameReducer(state: GameState, action: Action): GameState {
         combat: action.encounteredEnemy,
         combatLog: action.encounteredEnemy ? [`⚠ ${action.encounteredEnemy.name} intercepts you!`] : [],
         travelProgress: 0, planets, marketLastRefresh,
+        systems: updatedSystems,
         gameDay: newDay,
         player: {
           ...state.player,
@@ -431,9 +443,10 @@ function gameReducer(state: GameState, action: Action): GameState {
 
     case 'EXPLORE_LOCATION': {
       const { locationId } = action;
-      // Find location definition across all spaceports
-      const allLocs = Object.values(SPACEPORT_LOCATIONS).flat();
-      const loc = allLocs.find(l => l.id === locationId);
+      // Find location from planet spaceportLocations
+      let loc = state.planets
+        .flatMap(p => p.spaceportLocations ?? [])
+        .find(l => l.id === locationId);
       if (!loc) return state;
 
       // Mark as explored this day
