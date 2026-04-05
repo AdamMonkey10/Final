@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useGame } from '@/contexts/GameContext';
-import { getTravelDistance, getTravelDuration, getShipEffectiveStats } from '@/lib/game-engine';
+import { getTravelDistance, getTravelDuration, getShipEffectiveStats, getTravelFuelCost } from '@/lib/game-engine';
 import type { Planet } from '@/types/game';
 import { StarField } from './StarField';
 
@@ -32,7 +32,9 @@ export function GalaxyMap() {
   };
 
   const distanceToSelected = selected ? getTravelDistance(currentPlanet, selected) : 0;
-  const etaSec = selected ? Math.round(getTravelDuration(distanceToSelected, effective.speed) / 1000) : 0;
+  const etaSec    = selected ? Math.round(getTravelDuration(distanceToSelected, effective.speed) / 1000) : 0;
+  const fuelCost  = selected ? getTravelFuelCost(distanceToSelected, player.ship.upgrades.engine) : 0;
+  const canAffordFuel = player.credits >= fuelCost;
   const selectedSystem = selected ? systems.find(s => s.planetIds.includes(selected.id)) : null;
   const isCrossSystem = selectedSystem && currentSystem && selectedSystem.id !== currentSystem.id;
 
@@ -213,16 +215,21 @@ export function GalaxyMap() {
               )}
             </div>
             <div className="text-gray-400 text-xs capitalize">{selected.economy} · {selected.faction}</div>
-            <div className="flex gap-3 mt-1 text-xs font-mono">
+            <div className="flex gap-3 mt-1 text-xs font-mono flex-wrap">
               <span className={isCrossSystem ? 'text-orange-400' : 'text-cyan-400'}>
-                {isCrossSystem ? '🌌 Jump' : '🚀 Intra-system'} ~{etaSec}s
+                {isCrossSystem ? '🌌 Jump' : '🚀 Fly'} ~{etaSec}s
+              </span>
+              <span className={canAffordFuel ? 'text-yellow-400' : 'text-red-400'}>
+                ⛽ {fuelCost}cr
               </span>
               {selected.dangerLevel > 0 && <span className="text-red-400">⚠ Danger {selected.dangerLevel}/3</span>}
+              {selected.isSpaceport && <span className="text-yellow-400">⚓ Spaceport</span>}
             </div>
           </div>
           <button onClick={handleTravel}
-            className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 text-white text-sm font-bold rounded-lg min-w-[80px] transition-colors">
-            {isCrossSystem ? 'JUMP 🌌' : 'FLY 🚀'}
+            disabled={!canAffordFuel}
+            className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold rounded-lg min-w-[80px] transition-colors">
+            {!canAffordFuel ? 'No Fuel' : isCrossSystem ? 'JUMP 🌌' : 'FLY 🚀'}
           </button>
         </div>
       )}

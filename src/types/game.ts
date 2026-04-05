@@ -58,8 +58,22 @@ export interface Good {
   name: string;
   basePrice: number;
   weight: number;
+  volatility: number;       // 0.1 = stable, 0.5 = very volatile
+  category: 'legal' | 'rare' | 'luxury' | 'illegal';
   isIllegal?: boolean;
   icon: string;
+}
+
+export interface MarketEvent {
+  id: string;
+  type: 'shortage' | 'boom' | 'festival' | 'disruption' | 'blackmarket_special' | 'trade_war';
+  title: string;
+  description: string;
+  affectedGoods: GoodType[];
+  priceMultiplier: number;
+  expiresOnDay: number;
+  icon: string;
+  badgeClass: string;
 }
 
 export interface MarketListing {
@@ -68,6 +82,7 @@ export interface MarketListing {
   sellPrice: number;
   quantity: number;
   demand: 'surplus' | 'normal' | 'shortage' | 'critical';
+  trend: 'up' | 'down' | 'stable';
 }
 
 export interface Planet {
@@ -78,6 +93,7 @@ export interface Planet {
   x: number;
   y: number;
   market: MarketListing[];
+  activeEvents: MarketEvent[];
   description: string;
   faction: string;
   dangerLevel: number;

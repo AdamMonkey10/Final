@@ -1,9 +1,9 @@
 import type {
   Planet, PlayerState, MarketListing, GoodType, CombatEnemy,
   Mission, MissionType, GameNotification, PlayerShip, ShipUpgrades, SolarSystem,
-  GoodEncounter, SpaceportLocationType, LocationResult,
+  GoodEncounter, SpaceportLocationType, LocationResult, MarketEvent,
 } from '@/types/game';
-import { GOODS, PLANET_TEMPLATES, SOLAR_SYSTEMS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
+import { GOODS, PLANET_TEMPLATES, SOLAR_SYSTEMS, SHIP_TEMPLATES, UPGRADE_COSTS, MARKET_EVENT_TEMPLATES } from '@/data/game-data';
 
 // ── Market ────────────────────────────────────────────────────────────────────
 
@@ -24,32 +24,129 @@ function seededRandom(seed: number): number {
   return x - Math.floor(x);
 }
 
-export function generateMarket(planet: Omit<Planet, 'market'>, gameDay: number): MarketListing[] {
+// ── Market events ─────────────────────────────────────────────────────────────
+
+export function generateMarketEvents(planetId: string, economy: string, gameDay: number): MarketEvent[] {
+  const seed = planetId.charCodeAt(0) * 13 + gameDay * 7;
+  if (seededRandom(seed) > 0.28) return []; // ~28% chance of an event
+
+  // Filter templates relevant to this economy
+  const relevant = MARKET_EVENT_TEMPLATES.filter(t => {
+    if (t.type === 'blackmarket_special' && economy !== 'blackmarket' && economy !== 'frontier') return false;
+    if (t.type === 'festival' && economy === 'mining') return false;
+    return true;
+  });
+
+  const idx = Math.floor(seededRandom(seed + 50) * relevant.length);
+  const template = relevant[idx];
+  const duration = 2 + Math.floor(seededRandom(seed + 80) * 3); // 2-4 days
+
+  return [{
+    id: `ev_${planetId}_${gameDay}`,
+    ...template,
+    expiresOnDay: gameDay + duration,
+  }];
+}
+
+// ── Market prices ─────────────────────────────────────────────────────────────
+
+export function generateMarket(
+  planet: Omit<Planet, 'market' | 'activeEvents'>,
+  gameDay: number,
+  events: MarketEvent[] = [],
+): MarketListing[] {
+
   const factors = ECONOMY_FACTORS[planet.economy] ?? ECONOMY_FACTORS.trading;
+
   return (Object.keys(GOODS) as GoodType[]).map((goodType, idx) => {
     const good = GOODS[goodType];
     const factor = factors[goodType] ?? 1.0;
-    const seed = planet.id.charCodeAt(0) + idx * 17 + gameDay * 3;
-    const variance = 0.85 + seededRandom(seed) * 0.3;
-    const marketPrice = Math.round(good.basePrice * factor * variance);
-    const buyPrice = Math.round(marketPrice * 1.08);
+
+    // Price variance uses good volatility: high volatility = wider swing
+    const swing = 0.15 + good.volatility * 0.5;
+    const seed     = planet.id.charCodeAt(0) + idx * 17 + gameDay * 3;
+    const prevSeed = planet.id.charCodeAt(0) + idx * 17 + (gameDay - 1) * 3;
+    const variance     = 0.85 + seededRandom(seed)     * swing;
+    const prevVariance = 0.85 + seededRandom(prevSeed) * swing;
+
+    // Apply active event multipliers
+    const eventMult = events
+      .filter(e => e.affectedGoods.includes(goodType))
+      .reduce((m, e) => m * e.priceMultiplier, 1.0);
+
+    const marketPrice     = Math.round(good.basePrice * factor * variance * eventMult);
+    const prevMarketPrice = Math.round(good.basePrice * factor * prevVariance);
+
+    const buyPrice  = Math.round(marketPrice * 1.08);
     const sellPrice = Math.round(marketPrice * 0.92);
 
+    // Trend vs previous day (>5% change = arrow)
+    const ratio = marketPrice / prevMarketPrice;
+    const trend: MarketListing['trend'] = ratio > 1.05 ? 'up' : ratio < 0.95 ? 'down' : 'stable';
+
+    // Demand
     const demandSeed = seededRandom(seed + 100);
     let demand: MarketListing['demand'] = 'normal';
     if (planet.produces.includes(goodType)) demand = demandSeed > 0.7 ? 'surplus' : 'normal';
     else if (planet.consumes.includes(goodType)) demand = demandSeed > 0.6 ? 'critical' : 'shortage';
+    // Events can force critical demand
+    if (events.some(e => ['shortage', 'disruption'].includes(e.type) && e.affectedGoods.includes(goodType))) {
+      demand = 'critical';
+    }
 
     const quantity = planet.produces.includes(goodType)
       ? Math.round(15 + seededRandom(seed + 300) * 30)
       : Math.round(5 + seededRandom(seed + 200) * 20);
 
-    return { good: goodType, buyPrice, sellPrice, quantity, demand };
+    return { good: goodType, buyPrice, sellPrice, quantity, demand, trend };
   });
 }
 
 export function initializePlanets(gameDay: number): Planet[] {
-  return PLANET_TEMPLATES.map(t => ({ ...t, market: generateMarket(t, gameDay) }));
+  return PLANET_TEMPLATES.map(t => {
+    const activeEvents = generateMarketEvents(t.id, t.economy, gameDay);
+    return { ...t, activeEvents, market: generateMarket(t, gameDay, activeEvents) };
+  });
+}
+
+// ── Fuel cost ─────────────────────────────────────────────────────────────────
+
+export function getTravelFuelCost(distance: number, engineLevel: number): number {
+  const base = Math.max(15, Math.floor(distance * 0.35));
+  const discount = engineLevel * 0.12; // 12% off per engine upgrade (max 36%)
+  return Math.round(base * (1 - discount));
+}
+
+// ── Reputation price modifier ─────────────────────────────────────────────────
+
+/** Returns buy price multiplier: 1.0 at rep 0, 0.92 at rep 30+ */
+export function getRepPriceMultiplier(reputation: number): number {
+  return Math.max(0.92, 1.0 - Math.min(reputation, 30) / 375);
+}
+
+/** Returns sell price multiplier: 1.0 at rep 0, 1.08 at rep 30+ */
+export function getRepSellMultiplier(reputation: number): number {
+  return Math.min(1.08, 1.0 + Math.min(reputation, 30) / 375);
+}
+
+// ── Best sell hint ────────────────────────────────────────────────────────────
+
+export function getBestSellHint(
+  good: GoodType,
+  currentPlanetId: string,
+  planets: Planet[],
+  visitedIds: string[],
+): { planetName: string; sellPrice: number } | null {
+  let best: { planetName: string; sellPrice: number } | null = null;
+  for (const p of planets) {
+    if (p.id === currentPlanetId) continue;
+    if (!visitedIds.includes(p.id)) continue;
+    const listing = p.market.find(m => m.good === good);
+    if (listing && (!best || listing.sellPrice > best.sellPrice)) {
+      best = { planetName: p.name, sellPrice: listing.sellPrice };
+    }
+  }
+  return best;
 }
 
 export function getSolarSystems(): SolarSystem[] {

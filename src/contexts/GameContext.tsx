@@ -5,9 +5,10 @@ import {
   rollEncounter, rollGoodEncounter, resolveCombatRound, getCargoUsed, getShipEffectiveStats,
   getUpgradeCost, getTravelDistance, getTravelDuration, isSameSystem,
   makeNotification, generateBountyEnemy, exploreLocation,
+  getTravelFuelCost, getRepPriceMultiplier, getRepSellMultiplier,
+  generateMarketEvents,
 } from '@/lib/game-engine';
-import { SPACEPORT_LOCATIONS } from '@/data/game-data';
-import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS } from '@/data/game-data';
+import { GOODS, SHIP_TEMPLATES, UPGRADE_COSTS, SPACEPORT_LOCATIONS } from '@/data/game-data';
 
 const SAVE_KEY = 'space_rpg_save_v2';
 const MARKET_REFRESH_DAYS = 3;
@@ -38,7 +39,7 @@ function getInitialState(): GameState {
 type Action =
   | { type: 'NEW_GAME' }
   | { type: 'SET_SCREEN'; screen: GameState['screen'] }
-  | { type: 'START_TRAVEL'; destinationId: string; duration: number }
+  | { type: 'START_TRAVEL'; destinationId: string; duration: number; fuelCost: number }
   | { type: 'UPDATE_TRAVEL'; progress: number }
   | { type: 'ARRIVE_AT_PLANET'; encounteredEnemy?: CombatEnemy; goodEncounter?: GoodEncounter }
   | { type: 'COMBAT_ATTACK' }
@@ -78,12 +79,21 @@ function gameReducer(state: GameState, action: Action): GameState {
     case 'SET_SCREEN':
       return { ...state, screen: action.screen };
 
-    case 'START_TRAVEL':
+    case 'START_TRAVEL': {
+      const fuelCost = action.fuelCost ?? 0;
+      if (state.player.credits < fuelCost) {
+        return notify(state, `Not enough credits for fuel (${fuelCost}cr needed).`, 'warning');
+      }
+      const newState = fuelCost > 0
+        ? notify({ ...state, player: { ...state.player, credits: state.player.credits - fuelCost } },
+            `Fuel: -${fuelCost}cr`, 'info')
+        : state;
       return {
-        ...state, screen: 'travel',
+        ...newState, screen: 'travel',
         travelDestinationId: action.destinationId,
         travelProgress: 0, travelDuration: action.duration,
       };
+    }
 
     case 'UPDATE_TRAVEL':
       return { ...state, travelProgress: action.progress };
@@ -276,7 +286,10 @@ function gameReducer(state: GameState, action: Action): GameState {
       const planet = state.planets.find(p => p.id === state.player.currentPlanetId)!;
       const listing = planet.market.find(m => m.good === good)!;
       const goodData = GOODS[good];
-      const totalCost = listing.buyPrice * quantity;
+      // Apply reputation buy discount
+      const repMult = getRepPriceMultiplier(state.player.reputation);
+      const discountedPrice = Math.round(listing.buyPrice * repMult);
+      const totalCost = discountedPrice * quantity;
       const effective = getShipEffectiveStats(state.player.ship);
       const cargoFree = effective.cargoCapacity - getCargoUsed(state.player.ship);
 
@@ -288,9 +301,9 @@ function gameReducer(state: GameState, action: Action): GameState {
       if (existingIdx >= 0) {
         const e = newCargo[existingIdx];
         const totalQty = e.quantity + quantity;
-        newCargo[existingIdx] = { ...e, quantity: totalQty, avgPurchasePrice: Math.round((e.avgPurchasePrice * e.quantity + listing.buyPrice * quantity) / totalQty) };
+        newCargo[existingIdx] = { ...e, quantity: totalQty, avgPurchasePrice: Math.round((e.avgPurchasePrice * e.quantity + discountedPrice * quantity) / totalQty) };
       } else {
-        newCargo.push({ good, quantity, avgPurchasePrice: listing.buyPrice });
+        newCargo.push({ good, quantity, avgPurchasePrice: discountedPrice });
       }
 
       return {
@@ -306,7 +319,9 @@ function gameReducer(state: GameState, action: Action): GameState {
       const { good, quantity } = action;
       const planet = state.planets.find(p => p.id === state.player.currentPlanetId)!;
       const listing = planet.market.find(m => m.good === good)!;
-      const totalRevenue = listing.sellPrice * quantity;
+      const repSellMult = getRepSellMultiplier(state.player.reputation);
+      const boostedSellPrice = Math.round(listing.sellPrice * repSellMult);
+      const totalRevenue = boostedSellPrice * quantity;
       const existingIdx = state.player.ship.cargo.findIndex(c => c.good === good);
       if (existingIdx < 0) return state;
 
@@ -560,7 +575,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const to = state.planets.find(p => p.id === planetId)!;
     const dist = getTravelDistance(from, to);
     const effective = getShipEffectiveStats(state.player.ship);
-    dispatch({ type: 'START_TRAVEL', destinationId: planetId, duration: getTravelDuration(dist, effective.speed) });
+    const fuelCost = getTravelFuelCost(dist, state.player.ship.upgrades.engine);
+    dispatch({ type: 'START_TRAVEL', destinationId: planetId, duration: getTravelDuration(dist, effective.speed), fuelCost });
   }, [state.planets, state.player]);
 
   const buyGood = useCallback((good: GoodType, qty: number) => dispatch({ type: 'BUY_GOOD', good, quantity: qty }), []);
