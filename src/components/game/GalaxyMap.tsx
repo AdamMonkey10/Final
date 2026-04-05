@@ -30,12 +30,18 @@ export function GalaxyMap() {
   const effective = getShipEffectiveStats(player.ship);
   const currentSystem = systems.find(s => s.planetIds.includes(player.currentPlanetId));
 
-  // When system selected, default-select its first planet
   function selectSystem(sys: SolarSystem) {
     if (!sys.discovered) return;
-    setSelectedSystem(prev => prev?.id === sys.id ? null : sys);
-    const firstPlanet = planets.find(p => p.id === sys.planetIds[0]);
-    setSelectedPlanet(firstPlanet ?? null);
+    if (selectedSystem?.id === sys.id) {
+      setSelectedSystem(null);
+      setSelectedPlanet(null);
+      return;
+    }
+    setSelectedSystem(sys);
+    // Auto-select first non-current planet, or first planet
+    const nonCurrent = planets.find(p => sys.planetIds.includes(p.id) && p.id !== player.currentPlanetId);
+    const first = planets.find(p => p.id === sys.planetIds[0]);
+    setSelectedPlanet(nonCurrent ?? first ?? null);
   }
 
   const distToSelected = selectedPlanet ? getTravelDistance(currentPlanet, selectedPlanet) : 0;
@@ -52,19 +58,18 @@ export function GalaxyMap() {
     setSelectedPlanet(null);
   }
 
-  // Pan
+  // Pan — works everywhere including over system nodes
   const onPointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('[data-sys]')) return;
     dragging.current = true;
     didDrag.current = false;
     lastPos.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
     const dx = e.clientX - lastPos.current.x;
     const dy = e.clientY - lastPos.current.y;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag.current = true;
     lastPos.current = { x: e.clientX, y: e.clientY };
     setOffset(o => ({ x: o.x + dx, y: o.y + dy }));
   };
@@ -99,7 +104,7 @@ export function GalaxyMap() {
             ))}
           </defs>
 
-          {/* Jump lanes — only between discovered systems */}
+          {/* Jump lanes */}
           {systems.map(sysA =>
             sysA.jumpLanes.map(bId => {
               const sysB = systems.find(s => s.id === bId);
@@ -138,7 +143,6 @@ export function GalaxyMap() {
             const isNeighbour = currentSystem?.jumpLanes.includes(sys.id);
 
             if (!sys.discovered) {
-              // Unknown system — show dim "?" if it's a neighbour of a discovered system
               const adjacentToDiscovered = systems.some(
                 s => s.discovered && s.jumpLanes.includes(sys.id)
               );
@@ -156,13 +160,19 @@ export function GalaxyMap() {
             }
 
             return (
-              <g key={sys.id} data-sys="1"
+              <g key={sys.id}
                 style={{ cursor: 'pointer' }}
-                onClick={() => !didDrag.current && selectSystem(sys)}
+                onClick={e => {
+                  e.stopPropagation();
+                  if (!didDrag.current) selectSystem(sys);
+                }}
               >
                 {/* Glow */}
                 <circle cx={sys.centerX} cy={sys.centerY} r={50}
                   fill={`url(#grad-${sys.id})`} />
+                {/* Hit area (larger, invisible) */}
+                <circle cx={sys.centerX} cy={sys.centerY} r={28}
+                  fill="transparent" />
                 {/* Pulse ring for current */}
                 {isCurrent && (
                   <circle cx={sys.centerX} cy={sys.centerY} r={24}
@@ -203,7 +213,7 @@ export function GalaxyMap() {
                 >
                   {sys.name.toUpperCase()}
                 </text>
-                {/* Region label — tiny, below name */}
+                {/* Region label */}
                 <text x={sys.centerX} y={sys.centerY + 44} textAnchor="middle"
                   fontSize="7" fontFamily="monospace"
                   fill={isCurrent ? '#94a3b8' : '#374151'}
@@ -217,12 +227,12 @@ export function GalaxyMap() {
 
         {/* Controls */}
         <div className="absolute top-3 right-3 flex flex-col gap-1">
-          {[['＋', () => setScale(s => Math.min(s + 0.25, 3))],
+          {([['＋', () => setScale(s => Math.min(s + 0.25, 3))],
             ['－', () => setScale(s => Math.max(s - 0.25, 0.4))],
-            ['⊙', resetView]].map(([label, fn], i) => (
-            <button key={i} onClick={fn as () => void}
+            ['⊙', resetView]] as [string, () => void][]).map(([label, fn], i) => (
+            <button key={i} onClick={fn}
               className="w-8 h-8 bg-black/60 border border-cyan-800 text-cyan-400 rounded text-base flex items-center justify-center active:bg-cyan-900/30">
-              {label as string}
+              {label}
             </button>
           ))}
         </div>
@@ -235,11 +245,16 @@ export function GalaxyMap() {
           </div>
         )}
 
+        {/* Hint when nothing selected */}
+        {!selectedSystem && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-mono text-gray-600 bg-black/40 px-3 py-1 rounded-full">
+            Tap a system to navigate
+          </div>
+        )}
+
         {/* Legend */}
-        <div className="absolute bottom-3 left-3 text-[9px] font-mono text-gray-600 space-y-0.5">
-          <div>☀️🔴💙✨⚡🌑 = Star types</div>
-          <div>? = Undiscovered system</div>
-          <div>⚓ = Spaceport</div>
+        <div className="absolute bottom-3 left-3 text-[9px] font-mono text-gray-700 space-y-0.5">
+          <div>☀️🔴💙✨⚡🌑 star types · ⚓ spaceport</div>
         </div>
       </div>
 
@@ -259,10 +274,12 @@ export function GalaxyMap() {
               </div>
               <div className="text-gray-500 text-[10px] font-mono mt-0.5">{selectedSystem.description}</div>
             </div>
+            <button onClick={() => { setSelectedSystem(null); setSelectedPlanet(null); }}
+              className="text-gray-600 hover:text-gray-400 text-lg leading-none px-1">✕</button>
           </div>
 
-          {/* Planet list */}
-          <div className="px-3 py-2 flex flex-wrap gap-1.5">
+          {/* Planet list + travel in one row */}
+          <div className="px-3 py-2 flex flex-wrap gap-1.5 items-center">
             {selectedSystem.planetIds.map(pid => {
               const p = planets.find(pl => pl.id === pid);
               if (!p) return null;
@@ -270,7 +287,7 @@ export function GalaxyMap() {
               const isChosen = selectedPlanet?.id === p.id;
               return (
                 <button key={pid}
-                  onClick={() => setSelectedPlanet(isChosen ? null : p)}
+                  onClick={() => !isHere && setSelectedPlanet(isChosen ? null : p)}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border font-mono transition-all ${
                     isHere
                       ? 'border-green-600 bg-green-900/30 text-green-300 cursor-default'
@@ -280,20 +297,20 @@ export function GalaxyMap() {
                   }`}
                 >
                   <span>{p.icon}</span>
-                  <span className="max-w-[90px] truncate">{p.name}</span>
-                  {isHere && <span className="text-green-500">◉</span>}
+                  <span className="max-w-[80px] truncate">{p.name}</span>
+                  {isHere && <span className="text-green-500 text-[9px]">HERE</span>}
                   {p.isSpaceport && !isHere && <span className="text-yellow-500 text-[9px]">⚓</span>}
                 </button>
               );
             })}
           </div>
 
-          {/* Travel bar — shown when planet selected and not current */}
+          {/* Travel bar */}
           {selectedPlanet && !isSelf && (
-            <div className="px-3 pb-2.5 flex items-center gap-2">
+            <div className="px-3 pb-2.5 flex items-center gap-2 border-t border-gray-800/40 pt-2">
               <div className="flex-1 text-xs font-mono space-y-0.5">
                 <div className="text-gray-300">
-                  {selectedPlanet.icon} <span className="font-bold">{selectedPlanet.name}</span>
+                  → <span className="font-bold">{selectedPlanet.name}</span>
                   <span className="text-gray-500 ml-1.5 capitalize">{selectedPlanet.economy} · {selectedPlanet.faction}</span>
                 </div>
                 <div className="flex gap-3 text-[10px] flex-wrap">
@@ -311,6 +328,13 @@ export function GalaxyMap() {
                 className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-bold rounded-lg transition-colors shrink-0">
                 {!canAfford ? 'No Fuel' : isCrossSystem ? 'JUMP 🌌' : 'FLY 🚀'}
               </button>
+            </div>
+          )}
+
+          {/* If all planets in system are current planet */}
+          {selectedPlanet && isSelf && (
+            <div className="px-3 pb-2.5 text-center text-xs font-mono text-green-500">
+              ◉ You are here
             </div>
           )}
         </div>
