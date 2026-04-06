@@ -5,17 +5,21 @@ Routes:
   GET /              — Main dashboard with category cards
   GET /documents     — Document browser (all categories or filtered)
   GET /documents/<category> — Documents for a specific category
+  GET /chat          — Claude AI assistant with Obsidian + Drive knowledge base
   GET /api/documents — JSON API for documents
   GET /api/stats     — JSON stats summary
+  POST /api/chat     — Streaming SSE chat endpoint (Claude Opus 4.6)
   POST /api/scan     — Trigger email scan
 """
 
+import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string, request, redirect, url_for
+from flask import Flask, jsonify, render_template_string, request, redirect, url_for, Response, stream_with_context
 
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "household.db"
@@ -232,6 +236,7 @@ BASE_HTML = """<!DOCTYPE html>
   <span class="nav-brand">🏠 Household</span>
   <a href="/" class="{% if page == 'home' %}active{% endif %}">Dashboard</a>
   <a href="/documents" class="{% if page == 'documents' %}active{% endif %}">Documents</a>
+  <a href="/chat" class="{% if page == 'chat' %}active{% endif %}">🤖 Ask Claude</a>
 </nav>
 <div class="main">
   {% block content %}{% endblock %}
@@ -448,6 +453,600 @@ def api_scan():
         return jsonify({"status": "scan started", "pid": result.pid})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Claude AI Knowledge Base ──────────────────────────────────────────────────
+
+OBSIDIAN_VAULT = Path(os.environ.get("OBSIDIAN_VAULT", str(Path.home() / "Obsidian/Household")))
+
+CLAUDE_SYSTEM = """You are a smart household management assistant with full access to the household's financial records, documents, calendar, and notes.
+
+Your knowledge base consists of:
+- A structured SQLite database of household documents (bills, payments, car records, health, property)
+- Obsidian markdown notes linked to each document, including Google Drive links to the actual files
+- Category structure: Finance/Bills, Car (Insurance/MOT/Service), Health, Property/Rental, Holidays
+
+You help with questions like:
+- "What bills are coming up this month?"
+- "How much did the Hyundai service cost?"
+- "Should I cancel McAfee?"
+- "What's my total outstanding amount?"
+- "When is the next MOT due?"
+- "Show me all PayPal payments"
+
+Always cite specific records when you reference data. Use £ for GBP amounts. If a document has a Google Drive link, mention it. Be concise and practical — this is a household assistant, not a formal system.
+
+Today's date: {today}
+
+--- HOUSEHOLD KNOWLEDGE BASE ---
+
+{context}
+
+--- END KNOWLEDGE BASE ---"""
+
+
+def _search_obsidian(keywords: list[str], max_notes: int = 8) -> list[dict]:
+    """Find and read Obsidian notes matching any of the keywords."""
+    if not OBSIDIAN_VAULT.exists():
+        return []
+
+    matches = []
+    seen = set()
+    keywords_lower = [k.lower() for k in keywords if len(k) > 2]
+
+    for note_path in OBSIDIAN_VAULT.rglob("*.md"):
+        if note_path in seen:
+            continue
+        try:
+            content = note_path.read_text(errors="replace")
+            content_lower = content.lower()
+            score = sum(1 for k in keywords_lower if k in content_lower)
+            if score > 0:
+                matches.append({"path": note_path, "content": content, "score": score})
+                seen.add(note_path)
+        except OSError:
+            pass
+
+    matches.sort(key=lambda x: x["score"], reverse=True)
+    return matches[:max_notes]
+
+
+def _extract_keywords(text: str) -> list[str]:
+    """Pull meaningful keywords from user query for note search."""
+    # Remove common filler words
+    stop = {"what", "when", "how", "much", "the", "is", "are", "was", "my",
+            "any", "all", "do", "did", "has", "have", "show", "me", "tell",
+            "about", "can", "could", "would", "please", "give", "find", "get",
+            "for", "and", "or", "in", "on", "at", "to", "of", "a", "an"}
+    words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
+    return [w for w in words if w not in stop]
+
+
+def _build_context(user_message: str) -> tuple[str, list[dict]]:
+    """
+    Build context string from SQLite + Obsidian for a user query.
+    Returns (context_text, sources_list).
+    """
+    context_parts = []
+    sources = []
+
+    # ── 1. Full document list from SQLite ─────────────────────────────────────
+    all_docs = query(
+        "SELECT * FROM documents ORDER BY date DESC LIMIT 100"
+    )
+
+    if all_docs:
+        context_parts.append("## All Household Records\n")
+        for d in all_docs:
+            amt = f"£{d['amount']:.2f}" if d.get("amount") else ""
+            due = f" | Due: {d['due_date']}" if d.get("due_date") else ""
+            drive = f" | 📎 {d['drive_link']}" if d.get("drive_link") else ""
+            flag = " ⚠️ FLAGGED FOR REVIEW" if (
+                "cancel" in d["description"].lower() or
+                "mcafee" in d["description"].lower()
+            ) else ""
+            context_parts.append(
+                f"- [{d['date']}] {d['description']} | {d['category']} | "
+                f"{d.get('status','active')} {amt}{due}{drive}{flag}"
+            )
+        context_parts.append("")
+
+    # ── 2. Pending / upcoming payments ────────────────────────────────────────
+    pending = query(
+        "SELECT * FROM documents WHERE status IN ('pending','due') ORDER BY due_date ASC"
+    )
+    if pending:
+        context_parts.append("## Pending / Upcoming Payments\n")
+        total = sum(d["amount"] for d in pending if d.get("amount"))
+        for d in pending:
+            amt = f"£{d['amount']:.2f}" if d.get("amount") else ""
+            due = f"due {d['due_date']}" if d.get("due_date") else ""
+            context_parts.append(f"- {d['description']} {amt} {due}".strip())
+        context_parts.append(f"\nTotal pending: £{total:.2f}\n")
+
+    # ── 3. Flagged items ───────────────────────────────────────────────────────
+    flagged = query(
+        "SELECT * FROM documents WHERE description LIKE '%cancel%' OR description LIKE '%McAfee%'"
+    )
+    if flagged:
+        context_parts.append("## Items Flagged for Review\n")
+        for d in flagged:
+            amt = f"£{d['amount']:.2f}" if d.get("amount") else ""
+            context_parts.append(f"- ⚠️ {d['description']} {amt} (renewed {d['date']})")
+        context_parts.append("")
+
+    # ── 4. Relevant Obsidian notes ────────────────────────────────────────────
+    keywords = _extract_keywords(user_message)
+    # Always include category keywords too
+    for cat_kw in ["paypal", "eon", "octopus", "hyundai", "mcafee", "car", "health", "holiday"]:
+        if cat_kw in user_message.lower() and cat_kw not in keywords:
+            keywords.append(cat_kw)
+
+    notes = _search_obsidian(keywords)
+    if notes:
+        context_parts.append("## Relevant Obsidian Notes\n")
+        for note in notes:
+            rel_path = note["path"].relative_to(OBSIDIAN_VAULT) if OBSIDIAN_VAULT.exists() else note["path"]
+            context_parts.append(f"### {rel_path}\n{note['content']}\n")
+            sources.append({
+                "type": "note",
+                "path": str(rel_path),
+                "name": note["path"].stem,
+            })
+
+    # ── 5. Drive folder summary ────────────────────────────────────────────────
+    drive_folders_file = BASE_DIR / "drive_folders.json"
+    if drive_folders_file.exists():
+        try:
+            folder_ids = json.loads(drive_folders_file.read_text())
+            context_parts.append(
+                f"## Google Drive\nFolder structure configured with {len(folder_ids)} folders. "
+                "Documents with 📎 links above can be opened directly in Drive."
+            )
+        except Exception:
+            pass
+
+    # Add SQLite records as sources
+    for d in all_docs[:20]:
+        sources.append({
+            "type": "record",
+            "description": d["description"],
+            "date": d["date"],
+            "category": d["category"],
+            "amount": d.get("amount"),
+            "drive_link": d.get("drive_link"),
+        })
+
+    return "\n".join(context_parts), sources
+
+
+def _stream_claude(messages: list[dict]) -> "Generator":
+    """
+    Stream a Claude response using the Anthropic SDK.
+    Yields SSE-formatted strings.
+    """
+    try:
+        import anthropic
+    except ImportError:
+        yield f"data: {json.dumps({'type': 'error', 'text': 'anthropic package not installed. Run: pip install anthropic'})}\n\n"
+        return
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        yield f"data: {json.dumps({'type': 'error', 'text': 'ANTHROPIC_API_KEY environment variable not set.'})}\n\n"
+        return
+
+    # Build context from the latest user message
+    user_text = next(
+        (m["content"] for m in reversed(messages) if m["role"] == "user"),
+        "",
+    )
+    context, sources = _build_context(user_text)
+
+    today_str = datetime.now().strftime("%A, %-d %B %Y")
+    system_prompt = CLAUDE_SYSTEM.format(today=today_str, context=context)
+
+    # Emit sources before streaming text
+    if sources:
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources[:15]})}\n\n"
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    try:
+        # Use adaptive thinking + streaming; cache the system prompt (stable content)
+        with client.messages.stream(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            thinking={"type": "adaptive"},
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=messages,
+        ) as stream:
+            for event in stream:
+                # Stream text deltas
+                if (
+                    hasattr(event, "type")
+                    and event.type == "content_block_delta"
+                    and hasattr(event, "delta")
+                ):
+                    delta = event.delta
+                    if hasattr(delta, "type") and delta.type == "text_delta":
+                        yield f"data: {json.dumps({'type': 'text', 'text': delta.text})}\n\n"
+
+            final = stream.get_final_message()
+            usage = final.usage
+            yield f"data: {json.dumps({'type': 'done', 'usage': {'input': usage.input_tokens, 'output': usage.output_tokens}})}\n\n"
+
+    except anthropic.AuthenticationError:
+        yield f"data: {json.dumps({'type': 'error', 'text': 'Invalid ANTHROPIC_API_KEY.'})}\n\n"
+    except anthropic.RateLimitError:
+        yield f"data: {json.dumps({'type': 'error', 'text': 'Rate limit reached. Please wait a moment.'})}\n\n"
+    except anthropic.APIError as e:
+        yield f"data: {json.dumps({'type': 'error', 'text': f'API error: {e}'})}\n\n"
+
+
+# ── Chat template ─────────────────────────────────────────────────────────────
+
+CHAT_TEMPLATE = BASE_HTML.replace(
+    "{% block content %}{% endblock %}",
+    """
+<div style="display:flex;gap:1.5rem;height:calc(100vh - 56px - 4rem);">
+
+  <!-- Chat panel -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+    <div class="section-title" style="margin-bottom:1rem;">
+      🤖 Claude — Household Assistant
+      <span style="font-size:0.75rem;font-weight:400;color:var(--text2);margin-left:0.5rem;">
+        Opus 4.6 · Obsidian + Drive knowledge base
+      </span>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1rem;padding-right:0.5rem;margin-bottom:1rem;">
+      <div class="msg assistant" id="welcome">
+        <div class="msg-bubble">
+          👋 Hi! I have access to all your household records, Obsidian notes, and Google Drive links.
+          Ask me anything — bills due, car history, subscriptions to cancel, total spending, anything.
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div style="display:flex;gap:0.75rem;align-items:flex-end;">
+      <textarea id="input" placeholder="Ask about bills, car, health, holidays…"
+        style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;
+               color:var(--text);padding:0.75rem 1rem;font-size:0.9rem;font-family:inherit;
+               resize:none;min-height:52px;max-height:160px;line-height:1.5;outline:none;"
+        rows="1"></textarea>
+      <button id="send-btn" onclick="sendMessage()"
+        style="background:var(--accent);color:white;border:none;border-radius:10px;
+               padding:0.75rem 1.4rem;font-size:0.9rem;cursor:pointer;white-space:nowrap;height:52px;">
+        Send
+      </button>
+    </div>
+
+    <!-- Suggested prompts -->
+    <div id="suggestions" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
+      <button class="suggest-btn" onclick="suggest('What bills are due this month?')">Bills due</button>
+      <button class="suggest-btn" onclick="suggest('What is my total outstanding amount?')">Total owed</button>
+      <button class="suggest-btn" onclick="suggest('Should I cancel McAfee?')">McAfee review</button>
+      <button class="suggest-btn" onclick="suggest('Tell me about the Hyundai service')">Car history</button>
+      <button class="suggest-btn" onclick="suggest('What energy bills do I have?')">Energy bills</button>
+    </div>
+  </div>
+
+  <!-- Sources panel -->
+  <div id="sources-panel" style="width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:0.75rem;">
+    <div style="font-size:0.8rem;color:var(--text2);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">
+      Sources used
+    </div>
+    <div id="sources-list" style="flex:1;overflow-y:auto;">
+      <div style="color:var(--text2);font-size:0.8rem;">Sources will appear here after you ask a question.</div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .msg { display:flex; flex-direction:column; }
+  .msg.user { align-items:flex-end; }
+  .msg.assistant { align-items:flex-start; }
+  .msg-bubble {
+    max-width: 85%;
+    padding: 0.8rem 1rem;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .msg.user .msg-bubble {
+    background: var(--accent);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant .msg-bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .msg-bubble p { margin: 0.4em 0; }
+  .msg-bubble p:first-child { margin-top: 0; }
+  .msg-bubble p:last-child { margin-bottom: 0; }
+  .msg-bubble strong { color: #e2e8f0; }
+  .msg-bubble code {
+    background: var(--surface2);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.82em;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+  }
+  .msg-bubble ul, .msg-bubble ol { padding-left: 1.3em; }
+  .msg-bubble li { margin: 0.2em 0; }
+  .msg-bubble h1, .msg-bubble h2, .msg-bubble h3 {
+    margin: 0.6em 0 0.3em;
+    font-size: 1em;
+    color: #e2e8f0;
+  }
+  .thinking-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 0.8rem 1rem;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    font-size: 0.82rem;
+    color: var(--text2);
+  }
+  .dot { width:6px;height:6px;border-radius:50%;background:var(--text2);animation:bounce 1.2s infinite; }
+  .dot:nth-child(2){animation-delay:0.2s;}
+  .dot:nth-child(3){animation-delay:0.4s;}
+  @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+  .suggest-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    border-radius: 16px;
+    padding: 0.3rem 0.85rem;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .suggest-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--accent); }
+  .source-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.78rem;
+    margin-bottom: 0.5rem;
+  }
+  .source-item .source-name { font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .source-item .source-meta { color: var(--text2); }
+</style>
+
+<script>
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('send-btn');
+let conversationHistory = [];
+
+// Auto-resize textarea
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = 'auto';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+});
+
+// Submit on Enter (Shift+Enter for newline)
+inputEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+function suggest(text) {
+  inputEl.value = text;
+  inputEl.style.height = 'auto';
+  inputEl.dispatchEvent(new Event('input'));
+  sendMessage();
+}
+
+function addMessage(role, content) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  if (role === 'assistant') {
+    bubble.innerHTML = renderMarkdown(content);
+  } else {
+    bubble.textContent = content;
+  }
+  div.appendChild(bubble);
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return bubble;
+}
+
+function renderMarkdown(text) {
+  // Basic markdown rendering
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/```([\\s\\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+    .replace(/\\*([^*]+)\\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\\/li>)/s, '<ul>$1</ul>')
+    .replace(/\\n\\n/g, '</p><p>')
+    .replace(/^(?!<[hup])/gm, '')
+    .replace(/(.+)/g, (m) => m.startsWith('<') ? m : `<p>${m}</p>`)
+    .replace(/<p><\\/p>/g, '');
+}
+
+function showSources(sources) {
+  const el = document.getElementById('sources-list');
+  if (!sources || !sources.length) return;
+
+  const noteCount = sources.filter(s => s.type === 'note').length;
+  const recordCount = sources.filter(s => s.type === 'record').length;
+
+  let html = `<div style="font-size:0.75rem;color:var(--text2);margin-bottom:0.6rem;">
+    ${noteCount} note${noteCount !== 1 ? 's' : ''} · ${recordCount} records
+  </div>`;
+
+  for (const s of sources) {
+    if (s.type === 'note') {
+      html += `<div class="source-item">
+        <div class="source-name">📝 ${s.name}</div>
+        <div class="source-meta">${s.path}</div>
+      </div>`;
+    }
+  }
+
+  // Show first 5 records
+  const records = sources.filter(s => s.type === 'record').slice(0, 5);
+  for (const s of records) {
+    const amt = s.amount ? ` · £${s.amount.toFixed(2)}` : '';
+    const drive = s.drive_link ? `<a href="${s.drive_link}" target="_blank" style="color:var(--accent)">📎</a>` : '';
+    html += `<div class="source-item">
+      <div class="source-name">${s.description.substring(0, 45)}</div>
+      <div class="source-meta">${s.date} · ${s.category.replace(/_/g,' ')}${amt} ${drive}</div>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  // Hide suggestions after first use
+  document.getElementById('suggestions').style.display = 'none';
+
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  addMessage('user', text);
+  conversationHistory.push({ role: 'user', content: text });
+
+  // Thinking indicator
+  const thinkingDiv = document.createElement('div');
+  thinkingDiv.className = 'msg assistant';
+  thinkingDiv.innerHTML = '<div class="thinking-indicator"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span style="margin-left:6px">Claude is thinking…</span></div>';
+  messagesEl.appendChild(thinkingDiv);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  let responseText = '';
+  let responseBubble = null;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: conversationHistory }),
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (!payload) continue;
+
+        try {
+          const evt = JSON.parse(payload);
+
+          if (evt.type === 'sources') {
+            showSources(evt.sources);
+          } else if (evt.type === 'text') {
+            if (!responseBubble) {
+              thinkingDiv.remove();
+              const msgDiv = document.createElement('div');
+              msgDiv.className = 'msg assistant';
+              responseBubble = document.createElement('div');
+              responseBubble.className = 'msg-bubble';
+              msgDiv.appendChild(responseBubble);
+              messagesEl.appendChild(msgDiv);
+            }
+            responseText += evt.text;
+            responseBubble.innerHTML = renderMarkdown(responseText);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          } else if (evt.type === 'done') {
+            conversationHistory.push({ role: 'assistant', content: responseText });
+          } else if (evt.type === 'error') {
+            thinkingDiv.remove();
+            addMessage('assistant', '⚠️ ' + evt.text);
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (err) {
+    thinkingDiv.remove();
+    addMessage('assistant', '⚠️ Connection error: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+</script>
+""",
+)
+
+
+# ── Chat routes ───────────────────────────────────────────────────────────────
+
+@app.route("/chat")
+def chat():
+    return render(CHAT_TEMPLATE, page="chat")
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    data = request.get_json(silent=True) or {}
+    messages = data.get("messages", [])
+
+    if not messages:
+        return jsonify({"error": "No messages provided"}), 400
+
+    # Validate roles
+    valid = [m for m in messages if m.get("role") in ("user", "assistant") and m.get("content")]
+    if not valid:
+        return jsonify({"error": "Invalid message format"}), 400
+
+    def generate():
+        yield from _stream_claude(valid)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
