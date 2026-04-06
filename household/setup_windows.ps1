@@ -125,7 +125,7 @@ if ($existingKey -and $existingKey.StartsWith("sk-ant-")) {
 # ── 5. Obsidian vault ─────────────────────────────────────────────────────────
 Write-Header "Obsidian Vault (optional)"
 
-$defaultVault = "$env:USERPROFILE\Documents\Obsidian\Household"
+$defaultVault = "C:\Users\user\Projects\claude\home-automation\obsidian"
 Write-Host "  Obsidian notes will be created at:" -ForegroundColor White
 Write-Host "  $defaultVault" -ForegroundColor Cyan
 Write-Host ""
