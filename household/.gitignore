@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+household.db
+token.json
+drive_folders.json
+credentials.json

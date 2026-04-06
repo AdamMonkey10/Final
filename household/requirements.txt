@@ -1,0 +1,15 @@
+# Household Management System — Python dependencies
+
+# Google Drive API
+google-api-python-client>=2.120.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+
+# Web dashboard
+flask>=3.0.0
+
+# Claude AI (for email classification)
+anthropic>=0.25.0
+
+# Email handling (stdlib: imaplib, email — no extra install needed)
+# SQLite (stdlib: sqlite3 — no extra install needed)
