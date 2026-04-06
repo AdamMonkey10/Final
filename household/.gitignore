@@ -4,3 +4,5 @@ household.db
 token.json
 drive_folders.json
 credentials.json
+banking_tokens.json
+banking_clients.json

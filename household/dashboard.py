@@ -6,8 +6,11 @@ Routes:
   GET /documents     — Document browser (all categories or filtered)
   GET /documents/<category> — Documents for a specific category
   GET /chat          — Claude AI assistant with Obsidian + Drive knowledge base
+  GET /banking       — Bank accounts, balances, and transaction feed
   GET /api/documents — JSON API for documents
   GET /api/stats     — JSON stats summary
+  GET /api/banking   — JSON bank accounts + recent transactions
+  POST /api/banking/sync — Trigger bank sync (all or ?bank=monzo)
   POST /api/chat     — Streaming SSE chat endpoint (Claude Opus 4.6)
   POST /api/scan     — Trigger email scan
 """
@@ -150,12 +153,16 @@ def _get_summary_stats() -> dict:
         (str(date.today() + timedelta(days=7)),),
     ) or 0
 
+    balances = _get_total_balances()
+    bank_total = sum(balances.values()) if balances else None
+
     return {
         "total": total,
         "with_drive": with_drive,
         "pending": pending,
         "flags": flags,
         "due_soon": due_soon,
+        "bank_total": bank_total,
     }
 
 
@@ -236,6 +243,7 @@ BASE_HTML = """<!DOCTYPE html>
   <span class="nav-brand">🏠 Household</span>
   <a href="/" class="{% if page == 'home' %}active{% endif %}">Dashboard</a>
   <a href="/documents" class="{% if page == 'documents' %}active{% endif %}">Documents</a>
+  <a href="/banking" class="{% if page == 'banking' %}active{% endif %}">🏦 Banking</a>
   <a href="/chat" class="{% if page == 'chat' %}active{% endif %}">🤖 Ask Claude</a>
 </nav>
 <div class="main">
@@ -256,6 +264,12 @@ DASHBOARD_TEMPLATE = BASE_HTML.replace(
   <div class="stat warn"><div class="stat-val">{{ stats.pending }}</div><div class="stat-label">Pending / Due</div></div>
   <div class="stat {% if stats.due_soon > 0 %}danger{% endif %}"><div class="stat-val">{{ stats.due_soon }}</div><div class="stat-label">Due Within 7 Days</div></div>
   <div class="stat {% if stats.flags > 0 %}danger{% endif %}"><div class="stat-val">{{ stats.flags }}</div><div class="stat-label">Flagged for Review</div></div>
+  {% if stats.bank_total is not none %}
+  <div class="stat success">
+    <div class="stat-val">£{{ "%.0f"|format(stats.bank_total) }}</div>
+    <div class="stat-label">Bank Balance <a href="/banking" style="color:var(--text2);font-size:0.7rem;margin-left:4px;">↗</a></div>
+  </div>
+  {% endif %}
 </div>
 
 <div class="cards">
@@ -485,6 +499,255 @@ Today's date: {today}
 --- END KNOWLEDGE BASE ---"""
 
 
+# ── Banking helpers ───────────────────────────────────────────────────────────
+
+def _get_bank_accounts() -> list[dict]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM bank_accounts ORDER BY bank, name"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_bank_transactions(days: int = 30, bank: str = None) -> list[dict]:
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        since = (date.today() - timedelta(days=days)).isoformat()
+        if bank:
+            rows = conn.execute(
+                "SELECT * FROM bank_transactions WHERE bank=? AND date>=? ORDER BY date DESC LIMIT 200",
+                (bank, since),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM bank_transactions WHERE date>=? ORDER BY date DESC LIMIT 200",
+                (since,),
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def _get_total_balances() -> dict:
+    """Return {bank: balance} from DB, or {} if table missing."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT bank, SUM(balance) FROM bank_accounts GROUP BY bank"
+        ).fetchall()
+        conn.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception:
+        return {}
+
+
+def _banking_context_block() -> str:
+    """Build a banking section for Claude's context."""
+    accounts = _get_bank_accounts()
+    txns = _get_bank_transactions(days=30)
+
+    if not accounts and not txns:
+        return ""
+
+    lines = ["## Live Bank Accounts\n"]
+    for a in accounts:
+        updated = a.get("balance_updated", "")[:10]
+        lines.append(
+            f"- {a['bank'].title()} | {a['name']} ({a['type']}) | "
+            f"Balance: £{(a['balance'] or 0):.2f} | Updated: {updated}"
+        )
+
+    if txns:
+        lines.append("\n## Recent Bank Transactions (last 30 days)\n")
+        for t in txns[:50]:
+            sign = "" if t["amount"] >= 0 else ""
+            lines.append(
+                f"- [{t['date']}] {t['bank'].title()} | "
+                f"{t['description'] or t['merchant_name'] or 'Unknown'} | "
+                f"£{t['amount']:.2f} | {t['category']}"
+                + (" ✓ matched" if t.get("document_id") else "")
+            )
+
+    return "\n".join(lines)
+
+
+BANKING_TEMPLATE = BASE_HTML.replace(
+    "{% block content %}{% endblock %}",
+    """
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+  <div class="section-title" style="margin-bottom:0;">🏦 Banking</div>
+  <button id="sync-btn" onclick="syncBanks()"
+    style="background:var(--accent);color:white;border:none;border-radius:8px;
+           padding:0.5rem 1.2rem;font-size:0.85rem;cursor:pointer;">
+    ↻ Sync Now
+  </button>
+</div>
+<div id="sync-status" style="display:none;font-size:0.82rem;color:var(--text2);margin-bottom:1rem;"></div>
+
+<!-- Balance cards -->
+<div class="stats-bar" style="margin-bottom:2rem;">
+{% for acct in accounts %}
+<div class="stat {% if acct.balance and acct.balance > 0 %}success{% elif acct.balance and acct.balance < 0 %}danger{% endif %}">
+  <div style="font-size:0.7rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">
+    {{ acct.bank.title() }} · {{ acct.name }}
+  </div>
+  <div class="stat-val">£{{ "%.2f"|format(acct.balance or 0) }}</div>
+  <div class="stat-label">{{ acct.type }} · updated {{ (acct.balance_updated or '')[:10] }}</div>
+</div>
+{% else %}
+<div class="stat">
+  <div class="stat-val" style="font-size:1rem;color:var(--text2)">No accounts yet</div>
+  <div class="stat-label">Run: python setup_banking.py</div>
+</div>
+{% endfor %}
+</div>
+
+<!-- Bank filter tabs -->
+<div class="filters" style="margin-bottom:1.5rem;">
+  <a href="/banking" class="filter-btn {% if not active_bank %}active{% endif %}">All Banks</a>
+  {% for b in banks %}
+  <a href="/banking?bank={{ b }}" class="filter-btn {% if active_bank == b %}active{% endif %}">
+    {{ b.title() }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Transactions table -->
+<div class="table-wrap">
+{% if transactions %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th><th>Bank</th><th>Description</th>
+      <th>Category</th><th>Amount</th><th>Matched</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for t in transactions %}
+  <tr>
+    <td style="color:var(--text2);white-space:nowrap">{{ t.date }}</td>
+    <td>
+      <span class="badge">{{ t.bank.title() }}</span>
+    </td>
+    <td>{{ (t.description or t.merchant_name or '—')[:60] }}</td>
+    <td style="color:var(--text2)">{{ t.category.replace('_',' ').title() if t.category else '—' }}</td>
+    <td style="white-space:nowrap;font-weight:600;
+               color:{% if t.amount >= 0 %}var(--success){% else %}var(--text){% endif %}">
+      {% if t.amount >= 0 %}+{% endif %}£{{ "%.2f"|format(t.amount|abs) }}
+    </td>
+    <td>
+      {% if t.document_id %}
+        <span class="status-badge status-paid">✓ matched</span>
+      {% else %}
+        <span style="color:var(--text2)">—</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  No transactions yet.<br>
+  <span style="font-size:0.8rem;margin-top:0.5rem;display:block;">
+    Run <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">python setup_banking.py</code>
+    then click Sync Now above.
+  </span>
+</div>
+{% endif %}
+</div>
+
+<script>
+async function syncBanks() {
+  const btn = document.getElementById('sync-btn');
+  const status = document.getElementById('sync-status');
+  btn.disabled = true;
+  btn.textContent = '↻ Syncing…';
+  status.style.display = 'block';
+  status.textContent = 'Connecting to banks…';
+
+  const bank = new URLSearchParams(window.location.search).get('bank') || '';
+  try {
+    const resp = await fetch('/api/banking/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bank }),
+    });
+    const data = await resp.json();
+    if (data.results) {
+      const parts = data.results.map(r =>
+        r.status === 'ok'
+          ? `${r.bank}: +${r.new_transactions} txns, ${r.reconciled} matched`
+          : `${r.bank}: ${r.error || r.status}`
+      );
+      status.textContent = parts.join(' · ') + ' — reloading…';
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      status.textContent = data.error || 'Sync failed';
+    }
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Sync Now';
+  }
+}
+</script>
+""",
+)
+
+
+# ── Banking routes ────────────────────────────────────────────────────────────
+
+@app.route("/banking")
+def banking():
+    active_bank = request.args.get("bank")
+    accounts = _get_bank_accounts()
+    banks = sorted({a["bank"] for a in accounts})
+    transactions = _get_bank_transactions(days=60, bank=active_bank or None)
+    return render(
+        BANKING_TEMPLATE,
+        accounts=accounts,
+        banks=banks,
+        transactions=transactions,
+        active_bank=active_bank,
+        page="banking",
+    )
+
+
+@app.route("/api/banking")
+def api_banking():
+    accounts = _get_bank_accounts()
+    transactions = _get_bank_transactions(days=30)
+    return jsonify({"accounts": accounts, "transactions": transactions})
+
+
+@app.route("/api/banking/sync", methods=["POST"])
+def api_banking_sync():
+    data = request.get_json(silent=True) or {}
+    bank = (data.get("bank") or "").strip().lower()
+    try:
+        from banking import sync_bank, sync_all_banks, init_banking_tables
+        init_banking_tables()
+        if bank:
+            result = sync_bank(bank)
+            results = [result]
+        else:
+            results = sync_all_banks()
+        return jsonify({"results": results})
+    except ImportError as e:
+        return jsonify({"error": f"banking module error: {e}"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def _search_obsidian(keywords: list[str], max_notes: int = 8) -> list[dict]:
     """Find and read Obsidian notes matching any of the keywords."""
     if not OBSIDIAN_VAULT.exists():
@@ -594,7 +857,12 @@ def _build_context(user_message: str) -> tuple[str, list[dict]]:
                 "name": note["path"].stem,
             })
 
-    # ── 5. Drive folder summary ────────────────────────────────────────────────
+    # ── 5. Live bank transactions ──────────────────────────────────────────────
+    banking_block = _banking_context_block()
+    if banking_block:
+        context_parts.append(banking_block)
+
+    # ── 6. Drive folder summary ────────────────────────────────────────────────
     drive_folders_file = BASE_DIR / "drive_folders.json"
     if drive_folders_file.exists():
         try:
